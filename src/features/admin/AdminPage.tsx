@@ -1,6 +1,7 @@
 // ========================================================
 // REAL ESTATE CRM - ADMIN CONTROL CENTER
 // Quản trị người dùng, Tạo User mới, Ma trận phân quyền, Cơ cấu Sàn/Team
+// Bổ nhiệm Giám đốc sàn, Trưởng phòng kinh doanh (Sales Manager), Trưởng nhóm
 // ========================================================
 
 import React, { useState, useEffect } from 'react';
@@ -21,10 +22,22 @@ import {
   Mail,
   Phone,
   User,
-  Shield
+  Shield,
+  Plus,
+  Briefcase,
+  Award,
+  Crown,
+  ChevronRight,
+  Edit,
+  UserCheck
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
-import { teamRepository, CreateUserInput } from '@/data/repositories/teamRepository';
+import { 
+  teamRepository, 
+  CreateUserInput, 
+  CreateAgencyInput, 
+  CreateTeamInput 
+} from '@/data/repositories/teamRepository';
 import { auditRepository } from '@/data/repositories/auditRepository';
 import { UserProfile, Agency, Team, AuditLog, UserRole } from '@/domain/types';
 import { USER_ROLES } from '@/domain/constants';
@@ -51,7 +64,7 @@ export const AdminPage: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [agencyFilter, setAgencyFilter] = useState<string>('all');
 
-  // Modal Create User
+  // Modal: Create User
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -67,6 +80,33 @@ export const AdminPage: React.FC = () => {
     password: 'password123',
     must_change_password: true,
   });
+
+  // Modal: Create Agency (Thêm Sàn Giao Dịch Mới)
+  const [isAgencyModalOpen, setIsAgencyModalOpen] = useState(false);
+  const [newAgency, setNewAgency] = useState<CreateAgencyInput>({
+    name: '',
+    code: '',
+    address: '',
+    phone: '',
+    email: '',
+    director_id: '',
+  });
+
+  // Modal: Create Team (Thêm Đội Nhóm Kinh Doanh Mới)
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [newTeam, setNewTeam] = useState<CreateTeamInput>({
+    name: '',
+    code: '',
+    agency_id: '',
+    leader_id: '',
+  });
+
+  // Modal: Bổ nhiệm / Đổi chức vụ (Promotion / Re-assignment)
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [selectedUserForRole, setSelectedUserForRole] = useState<UserProfile | null>(null);
+  const [targetRole, setTargetRole] = useState<UserRole>('sale_agent');
+  const [targetAgencyId, setTargetAgencyId] = useState<string>('');
+  const [targetTeamId, setTargetTeamId] = useState<string>('');
 
   // Settings state
   const [maxLeads, setMaxLeads] = useState(30);
@@ -92,7 +132,7 @@ export const AdminPage: React.FC = () => {
     reloadData();
   }, []);
 
-  // Xử lý tạo User mới
+  // 1. Xử lý tạo User mới
   const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setModalError(null);
@@ -109,9 +149,7 @@ export const AdminPage: React.FC = () => {
           'user_create',
           { email: result.profile.email, role: result.profile.role }
         );
-        // Refresh danh sách
         await reloadData();
-        // Reset form
         setTimeout(() => {
           setIsCreateModalOpen(false);
           setModalSuccess(null);
@@ -125,12 +163,121 @@ export const AdminPage: React.FC = () => {
             password: 'password123',
             must_change_password: true,
           });
-        }, 1200);
+        }, 1000);
       } else {
         setModalError(result.error || 'Không thể tạo người dùng. Vui lòng kiểm tra lại thông tin.');
       }
     } catch (err: any) {
       setModalError(err.message || 'Lỗi hệ thống khi tạo người dùng.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 2. Xử lý tạo Sàn Giao Dịch mới & Bổ nhiệm Giám đốc sàn
+  const handleCreateAgencySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError(null);
+    setIsSubmitting(true);
+
+    try {
+      const result = await teamRepository.createAgency({
+        ...newAgency,
+        director_id: newAgency.director_id || null,
+      });
+
+      if (result.success && result.agency) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'agency_create',
+          { agency_code: result.agency.code, agency_name: result.agency.name }
+        );
+        await reloadData();
+        setIsAgencyModalOpen(false);
+        setNewAgency({ name: '', code: '', address: '', phone: '', email: '', director_id: '' });
+      } else {
+        setModalError(result.error || 'Không thể tạo sàn giao dịch mới.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi tạo sàn giao dịch.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 3. Xử lý tạo Đội Nhóm Kinh Doanh mới & Bổ nhiệm Trưởng nhóm
+  const handleCreateTeamSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError(null);
+    setIsSubmitting(true);
+
+    try {
+      const result = await teamRepository.createTeam({
+        ...newTeam,
+        leader_id: newTeam.leader_id || null,
+      });
+
+      if (result.success && result.team) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'team_create',
+          { team_code: result.team.code, team_name: result.team.name }
+        );
+        await reloadData();
+        setIsTeamModalOpen(false);
+        setNewTeam({ name: '', code: '', agency_id: '', leader_id: '' });
+      } else {
+        setModalError(result.error || 'Không thể tạo đội nhóm mới.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi tạo đội nhóm.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 4. Xử lý Bổ nhiệm / Thay đổi vai trò nhân sự
+  const handleOpenRoleModal = (user: UserProfile) => {
+    setSelectedUserForRole(user);
+    setTargetRole(user.role);
+    setTargetAgencyId(user.agency_id || '');
+    setTargetTeamId(user.team_id || '');
+    setModalError(null);
+    setIsRoleModalOpen(true);
+  };
+
+  const handleAssignRoleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserForRole) return;
+
+    setIsSubmitting(true);
+    setModalError(null);
+
+    try {
+      const result = await teamRepository.assignRole(
+        selectedUserForRole.id,
+        targetRole,
+        targetAgencyId || null,
+        targetTeamId || null
+      );
+
+      if (result.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'role_assignment',
+          { targetUser: selectedUserForRole.email, newRole: targetRole }
+        );
+        await reloadData();
+        setIsRoleModalOpen(false);
+        setSelectedUserForRole(null);
+      } else {
+        setModalError(result.error || 'Không thể cập nhật chức danh nhân sự.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi cập nhật vai trò.');
     } finally {
       setIsSubmitting(false);
     }
@@ -186,6 +333,10 @@ export const AdminPage: React.FC = () => {
     t => !newUser.agency_id || t.agency_id === newUser.agency_id
   );
 
+  const availableTeamsForRoleModal = teams.filter(
+    t => !targetAgencyId || t.agency_id === targetAgencyId
+  );
+
   return (
     <div className="space-y-6">
       {/* 1. TOP HEADER & TABS */}
@@ -205,28 +356,61 @@ export const AdminPage: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Quản lý người dùng, tạo tài khoản mới, ma trận phân quyền Role-based, cơ cấu tổ chức và nhật ký kiểm toán.
+                Quản lý người dùng, tạo sàn giao dịch, thành lập đội nhóm kinh doanh và bổ nhiệm chức danh lãnh đạo.
               </p>
             </div>
           </div>
 
-          {activeTab === 'users' && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setIsCreateModalOpen(true)}
-              className="font-semibold text-xs py-2 shadow-sm"
-            >
-              <UserPlus className="h-4 w-4 mr-1.5" /> Thêm người dùng mới
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {activeTab === 'users' && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setModalError(null);
+                  setModalSuccess(null);
+                  setIsCreateModalOpen(true);
+                }}
+                className="font-semibold text-xs py-2 shadow-sm"
+              >
+                <UserPlus className="h-4 w-4 mr-1.5" /> Thêm người dùng mới
+              </Button>
+            )}
+
+            {activeTab === 'teams' && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setModalError(null);
+                    setIsAgencyModalOpen(true);
+                  }}
+                  className="font-semibold text-xs py-2 shadow-sm"
+                >
+                  <Building2 className="h-4 w-4 mr-1.5 text-blue-600" /> Thêm Sàn Giao Dịch
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    setModalError(null);
+                    setIsTeamModalOpen(true);
+                  }}
+                  className="font-semibold text-xs py-2 shadow-sm"
+                >
+                  <Plus className="h-4 w-4 mr-1.5" /> Thêm Team Kinh Doanh
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap border-b border-slate-200 gap-4 text-xs font-semibold">
           {[
             { id: 'users', label: `Tài khoản & Nhân sự (${profiles.length})`, icon: Users },
+            { id: 'teams', label: `Cơ cấu Sàn (${agencies.length}) & Team (${teams.length})`, icon: Building2 },
             { id: 'permissions', label: 'Ma trận Phân quyền 6 Vai trò', icon: KeyRound },
-            { id: 'teams', label: 'Cơ cấu Sàn & Team', icon: Building2 },
             { id: 'settings', label: 'Cấu hình Hệ thống', icon: Sliders },
             { id: 'audit', label: 'Nhật ký Bảo mật (Audit)', icon: ShieldAlert },
           ].map((tab) => {
@@ -254,9 +438,9 @@ export const AdminPage: React.FC = () => {
         <Card>
           <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <CardTitle className="text-sm">Danh Sách Người Dùng & Quản Trị Tài Khoản</CardTitle>
+              <CardTitle className="text-sm">Danh Sách Người Dùng & Bổ Nhiệm Chức Danh</CardTitle>
               <p className="text-xs text-slate-500">
-                Toàn bộ tài khoản có hiệu lực trong hệ sinh thái bất động sản.
+                Quản lý tài khoản, bổ nhiệm Giám Đốc Sàn, Sales Manager (Trưởng phòng), Trưởng nhóm hoặc Sale Agent.
               </p>
             </div>
 
@@ -311,8 +495,8 @@ export const AdminPage: React.FC = () => {
                     <th className="py-3 px-4">Họ và Tên</th>
                     <th className="py-3 px-4">Email Đăng Nhập</th>
                     <th className="py-3 px-4">Số Điện Thoại</th>
-                    <th className="py-3 px-4">Vai Trò (Role)</th>
-                    <th className="py-3 px-4">Sàn / Team</th>
+                    <th className="py-3 px-4">Chức Danh (Role)</th>
+                    <th className="py-3 px-4">Sàn / Đội Nhóm</th>
                     <th className="py-3 px-4">Trạng Thái</th>
                     <th className="py-3 px-4 text-right">Thao Tác Quản Trị</th>
                   </tr>
@@ -321,7 +505,7 @@ export const AdminPage: React.FC = () => {
                   {filteredProfiles.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center py-8 text-slate-400 text-xs">
-                        Không tìm thấy người dùng phù hợp với tiêu chí lọc.
+                        Không tìm thấy nhân sự phù hợp với tiêu chí lọc.
                       </td>
                     </tr>
                   ) : (
@@ -364,6 +548,15 @@ export const AdminPage: React.FC = () => {
                             <Button
                               size="sm"
                               variant="outline"
+                              onClick={() => handleOpenRoleModal(p)}
+                              className="text-[11px] py-1 px-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+                              title="Bổ nhiệm Giám đốc sàn, Sales Manager, Trưởng nhóm hoặc đổi phòng ban"
+                            >
+                              <Award className="h-3 w-3 mr-1" /> Bổ nhiệm
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
                               onClick={() => handleResetPassword(p.email)}
                               className="text-[11px] py-1 px-2"
                               title="Đặt lại mật khẩu tạm thời thành password123"
@@ -400,7 +593,132 @@ export const AdminPage: React.FC = () => {
         </Card>
       )}
 
-      {/* 3. TAB 2: PERMISSION MATRIX */}
+      {/* 3. TAB 2: TEAMS & AGENCIES MANAGEMENT */}
+      {activeTab === 'teams' && (
+        <div className="space-y-6">
+          {/* SÀN PHÂN PHỐI */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-sm">Danh Sách Sàn Giao Dịch Phân Phối ({agencies.length} Sàn)</CardTitle>
+                <p className="text-xs text-slate-500">
+                  Cơ sở kinh doanh độc lập có Giám Đốc Sàn quản trị doanh số và nhân sự.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setModalError(null);
+                  setIsAgencyModalOpen(true);
+                }}
+                className="text-xs"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Thêm Sàn Giao Dịch
+              </Button>
+            </CardHeader>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+              {agencies.map((a) => {
+                const teamsInAgency = teams.filter(t => t.agency_id === a.id);
+                const salesInAgency = profiles.filter(p => p.agency_id === a.id);
+
+                return (
+                  <div key={a.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:border-blue-400 transition-all shadow-sm flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <Badge variant="info" className="mb-1 text-[10px]">{a.code}</Badge>
+                          <h3 className="text-sm font-bold text-slate-900">{a.name}</h3>
+                        </div>
+                        <Badge variant="success">Hoạt động</Badge>
+                      </div>
+
+                      <div className="mt-3 space-y-1.5 text-xs text-slate-600">
+                        <div className="flex items-center gap-1.5">
+                          <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                          <span>Giám đốc sàn: <strong>{a.director_name || '(Chưa bổ nhiệm)'}</strong></span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                          <span>{a.phone || 'Chưa cập nhật'}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate">
+                          {a.address || 'Chưa có địa chỉ'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                      <span><strong>{teamsInAgency.length}</strong> Team kinh doanh</span>
+                      <span><strong>{salesInAgency.length}</strong> Nhân sự</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* ĐỘI NHÓM KINH DOANH (TEAMS) */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-sm">Danh Sách Đội Nhóm Bán Hàng ({teams.length} Team)</CardTitle>
+                <p className="text-xs text-slate-500">
+                  Mỗi Team trực thuộc một Sàn và do Trưởng nhóm kinh doanh (Team Leader) dẫn dắt.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  setModalError(null);
+                  setIsTeamModalOpen(true);
+                }}
+                className="text-xs"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Thêm Team Kinh Doanh
+              </Button>
+            </CardHeader>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+              {teams.map((t) => {
+                const agency = agencies.find(a => a.id === t.agency_id);
+                const members = profiles.filter(p => p.team_id === t.id);
+
+                return (
+                  <div key={t.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:border-blue-400 transition-all shadow-sm flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span className="text-[10px] font-mono text-slate-400 uppercase">{t.code}</span>
+                          <h4 className="text-xs font-bold text-slate-900">{t.name}</h4>
+                        </div>
+                        <Badge variant="outline" className="text-[10px]">{agency?.code || 'Sàn'}</Badge>
+                      </div>
+
+                      <div className="mt-2.5 space-y-1 text-xs text-slate-600">
+                        <div className="flex items-center gap-1.5">
+                          <UserCheck className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                          <span>Trưởng nhóm: <strong>{t.leader_name || '(Chưa bổ nhiệm)'}</strong></span>
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Trực thuộc: <span className="font-medium text-slate-700">{agency?.name || 'Chưa gán'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                      <span>Quy mô: <strong>{members.length}</strong> Sale Agent</span>
+                      <span className="text-[10px] text-blue-600 font-medium">Đang hoạt động</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* 4. TAB 3: PERMISSION MATRIX */}
       {activeTab === 'permissions' && (
         <Card>
           <CardHeader>
@@ -409,7 +727,7 @@ export const AdminPage: React.FC = () => {
               <div>
                 <CardTitle className="text-sm">Ma Trận Phân Quyền Theo 6 Vai Trò (RBAC)</CardTitle>
                 <p className="text-xs text-slate-500">
-                  Quy định chi tiết phạm vi truy cập dữ liệu và các thao tác nghiệp vụ trong CRM.
+                  Quy định chi tiết phạm vi dữ liệu và quyền hạn của Giám đốc sàn, Trưởng phòng kinh doanh, Trưởng nhóm và Sale Agent.
                 </p>
               </div>
             </div>
@@ -422,21 +740,22 @@ export const AdminPage: React.FC = () => {
                   <th className="bg-blue-50/60 text-blue-800">Admin (Quản trị)</th>
                   <th>Director (GĐ Sàn)</th>
                   <th>Marketing</th>
-                  <th>Sales Manager</th>
-                  <th>Team Leader</th>
-                  <th>Sale Agent</th>
+                  <th>Sales Manager (Trưởng phòng)</th>
+                  <th>Team Leader (Trưởng nhóm)</th>
+                  <th>Sale Agent (Tư vấn)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {[
-                  { name: 'Dashboard KPI toàn sàn', a: 'Toàn hệ thống', d: 'Toàn hệ thống', m: 'Toàn hệ thống', sm: 'Theo sàn phụ trách', tl: 'Theo team', sa: 'Cá nhân' },
-                  { name: 'Phạm vi xem Lead (RLS)', a: 'Tất cả 100%', d: 'Tất cả 100%', m: 'Tất cả (Ẩn SĐT)', sm: 'Lead thuộc sàn', tl: 'Lead thuộc team', sa: 'Chỉ Lead được giao' },
-                  { name: 'Kéo thả Journey & Tạo Giao dịch', a: true, d: true, m: false, sm: true, tl: true, sa: true },
+                  { name: 'Dashboard KPI & Doanh số', a: 'Toàn hệ thống', d: 'Toàn sàn phụ trách', m: 'Toàn hệ thống', sm: 'Theo sàn & các team', tl: 'Chỉ trong team', sa: 'Cá nhân' },
+                  { name: 'Phạm vi xem Lead (RLS)', a: 'Tất cả 100%', d: 'Toàn sàn phụ trách', m: 'Tất cả (Ẩn SĐT)', sm: 'Toàn sàn phụ trách', tl: 'Lead thuộc team', sa: 'Chỉ Lead được giao' },
+                  { name: 'Kéo thả Journey & Xác nhận Deal', a: true, d: true, m: false, sm: true, tl: true, sa: true },
                   { name: 'Phân bổ Round Robin (Lead Pool)', a: true, d: true, m: false, sm: true, tl: true, sa: false },
+                  { name: 'Bổ nhiệm Leader & Quản lý Team', a: true, d: true, m: false, sm: true, tl: false, sa: false },
                   { name: 'Xuất dữ liệu Lead ra CSV', a: true, d: true, m: true, sm: true, tl: true, sa: false },
                   { name: 'Chỉnh sửa Tri thức Dự án & FAQ', a: true, d: true, m: true, sm: true, tl: false, sa: false },
-                  { name: 'Tùy chỉnh Sales Scripts & Phiên bản', a: true, d: true, m: true, sm: true, tl: false, sa: false },
-                  { name: 'Tạo tài khoản & Quản lý User', a: 'Chỉ Admin', d: false, m: false, sm: false, tl: false, sa: false },
+                  { name: 'Tùy chỉnh Sales Scripts theo sàn', a: true, d: true, m: true, sm: true, tl: false, sa: false },
+                  { name: 'Thêm Sàn, Team & Tạo tài khoản', a: 'Chỉ Admin', d: false, m: false, sm: false, tl: false, sa: false },
                   { name: 'Chuyển đổi góc nhìn vai trò (Góc nhìn)', a: 'Chỉ Admin', d: false, m: false, sm: false, tl: false, sa: false },
                   { name: 'Cấu hình tham số & Xem Audit Logs', a: 'Chỉ Admin', d: false, m: false, sm: false, tl: false, sa: false },
                 ].map((row, i) => (
@@ -445,9 +764,9 @@ export const AdminPage: React.FC = () => {
                     <td className="py-3 px-2 font-bold text-blue-700 bg-blue-50/40">
                       {typeof row.a === 'boolean' ? (row.a ? '✓ Toàn quyền' : '-') : row.a}
                     </td>
-                    <td className="py-3 px-2">{typeof row.d === 'boolean' ? (row.d ? '✓ Có' : '-') : row.d}</td>
+                    <td className="py-3 px-2 font-medium">{typeof row.d === 'boolean' ? (row.d ? '✓ Có' : '-') : row.d}</td>
                     <td className="py-3 px-2">{typeof row.m === 'boolean' ? (row.m ? '✓ Có' : '-') : row.m}</td>
-                    <td className="py-3 px-2">{typeof row.sm === 'boolean' ? (row.sm ? '✓ Có' : '-') : row.sm}</td>
+                    <td className="py-3 px-2 font-medium">{typeof row.sm === 'boolean' ? (row.sm ? '✓ Có' : '-') : row.sm}</td>
                     <td className="py-3 px-2">{typeof row.tl === 'boolean' ? (row.tl ? '✓ Có' : '-') : row.tl}</td>
                     <td className="py-3 px-2">{typeof row.sa === 'boolean' ? (row.sa ? '✓ Có' : '-') : row.sa}</td>
                   </tr>
@@ -456,50 +775,6 @@ export const AdminPage: React.FC = () => {
             </table>
           </div>
         </Card>
-      )}
-
-      {/* 4. TAB 3: TEAMS & AGENCIES */}
-      {activeTab === 'teams' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Danh Sách Sàn Giao Dịch Phân Phối</CardTitle>
-            </CardHeader>
-            <div className="divide-y divide-slate-100">
-              {agencies.map((a) => (
-                <div key={a.id} className="p-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">{a.name}</p>
-                    <p className="text-[11px] text-slate-500">Mã: {a.code} • ĐT: {a.phone}</p>
-                  </div>
-                  <Badge variant="outline">{a.status}</Badge>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Danh Sách Đội Nhóm Bán Hàng (Teams)</CardTitle>
-            </CardHeader>
-            <div className="divide-y divide-slate-100">
-              {teams.map((t) => {
-                const agency = agencies.find(a => a.id === t.agency_id);
-                return (
-                  <div key={t.id} className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs font-bold text-slate-900">{t.name}</p>
-                      <p className="text-[11px] text-slate-500">
-                        Thuộc sàn: <span className="font-semibold">{agency?.name || 'Chưa gán'}</span>
-                      </p>
-                    </div>
-                    <Badge variant="info">Mã: {t.code}</Badge>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
       )}
 
       {/* 5. TAB 4: SYSTEM SETTINGS */}
@@ -563,7 +838,7 @@ export const AdminPage: React.FC = () => {
           <CardHeader>
             <CardTitle className="text-sm">Nhật Ký Kiểm Toán & Giám Sát An Ninh (Audit Logs)</CardTitle>
             <p className="text-xs text-slate-500">
-              Ghi lại mọi hoạt động đăng nhập, đổi mật khẩu, phân bổ Lead và chuyển đổi góc nhìn vai trò.
+              Ghi lại mọi hoạt động tạo tài khoản, thành lập sàn, bổ nhiệm lãnh đạo và chuyển đổi góc nhìn vai trò.
             </p>
           </CardHeader>
           <div className="overflow-x-auto">
@@ -685,7 +960,7 @@ export const AdminPage: React.FC = () => {
               <select
                 value={newUser.role}
                 onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
               >
                 {USER_ROLES.map((r) => (
                   <option key={r.value} value={r.value}>{r.label.split('(')[0]}</option>
@@ -772,6 +1047,331 @@ export const AdminPage: React.FC = () => {
               isLoading={isSubmitting}
             >
               Tạo tài khoản
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 8. MODAL: THÊM SÀN GIAO DỊCH MỚI */}
+      <Modal
+        isOpen={isAgencyModalOpen}
+        onClose={() => setIsAgencyModalOpen(false)}
+        title="Thành Lập Sàn Giao Dịch Mới"
+      >
+        <form onSubmit={handleCreateAgencySubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tên Sàn Giao Dịch <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={newAgency.name}
+              onChange={(e) => setNewAgency({ ...newAgency, name: e.target.value })}
+              placeholder="Sàn Giao Dịch Bình Thạnh"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã viết tắt sàn <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={newAgency.code}
+                onChange={(e) => setNewAgency({ ...newAgency, code: e.target.value })}
+                placeholder="S4-BT"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Bổ nhiệm Giám Đốc Sàn
+              </label>
+              <select
+                value={newAgency.director_id || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, director_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Chọn nhân sự làm Giám đốc sàn)</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name} ({p.role}) - {p.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Số Hotline Sàn
+              </label>
+              <input
+                type="tel"
+                value={newAgency.phone || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, phone: e.target.value })}
+                placeholder="02838889999"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Email liên hệ sàn
+              </label>
+              <input
+                type="email"
+                value={newAgency.email || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, email: e.target.value })}
+                placeholder="san.binhthanh@diaocvang.vn"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Địa chỉ văn phòng sàn
+            </label>
+            <input
+              type="text"
+              value={newAgency.address || ''}
+              onChange={(e) => setNewAgency({ ...newAgency, address: e.target.value })}
+              placeholder="128 Điện Biên Phủ, Phường 15, Bình Thạnh, TP.HCM"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsAgencyModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Tạo Sàn Giao Dịch
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 9. MODAL: THÊM TEAM KINH DOANH MỚI */}
+      <Modal
+        isOpen={isTeamModalOpen}
+        onClose={() => setIsTeamModalOpen(false)}
+        title="Thành Lập Đội Nhóm Kinh Doanh (Sales Team)"
+      >
+        <form onSubmit={handleCreateTeamSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tên Team Kinh Doanh <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={newTeam.name}
+              onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
+              placeholder="Team Dragon (Rồng Vàng)"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã viết tắt Team <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={newTeam.code}
+                onChange={(e) => setNewTeam({ ...newTeam, code: e.target.value })}
+                placeholder="TM-DRAGON"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Trực thuộc Sàn giao dịch <span className="text-red-500">*</span>
+              </label>
+              <select
+                required
+                value={newTeam.agency_id}
+                onChange={(e) => setNewTeam({ ...newTeam, agency_id: e.target.value })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+              >
+                <option value="">-- Chọn sàn trực thuộc --</option>
+                {agencies.map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Bổ nhiệm Trưởng Nhóm (Team Leader)
+            </label>
+            <select
+              value={newTeam.leader_id || ''}
+              onChange={(e) => setNewTeam({ ...newTeam, leader_id: e.target.value || null })}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            >
+              <option value="">(Chọn nhân sự làm Trưởng nhóm)</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({p.role}) - {p.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsTeamModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Tạo Team Kinh Doanh
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 10. MODAL: BỔ NHIỆM / CHUYỂN ĐỔI CHỨC VỤ NHÂN SỰ */}
+      <Modal
+        isOpen={isRoleModalOpen}
+        onClose={() => setIsRoleModalOpen(false)}
+        title="Bổ Nhiệm & Điều Chuyển Nhân Sự"
+      >
+        <form onSubmit={handleAssignRoleSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          {selectedUserForRole && (
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
+              <p className="text-xs font-bold text-slate-900">{selectedUserForRole.full_name}</p>
+              <p className="text-[11px] text-slate-500 font-mono">{selectedUserForRole.email} • {selectedUserForRole.phone}</p>
+              <p className="text-[11px] text-blue-600 font-semibold">Chức danh hiện tại: {selectedUserForRole.role}</p>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Bổ nhiệm vai trò mới (Role) <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={targetRole}
+              onChange={(e) => setTargetRole(e.target.value as UserRole)}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-bold text-blue-700"
+            >
+              {USER_ROLES.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-slate-400 mt-1">
+              {targetRole === 'director' && 'Giám đốc sàn: Toàn quyền quản trị doanh số và duyệt giao dịch của sàn.'}
+              {targetRole === 'sales_manager' && 'Sales Manager: Quản lý các team kinh doanh, giám sát KPI và chia lead.'}
+              {targetRole === 'team_leader' && 'Trưởng nhóm: Điều hành team, đôn đốc lịch hẹn và chốt deal.'}
+              {targetRole === 'sale_agent' && 'Chuyên viên tư vấn: Chăm sóc khách hàng và tiếp nhận Lead.'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Phân công về Sàn
+              </label>
+              <select
+                value={targetAgencyId}
+                onChange={(e) => {
+                  setTargetAgencyId(e.target.value);
+                  setTargetTeamId('');
+                }}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán sàn)</option>
+                {agencies.map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Phân công vào Team
+              </label>
+              <select
+                value={targetTeamId}
+                onChange={(e) => setTargetTeamId(e.target.value)}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán team)</option>
+                {availableTeamsForRoleModal.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsRoleModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Xác nhận Bổ nhiệm
             </Button>
           </div>
         </form>

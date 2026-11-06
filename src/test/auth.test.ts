@@ -101,4 +101,42 @@ describe('Bảo Mật Xác Thực & Phân Quyền (Auth & Team Repository)', () 
     expect(dupRes.success).toBe(false);
     expect(dupRes.error).toContain('đã tồn tại');
   });
+
+  it('Thành lập Sàn mới, Team kinh doanh mới và Bổ nhiệm Sales Manager', async () => {
+    // 1. Tạo Sàn giao dịch mới
+    const agencyRes = await teamRepo.createAgency({
+      name: 'Sàn Giao Dịch Bình Thạnh',
+      code: 'S4-BT',
+      address: '128 Điện Biên Phủ, Bình Thạnh',
+      phone: '02838889999',
+    });
+    expect(agencyRes.success).toBe(true);
+    expect(agencyRes.agency?.code).toBe('S4-BT');
+
+    // 2. Tạo Team kinh doanh thuộc sàn vừa tạo
+    const teamRes = await teamRepo.createTeam({
+      name: 'Team Dragon Bình Thạnh',
+      code: 'TM-DRAGON',
+      agency_id: agencyRes.agency!.id,
+    });
+    expect(teamRes.success).toBe(true);
+    expect(teamRes.team?.code).toBe('TM-DRAGON');
+
+    // 3. Tạo nhân sự và Bổ nhiệm làm Sales Manager (Trưởng phòng kinh doanh)
+    const userRes = await teamRepo.createUser({
+      full_name: 'Phan Văn Quản Lý',
+      email: 'manager.phan@diaocvang.vn',
+      phone: '0909888777',
+      role: 'sales_manager',
+      agency_id: agencyRes.agency!.id,
+    });
+    expect(userRes.success).toBe(true);
+    expect(userRes.profile?.role).toBe('sales_manager');
+
+    // 4. Bổ nhiệm Giám Đốc Sàn (Director) cho sàn mới
+    const assignDirectorRes = await teamRepo.updateAgency(agencyRes.agency!.id, {
+      director_id: userRes.profile!.id,
+    });
+    expect(assignDirectorRes.success).toBe(true);
+  });
 });

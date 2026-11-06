@@ -78,6 +78,8 @@ export interface Agency {
   phone?: string;
   email?: string;
   status: 'active' | 'inactive' | 'suspended';
+  director_id?: string;
+  director_name?: string;
 }
 
 export interface Team {
