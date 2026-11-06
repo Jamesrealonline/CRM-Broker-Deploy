@@ -141,17 +141,15 @@ BEGIN
     INSERT INTO public.audit_logs (
         id,
         user_id,
-        user_name,
         action,
-        table_name,
-        record_id,
-        metadata,
+        entity_name,
+        entity_id,
+        details,
         created_at
     )
     VALUES (
         gen_random_uuid(),
         auth.uid(),
-        'Admin',
         'create_user',
         'profiles',
         v_user_id,
