@@ -43,14 +43,16 @@ export const RoleGuard: React.FC<{ allowedRoles: UserRole[]; children: React.Rea
   allowedRoles,
   children,
 }) => {
-  const { currentUser } = useAuthStore();
+  const { currentUser, realUser } = useAuthStore();
+  const isRealAdmin = realUser?.role === 'admin';
 
-  if (!currentUser || !allowedRoles.includes(currentUser.role)) {
+  // Admin thực tế luôn có quyền truy cập, các vai trò khác phải nằm trong allowedRoles
+  if (!currentUser || (!allowedRoles.includes(currentUser.role) && !isRealAdmin)) {
     return (
       <div className="p-8 text-center bg-white rounded-xl border border-slate-200 m-6">
         <h2 className="text-lg font-bold text-slate-900 mb-2">Quyền truy cập bị từ chối</h2>
         <p className="text-xs text-slate-500">
-          Vai trò hiện tại của bạn ({currentUser?.role}) không có quyền truy cập màn hình này.
+          Chức năng này được bảo mật và chỉ dành cho Quản trị viên (Admin).
         </p>
       </div>
     );

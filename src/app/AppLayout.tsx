@@ -1,6 +1,6 @@
 // ========================================================
 // REAL ESTATE CRM - MAIN APP LAYOUT
-// Sidebar Desktop, Mobile ☰ Drawer, Role Switcher, Session Watchdog
+// Sidebar Desktop, Mobile Drawer, Role Switcher (Chỉ dành cho Admin)
 // ========================================================
 
 import React, { useState, useEffect } from 'react';
@@ -20,7 +20,9 @@ import {
   UserCheck, 
   Lock,
   ChevronDown,
-  Sparkles
+  Sparkles,
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
 import { useAuthStore } from './useAuthStore';
 import { USER_ROLES } from '@/domain/constants';
@@ -29,10 +31,13 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 
 export const AppLayout: React.FC = () => {
-  const { currentUser, logout, updateActivity, setImpersonatedRole, impersonatingRole } = useAuthStore();
+  const { currentUser, realUser, logout, updateActivity, setImpersonatedRole, impersonatingRole } = useAuthStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const navigate = useNavigate();
+
+  // Kiểm tra quyền Admin thực tế (không bị ảnh hưởng khi đang giả lập góc nhìn)
+  const isRealAdmin = realUser?.role === 'admin';
 
   // 1. Giám sát hoạt động của người dùng để reset session timer (30 phút tự đăng xuất)
   useEffect(() => {
@@ -63,12 +68,13 @@ export const AppLayout: React.FC = () => {
     { to: '/notifications', label: 'Thông báo Follow-up', icon: Bell },
   ];
 
-  // Chỉ Admin và Manager được vào Trung tâm quản trị
-  if (currentUser?.role === 'admin' || currentUser?.role === 'director' || currentUser?.role === 'sales_manager') {
+  // Chỉ tài khoản có quyền Admin thực tế mới được vào Trung tâm quản trị
+  if (isRealAdmin) {
     navItems.push({ to: '/admin', label: 'Trung tâm Quản trị', icon: ShieldCheck });
   }
 
   const currentRoleInfo = USER_ROLES.find(r => r.value === currentUser?.role);
+  const realRoleInfo = USER_ROLES.find(r => r.value === realUser?.role);
 
   const handleRoleSelect = async (role: UserRole) => {
     setRoleDropdownOpen(false);
@@ -98,13 +104,13 @@ export const AppLayout: React.FC = () => {
             <div className="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
               REAL ESTATE CRM
             </div>
-            <div className="text-[10px] text-blue-400 font-medium tracking-wider uppercase">
-              Sales & Marketing AI
+            <div className="text-[10px] text-slate-400 font-mono">
+              Intelligence Platform
             </div>
           </div>
         </div>
 
-        {/* Navigation Links */}
+        {/* Navigation Items */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -113,10 +119,10 @@ export const AppLayout: React.FC = () => {
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
+                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
                     isActive
-                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-bold'
+                      : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/80'
                   }`
                 }
               >
@@ -127,56 +133,54 @@ export const AppLayout: React.FC = () => {
           })}
         </nav>
 
-        {/* User Card & Role Info */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/40">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-semibold text-blue-400 border border-slate-700">
-                {currentUser?.full_name?.charAt(0) || 'U'}
-              </div>
-              <div className="overflow-hidden">
-                <p className="text-xs font-semibold text-white truncate w-32">{currentUser?.full_name}</p>
-                <p className="text-[10px] text-slate-400 truncate">{currentRoleInfo?.label.split('(')[0]}</p>
-              </div>
+        {/* User Card & Logout Bottom */}
+        <div className="p-4 border-t border-slate-800 bg-slate-950/60">
+          <div className="flex items-center justify-between mb-3">
+            <div className="truncate">
+              <p className="text-xs font-bold text-white truncate">
+                {realUser?.full_name || currentUser?.full_name}
+              </p>
+              <p className="text-[10px] text-slate-400 truncate">
+                {realUser?.email || currentUser?.email}
+              </p>
             </div>
+            <Badge variant="info" className="text-[10px]">
+              {realRoleInfo?.label.split('(')[0] || 'Member'}
+            </Badge>
           </div>
-          <div className="flex items-center gap-2 pt-2 border-t border-slate-800/80">
-            <button
-              onClick={() => navigate('/change-password')}
-              title="Đổi mật khẩu"
-              className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            >
-              <Lock className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={handleLogout}
-              title="Đăng xuất"
-              className="p-1.5 rounded-md text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors ml-auto flex items-center gap-1 text-xs"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              <span>Thoát</span>
-            </button>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            className="w-full justify-start text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+          >
+            <LogOut className="h-3.5 w-3.5 mr-2" /> Đăng xuất an toàn
+          </Button>
         </div>
       </aside>
 
-      {/* 2. MOBILE DRAWER MENU */}
+      {/* 2. MOBILE DRAWER NAVIGATION */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 md:hidden bg-slate-900/60 backdrop-blur-sm">
-          <div className="fixed inset-y-0 left-0 w-72 bg-slate-900 text-white p-5 flex flex-col shadow-2xl">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 flex md:hidden">
+          <div
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <div className="relative flex-1 flex flex-col max-w-xs w-full bg-slate-900 text-slate-200 p-4">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
               <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center font-bold">
-                  <Building2 className="h-4 w-4" />
-                </div>
-                <span className="font-bold text-sm">REAL ESTATE CRM</span>
+                <Building2 className="h-6 w-6 text-blue-500" />
+                <span className="font-bold text-sm text-white">REAL ESTATE CRM</span>
               </div>
-              <button onClick={() => setMobileMenuOpen(false)} className="text-slate-400 p-1">
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <nav className="flex-1 py-4 space-y-1">
+            <nav className="flex-1 space-y-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -185,8 +189,8 @@ export const AppLayout: React.FC = () => {
                     to={item.to}
                     onClick={() => setMobileMenuOpen(false)}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium ${
-                        isActive ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'
+                      `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold ${
+                        isActive ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'
                       }`
                     }
                   >
@@ -198,8 +202,8 @@ export const AppLayout: React.FC = () => {
             </nav>
 
             <div className="pt-4 border-t border-slate-800">
-              <p className="text-xs font-semibold">{currentUser?.full_name}</p>
-              <p className="text-[11px] text-slate-400 mb-3">{currentRoleInfo?.label}</p>
+              <p className="text-xs font-semibold">{realUser?.full_name}</p>
+              <p className="text-[11px] text-slate-400 mb-3">{realRoleInfo?.label}</p>
               <Button variant="danger" size="sm" className="w-full" onClick={handleLogout}>
                 <LogOut className="h-3.5 w-3.5 mr-1.5" /> Đăng xuất
               </Button>
@@ -232,50 +236,62 @@ export const AppLayout: React.FC = () => {
 
           {/* Right Header Actions */}
           <div className="flex items-center gap-3">
-            {/* Role Impersonation Switcher (Chỉ dành cho Admin theo quy định mục 6) */}
-            <div className="relative">
-              <button
-                onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-medium text-slate-700 transition-colors"
-              >
-                <UserCheck className="h-3.5 w-3.5 text-blue-600" />
-                <span className="hidden sm:inline">Góc nhìn:</span>
-                <span className="font-semibold text-blue-700">{currentRoleInfo?.label.split('(')[0]}</span>
-                <ChevronDown className="h-3 w-3 text-slate-400" />
-              </button>
+            {/* Role Impersonation Switcher (CHỈ HIỂN THỊ KHI TÀI KHOẢN LÀ ADMIN) */}
+            {isRealAdmin ? (
+              <div className="relative">
+                <button
+                  onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100/70 text-xs font-medium text-blue-900 transition-colors shadow-sm"
+                  title="Chỉ Admin có quyền chuyển đổi góc nhìn vai trò"
+                >
+                  <UserCheck className="h-3.5 w-3.5 text-blue-600" />
+                  <span className="hidden sm:inline">Góc nhìn:</span>
+                  <span className="font-bold text-blue-700">{currentRoleInfo?.label.split('(')[0]}</span>
+                  <ChevronDown className="h-3 w-3 text-blue-500" />
+                </button>
 
-              {roleDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-72 rounded-xl bg-white shadow-xl border border-slate-200 p-2 z-50">
-                  <div className="px-3 py-2 border-b border-slate-100 mb-1">
-                    <p className="text-xs font-bold text-slate-800">Chuyển đổi góc nhìn vai trò</p>
-                    <p className="text-[10px] text-slate-500">
-                      Mỗi lần chuyển đổi sẽ được ghi nhận vào nhật ký bảo mật Audit Log.
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    {USER_ROLES.map((role) => (
-                      <button
-                        key={role.value}
-                        onClick={() => handleRoleSelect(role.value)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-xs flex flex-col transition-colors ${
-                          currentUser?.role === role.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'hover:bg-slate-50 text-slate-700'
-                        }`}
-                      >
-                        <span className="font-medium">{role.label}</span>
-                        <span className="text-[10px] text-slate-400">{role.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                  {impersonatingRole && (
-                    <div className="pt-2 mt-1 border-t border-slate-100">
-                      <Button variant="outline" size="sm" className="w-full text-xs" onClick={handleResetRole}>
-                        Quay lại Quản trị viên
-                      </Button>
+                {roleDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-72 rounded-xl bg-white shadow-xl border border-slate-200 p-2 z-50">
+                    <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-bold text-slate-800">Chuyển đổi góc nhìn vai trò</p>
+                        <span className="text-[9px] uppercase font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Admin Only</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        Mỗi lần chuyển đổi sẽ được ghi nhận vào nhật ký kiểm toán Audit Log.
+                      </p>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+                    <div className="space-y-1">
+                      {USER_ROLES.map((role) => (
+                        <button
+                          key={role.value}
+                          onClick={() => handleRoleSelect(role.value)}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-xs flex flex-col transition-colors ${
+                            currentUser?.role === role.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
+                        >
+                          <span className="font-medium">{role.label}</span>
+                          <span className="text-[10px] text-slate-400">{role.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {impersonatingRole && (
+                      <div className="pt-2 mt-1 border-t border-slate-100">
+                        <Button variant="outline" size="sm" className="w-full text-xs" onClick={handleResetRole}>
+                          <RotateCcw className="h-3 w-3 mr-1" /> Quay lại Quản trị viên
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Người dùng thông thường: Chỉ hiển thị nhãn vai trò cố định của họ */
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-700 font-medium">
+                <span className="text-[11px] text-slate-400">Vai trò:</span>
+                <span className="font-bold text-slate-800">{realRoleInfo?.label.split('(')[0]}</span>
+              </div>
+            )}
 
             {/* Notification Bell */}
             <button
@@ -286,13 +302,32 @@ export const AppLayout: React.FC = () => {
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
             </button>
 
-            {/* Role Badge */}
+            {/* AI Active Badge */}
             <Badge variant="info" className="hidden lg:inline-flex text-[11px]">
               <Sparkles className="h-3 w-3 mr-1 text-blue-600" />
               AI Activated
             </Badge>
           </div>
         </header>
+
+        {/* CẢNH BÁO KHI ADMIN ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN */}
+        {isRealAdmin && impersonatingRole && (
+          <div className="bg-amber-500/15 border-b border-amber-300 px-4 md:px-6 py-2 flex items-center justify-between text-xs text-amber-950 shrink-0">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+              <span>
+                <strong>Chế độ giả lập góc nhìn:</strong> Bạn đang quan sát giao diện và quyền thao tác như một{' '}
+                <strong className="text-amber-900 underline">{currentRoleInfo?.label}</strong>.
+              </span>
+            </div>
+            <button
+              onClick={handleResetRole}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] font-bold shadow-sm transition-colors flex items-center gap-1"
+            >
+              <RotateCcw className="h-3 w-3" /> Quay lại Admin
+            </button>
+          </div>
+        )}
 
         {/* OUTLET VIEWPORT */}
         <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50">

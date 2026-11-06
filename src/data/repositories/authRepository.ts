@@ -17,10 +17,8 @@ interface LoginAttemptInfo {
 }
 
 export class AuthRepository {
-  // Lấy người dùng hiện tại từ session / local store
-  async getCurrentProfile(): Promise<UserProfile | null> {
-    const impersonated = localStorage.getItem(STORAGE_KEY_IMPERSONATED_ROLE) as UserRole | null;
-    
+  // Lấy người dùng thực tế từ DB/Session (Không bị can thiệp bởi góc nhìn giả lập)
+  async getRealProfile(): Promise<UserProfile | null> {
     if (isLiveSupabaseConfigured) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return null;
@@ -32,27 +30,45 @@ export class AuthRepository {
         .single();
         
       if (error || !data) return null;
-      
-      const profile = data as UserProfile;
-      if (impersonated && profile.role === 'admin') {
-        return { ...profile, role: impersonated };
-      }
-      return profile;
+      return data as UserProfile;
     }
 
     // Local / Offline fallback
     const raw = localStorage.getItem(STORAGE_KEY_AUTH);
     if (!raw) return null;
-    const profile = JSON.parse(raw) as UserProfile;
-    if (impersonated && profile.role === 'admin') {
-      return { ...profile, role: impersonated };
+    return JSON.parse(raw) as UserProfile;
+  }
+
+  // Lấy người dùng hiện tại (nếu Admin đang chuyển góc nhìn thì role sẽ là role giả lập)
+  async getCurrentProfile(): Promise<UserProfile | null> {
+    const realProfile = await this.getRealProfile();
+    if (!realProfile) return null;
+
+    // Chỉ tài khoản có vai trò thực tế là 'admin' mới được phép chuyển góc nhìn
+    if (realProfile.role === 'admin') {
+      const impersonated = localStorage.getItem(STORAGE_KEY_IMPERSONATED_ROLE) as UserRole | null;
+      if (impersonated && impersonated !== 'admin') {
+        return { ...realProfile, role: impersonated };
+      }
+    } else {
+      // Nếu không phải admin mà localStorage có sót cờ impersonate thì xóa bỏ ngay
+      localStorage.removeItem(STORAGE_KEY_IMPERSONATED_ROLE);
     }
-    return profile;
+
+    return realProfile;
+  }
+
+  // Lấy vai trò đang giả lập (nếu có)
+  getImpersonatedRole(): UserRole | null {
+    return localStorage.getItem(STORAGE_KEY_IMPERSONATED_ROLE) as UserRole | null;
   }
 
   // Đăng nhập email & mật khẩu
   async login(email: string, password: string): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
     const cleanEmail = email.trim().toLowerCase();
+
+    // Reset mọi góc nhìn giả lập khi đăng nhập mới
+    localStorage.removeItem(STORAGE_KEY_IMPERSONATED_ROLE);
 
     // 1. Kiểm tra khóa tạm sau 5 lần sai
     const attempts = this.getLoginAttempts(cleanEmail);
@@ -85,8 +101,7 @@ export class AuthRepository {
 
     // Fallback: Tìm profile mẫu
     const targetProfile = INITIAL_PROFILES.find(p => p.email.toLowerCase() === cleanEmail);
-    // Mật khẩu mặc định demo cho tất cả role là '12345678aA@' hoặc 'password123'
-    if (!targetProfile || (password !== '12345678aA@' && password !== 'password123' && password !== '123456')) {
+    if (!targetProfile || (password !== 'password123' && password !== '12345678aA@' && password !== '123456')) {
       this.recordFailedAttempt(cleanEmail);
       return {
         success: false,
@@ -103,30 +118,19 @@ export class AuthRepository {
 
     this.clearFailedAttempts(cleanEmail);
     localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(targetProfile));
-    localStorage.removeItem(STORAGE_KEY_IMPERSONATED_ROLE);
-
-    // Ghi audit log đăng nhập
-    this.recordAuditLog(targetProfile.id, 'login', 'Đăng nhập hệ thống thành công');
-
     return { success: true, profile: targetProfile };
   }
 
-  // Đổi mật khẩu
-  async changePassword(userId: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
-    // Ràng buộc mật khẩu: tối thiểu 8 ký tự, có cả chữ và số
-    const hasLength = newPassword.length >= 8;
-    const hasLetter = /[a-zA-Z]/.test(newPassword);
-    const hasNumber = /[0-9]/.test(newPassword);
-
-    if (!hasLength || !hasLetter || !hasNumber) {
-      return {
-        success: false,
-        error: 'Mật khẩu mới phải có tối thiểu 8 ký tự, bao gồm cả chữ cái và chữ số.',
-      };
+  // Đổi mật khẩu bắt buộc
+  async changePassword(userId: string, newPass: string): Promise<{ success: boolean; error?: string }> {
+    const hasLetter = /[a-zA-Z]/.test(newPass);
+    const hasNumber = /[0-9]/.test(newPass);
+    if (newPass.length < 8 || !hasLetter || !hasNumber) {
+      return { success: false, error: 'Mật khẩu phải chứa ít nhất 8 ký tự, bao gồm cả chữ và số.' };
     }
 
     if (isLiveSupabaseConfigured) {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      const { error } = await supabase.auth.updateUser({ password: newPass });
       if (error) return { success: false, error: error.message };
       await supabase.from('profiles').update({ must_change_password: false }).eq('id', userId);
     } else {
@@ -155,23 +159,21 @@ export class AuthRepository {
     localStorage.removeItem(STORAGE_KEY_IMPERSONATED_ROLE);
   }
 
-  // Admin xem giao diện theo vai trò khác (Impersonate)
+  // Admin xem giao diện theo vai trò khác (Chỉ cho phép tài khoản Admin thực tế)
   async impersonateRole(role: UserRole | null): Promise<void> {
-    const current = await this.getCurrentProfile();
-    // Phải kiểm tra quyền thực tế
-    const raw = localStorage.getItem(STORAGE_KEY_AUTH);
-    const originalRole = raw ? (JSON.parse(raw) as UserProfile).role : current?.role;
-    
-    if (originalRole !== 'admin') {
-      throw new Error('Chỉ Quản trị viên (Admin) mới có quyền chuyển đổi góc nhìn vai trò!');
+    const real = await this.getRealProfile();
+    if (!real || real.role !== 'admin') {
+      console.warn('Từ chối thao tác: Chỉ Quản trị viên (Admin) mới có quyền chuyển đổi góc nhìn vai trò.');
+      localStorage.removeItem(STORAGE_KEY_IMPERSONATED_ROLE);
+      return;
     }
 
-    if (role) {
+    if (role && role !== 'admin') {
       localStorage.setItem(STORAGE_KEY_IMPERSONATED_ROLE, role);
-      this.recordAuditLog(current!.id, 'role_impersonate', `Chuyển sang góc nhìn vai trò: ${role}`);
+      this.recordAuditLog(real.id, 'role_impersonate', `Admin chuyển góc nhìn sang: ${role}`);
     } else {
       localStorage.removeItem(STORAGE_KEY_IMPERSONATED_ROLE);
-      this.recordAuditLog(current!.id, 'role_impersonate', 'Quay lại góc nhìn Quản trị viên (Admin)');
+      this.recordAuditLog(real.id, 'role_impersonate', 'Admin quay lại góc nhìn quản trị viên mặc định');
     }
   }
 

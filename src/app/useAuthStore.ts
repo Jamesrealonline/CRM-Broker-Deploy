@@ -9,6 +9,7 @@ import { authRepository } from '@/data/repositories/authRepository';
 
 interface AuthState {
   currentUser: UserProfile | null;
+  realUser: UserProfile | null;
   isLoading: boolean;
   lastActiveTime: number;
   impersonatingRole: UserRole | null;
@@ -24,20 +25,28 @@ const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 phút tự động đăng xu
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   currentUser: null,
+  realUser: null,
   isLoading: true,
   lastActiveTime: Date.now(),
   impersonatingRole: null,
 
   initialize: async () => {
     try {
-      const profile = await authRepository.getCurrentProfile();
+      const [realProfile, activeProfile] = await Promise.all([
+        authRepository.getRealProfile(),
+        authRepository.getCurrentProfile(),
+      ]);
+      const impRole = authRepository.getImpersonatedRole();
+
       set({ 
-        currentUser: profile, 
+        realUser: realProfile,
+        currentUser: activeProfile, 
+        impersonatingRole: impRole,
         isLoading: false, 
         lastActiveTime: Date.now() 
       });
     } catch {
-      set({ currentUser: null, isLoading: false });
+      set({ realUser: null, currentUser: null, impersonatingRole: null, isLoading: false });
     }
   },
 
@@ -45,8 +54,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     const res = await authRepository.login(email, pass);
     if (res.success && res.profile) {
+      const realProfile = await authRepository.getRealProfile();
       set({ 
+        realUser: realProfile,
         currentUser: res.profile, 
+        impersonatingRole: null,
         isLoading: false, 
         lastActiveTime: Date.now() 
       });
@@ -58,7 +70,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: async () => {
     await authRepository.logout();
-    set({ currentUser: null, impersonatingRole: null });
+    set({ realUser: null, currentUser: null, impersonatingRole: null });
   },
 
   updateActivity: () => {
@@ -76,7 +88,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setImpersonatedRole: async (role) => {
     await authRepository.impersonateRole(role);
-    const profile = await authRepository.getCurrentProfile();
-    set({ currentUser: profile, impersonatingRole: role });
+    const [realProfile, activeProfile] = await Promise.all([
+      authRepository.getRealProfile(),
+      authRepository.getCurrentProfile(),
+    ]);
+    const impRole = authRepository.getImpersonatedRole();
+
+    set({ 
+      realUser: realProfile,
+      currentUser: activeProfile, 
+      impersonatingRole: impRole 
+    });
   },
 }));
