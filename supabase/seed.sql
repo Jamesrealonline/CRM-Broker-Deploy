@@ -106,19 +106,53 @@ BEGIN
     ON CONFLICT (code) DO NOTHING;
 
     -- 6. TÀI KHOẢN MẪU ĐẠI DIỆN CHO 6 VAI TRÒ
-    -- Tạo sẵn trong auth.users nếu bảng tồn tại
+    -- Tạo sẵn trong auth.users và auth.identities
     BEGIN
-        INSERT INTO auth.users (id, email, raw_user_meta_data)
+        INSERT INTO auth.users (
+            id, 
+            email, 
+            encrypted_password,
+            email_confirmed_at,
+            confirmation_token,
+            recovery_token,
+            email_change_token_new,
+            email_change_token_current,
+            email_change,
+            phone_change,
+            phone_change_token,
+            reauthentication_token,
+            raw_user_meta_data,
+            raw_app_meta_data,
+            aud,
+            role
+        )
         VALUES 
-        (v_admin_id, 'admin@diaocvang.vn', '{"full_name": "Quản Trị Viên Hệ Thống"}'::jsonb),
-        (v_director_id, 'giamdoc@diaocvang.vn', '{"full_name": "Trần Hải Nam (Tổng Giám Đốc)"}'::jsonb),
-        (v_mkt_id, 'marketing@diaocvang.vn', '{"full_name": "Lê Thu Hà (Marketing Manager)"}'::jsonb),
-        (v_sales_mgr_id, 'gdsan@diaocvang.vn', '{"full_name": "Nguyễn Hoàng Long (Giám Đốc Sàn Q1)"}'::jsonb),
-        (v_team_leader_id, 'truongnhom@diaocvang.vn', '{"full_name": "Vũ Đình Trọng (Team Leader Eagle)"}'::jsonb),
-        (v_sale_agent_id, 'sale@diaocvang.vn', '{"full_name": "Phạm Mai Anh (Chuyên Viên Tư Vấn)"}'::jsonb)
-        ON CONFLICT (id) DO NOTHING;
+        (v_admin_id, 'admin@diaocvang.vn', crypt('password123', gen_salt('bf', 10)), now(), '', '', '', '', '', '', '', '', '{"full_name": "Quản Trị Viên Hệ Thống"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb, 'authenticated', 'authenticated'),
+        (v_director_id, 'giamdoc@diaocvang.vn', crypt('password123', gen_salt('bf', 10)), now(), '', '', '', '', '', '', '', '', '{"full_name": "Trần Hải Nam (Tổng Giám Đốc)"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb, 'authenticated', 'authenticated'),
+        (v_mkt_id, 'marketing@diaocvang.vn', crypt('password123', gen_salt('bf', 10)), now(), '', '', '', '', '', '', '', '', '{"full_name": "Lê Thu Hà (Marketing Manager)"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb, 'authenticated', 'authenticated'),
+        (v_sales_mgr_id, 'gdsan@diaocvang.vn', crypt('password123', gen_salt('bf', 10)), now(), '', '', '', '', '', '', '', '', '{"full_name": "Nguyễn Hoàng Long (Giám Đốc Sàn Q1)"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb, 'authenticated', 'authenticated'),
+        (v_team_leader_id, 'truongnhom@diaocvang.vn', crypt('password123', gen_salt('bf', 10)), now(), '', '', '', '', '', '', '', '', '{"full_name": "Vũ Đình Trọng (Team Leader Eagle)"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb, 'authenticated', 'authenticated'),
+        (v_sale_agent_id, 'sale@diaocvang.vn', crypt('password123', gen_salt('bf', 10)), now(), '', '', '', '', '', '', '', '', '{"full_name": "Phạm Mai Anh (Chuyên Viên Tư Vấn)"}'::jsonb, '{"provider": "email", "providers": ["email"]}'::jsonb, 'authenticated', 'authenticated')
+        ON CONFLICT (id) DO UPDATE
+        SET encrypted_password = crypt('password123', gen_salt('bf', 10)),
+            confirmation_token = '',
+            recovery_token = '',
+            email_change_token_new = '',
+            email_change_token_current = '',
+            email_change = '',
+            phone_change = '',
+            phone_change_token = '',
+            reauthentication_token = '';
+
+        INSERT INTO auth.identities (
+            id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+        )
+        SELECT 
+            gen_random_uuid(), id, id::text, jsonb_build_object('sub', id::text, 'email', lower(email)), 'email', now(), now(), now()
+        FROM auth.users
+        WHERE email IN ('admin@diaocvang.vn', 'giamdoc@diaocvang.vn', 'marketing@diaocvang.vn', 'gdsan@diaocvang.vn', 'truongnhom@diaocvang.vn', 'sale@diaocvang.vn')
+        ON CONFLICT (provider, provider_id) DO NOTHING;
     EXCEPTION WHEN OTHERS THEN
-        -- Nếu auth.users có trigger hoặc ràng buộc khác trên môi trường Supabase đặc thù, bỏ qua
         NULL;
     END;
 
