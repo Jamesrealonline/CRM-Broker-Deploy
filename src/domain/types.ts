@@ -92,6 +92,41 @@ export interface Team {
   member_count?: number;
 }
 
+export type RecognitionMilestone = 'deposit' | 'contract' | 'first_installment';
+
+export interface CommissionTier {
+  id: string;
+  policy_id: string;
+  tier_type: 'contract_count' | 'deal_value';
+  min_threshold: number;
+  max_threshold?: number | null;
+  bonus_rate: number;
+  target_role: string;
+  is_active: boolean;
+}
+
+export interface RoleCommissionRate {
+  id: string;
+  policy_id: string;
+  role: UserRole;
+  default_rate: number;
+}
+
+export interface ProjectCommissionPolicy {
+  id: string;
+  project_id: string;
+  company_commission_rate: number;
+  recognition_milestone: RecognitionMilestone;
+  valid_from: string;
+  valid_to?: string | null;
+  is_active: boolean;
+  notes?: string;
+  tiers: CommissionTier[];
+  role_rates: RoleCommissionRate[];
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Project {
   id: string;
   organization_id: string;
@@ -106,6 +141,10 @@ export interface Project {
   commission_rate?: number;
   progressive_commission?: string;
   sale_commission_rate?: number;
+  total_units?: number;
+  recognition_milestone?: RecognitionMilestone;
+  current_policy?: ProjectCommissionPolicy;
+  policy_history?: ProjectCommissionPolicy[];
   total_revenue?: number;
   total_contracts?: number;
   sold_units_count?: number;
@@ -209,6 +248,10 @@ export interface Transaction {
   first_installment_amount?: number;
   first_installment_date?: string;
   first_installment_paid?: boolean;
+  policy_id?: string;
+  commission_status?: 'pending' | 'eligible' | 'paid';
+  recognized_at?: string;
+  progressive_bonus_applied?: number;
 
   // Joined fields for display
   customer_name?: string;
@@ -257,6 +300,9 @@ export interface AgencyPerformanceDetail {
     role: UserRole;
     team_name?: string;
     status: string;
+    personal_revenue?: number;
+    contracts_count?: number;
+    personal_commission?: number;
   }>;
   lead_status_counts: Record<LeadStatus, number>;
   total_leads: number;
@@ -276,6 +322,7 @@ export interface LeaderboardItem {
   commission: number;        // Tổng hoa hồng (VND)
   rank?: number;
   target_progress?: number;  // % hoàn thành KPI thi đua
+  growth_rate?: number;      // % tăng trưởng so với kỳ trước (+15%, -4%)
 }
 
 export interface ProjectKnowledge {

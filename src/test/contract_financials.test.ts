@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ContractRepository } from '@/data/repositories/contractRepository';
 import { ProjectRepository } from '@/data/repositories/projectRepository';
 import { INITIAL_TRANSACTIONS, INITIAL_PROJECTS, INITIAL_AGENCIES } from '@/data/mockData';
+import { financialCalculationService } from '@/domain/services/financialCalculationService';
 
 describe('Quản Lý Hợp Đồng, Hiệu Suất Sàn & Bảng Thi Đua (Financials & Competitions)', () => {
   let contractRepo: ContractRepository;
@@ -145,6 +146,135 @@ describe('Quản Lý Hợp Đồng, Hiệu Suất Sàn & Bảng Thi Đua (Financ
 
       expect(allRankings).toBeDefined();
       expect(filteredRankings).toBeDefined();
+    });
+
+    it('Hỗ trợ sắp xếp thi đua linh hoạt theo chỉ số Số HĐMB và Hoa hồng', async () => {
+      const byContracts = await contractRepo.getLeaderboard({
+        type: 'sale_agent',
+        metric: 'contracts_count',
+      });
+      expect(byContracts.length).toBeGreaterThan(0);
+      for (let i = 0; i < byContracts.length - 1; i++) {
+        expect(byContracts[i].contracts_count).toBeGreaterThanOrEqual(byContracts[i + 1].contracts_count);
+      }
+
+      const byCommission = await contractRepo.getLeaderboard({
+        type: 'sale_agent',
+        metric: 'commission',
+      });
+      expect(byCommission.length).toBeGreaterThan(0);
+      for (let i = 0; i < byCommission.length - 1; i++) {
+        expect(byCommission[i].commission).toBeGreaterThanOrEqual(byCommission[i + 1].commission);
+      }
+    });
+  });
+
+  describe('6. Kiểm tra Logic Tính Hoa Hồng Lũy Tiến & Điều Kiện Ghi Nhận (Single Source of Truth)', () => {
+    it('Tính đúng hoa hồng cơ bản và cộng thêm bậc lũy tiến khi đạt sản lượng', () => {
+      const mockPolicy = {
+        id: 'pol-test',
+        project_id: 'p1',
+        company_commission_rate: 3.5,
+        recognition_milestone: 'first_installment' as const,
+        valid_from: '2026-01-01',
+        is_active: true,
+        tiers: [
+          { id: 't1', policy_id: 'pol-test', tier_type: 'contract_count' as const, min_threshold: 1, max_threshold: 4, bonus_rate: 0, target_role: 'all', is_active: true },
+          { id: 't2', policy_id: 'pol-test', tier_type: 'contract_count' as const, min_threshold: 5, max_threshold: 9, bonus_rate: 0.3, target_role: 'all', is_active: true },
+          { id: 't3', policy_id: 'pol-test', tier_type: 'contract_count' as const, min_threshold: 10, max_threshold: null, bonus_rate: 0.6, target_role: 'all', is_active: true },
+        ],
+        role_rates: [
+          { id: 'r1', policy_id: 'pol-test', role: 'sale_agent' as const, default_rate: 1.8 },
+          { id: 'r2', policy_id: 'pol-test', role: 'team_leader' as const, default_rate: 2.2 },
+        ],
+      };
+
+      // TH1: Sale chốt 2 căn (bậc 1: bonus 0%)
+      const res1 = financialCalculationService.calculateTransactionCommission(
+        { deal_value: 3000000000, first_installment_paid: true },
+        mockPolicy,
+        'sale_agent',
+        2
+      );
+      expect(res1.baseSaleRate).toBe(1.8);
+      expect(res1.progressiveBonusRate).toBe(0);
+      expect(res1.totalSaleRate).toBe(1.8);
+      expect(res1.totalSaleCommissionAmount).toBe(54000000); // 1.8% của 3 tỷ
+      expect(res1.isEligible).toBe(true);
+
+      // TH2: Sale chốt 6 căn (bậc 2: bonus +0.3% => 2.1%)
+      const res2 = financialCalculationService.calculateTransactionCommission(
+        { deal_value: 3000000000, first_installment_paid: true },
+        mockPolicy,
+        'sale_agent',
+        6
+      );
+      expect(res2.baseSaleRate).toBe(1.8);
+      expect(res2.progressiveBonusRate).toBe(0.3);
+      expect(res2.totalSaleRate).toBe(2.1);
+      expect(res2.totalSaleCommissionAmount).toBe(63000000); // 2.1% của 3 tỷ
+
+      // TH3: Sale chốt 12 căn (bậc 3: bonus +0.6% => 2.4%)
+      const res3 = financialCalculationService.calculateTransactionCommission(
+        { deal_value: 3000000000, first_installment_paid: true },
+        mockPolicy,
+        'sale_agent',
+        12
+      );
+      expect(res3.progressiveBonusRate).toBe(0.6);
+      expect(res3.totalSaleRate).toBe(2.4);
+      expect(res3.totalSaleCommissionAmount).toBe(72000000); // 2.4% của 3 tỷ
+    });
+
+    it('Kiểm tra mốc ghi nhận hoa hồng (deposit vs contract vs first_installment)', () => {
+      const tx = {
+        id: 'tx-test',
+        type: 'contract' as const,
+        contract_code: 'HD-001',
+        deposit_date: '2026-11-01',
+        first_installment_paid: false,
+        status: 'confirmed' as const,
+        amount: 3000000000,
+      };
+
+      // Mốc cọc: Đã có ngày cọc => đủ điều kiện
+      expect(financialCalculationService.isCommissionEligible(tx, 'deposit')).toBe(true);
+
+      // Mốc HĐMB: Đã ký hợp đồng => đủ điều kiện
+      expect(financialCalculationService.isCommissionEligible(tx, 'contract')).toBe(true);
+
+      // Mốc Đóng tiền đợt 1: Chưa đóng => CHƯA đủ điều kiện
+      expect(financialCalculationService.isCommissionEligible(tx, 'first_installment')).toBe(false);
+
+      // Khi đã đóng tiền đợt 1 => Đủ điều kiện
+      const paidTx = { ...tx, first_installment_paid: true };
+      expect(financialCalculationService.isCommissionEligible(paidTx, 'first_installment')).toBe(true);
+    });
+  });
+
+  describe('7. Phân Quyền Truy Cập Hiệu Suất Sàn (Scope-based RBAC)', () => {
+    it('Chỉ cho phép đúng vai trò và phạm vi được phân công', () => {
+      const adminUser = { id: 'u1', role: 'admin' as const, full_name: 'Admin', agency_id: 'agency-1', email: 'admin@example.com', phone: '0901', status: 'active' as const, created_at: '', updated_at: '' };
+      const directorUser = { id: 'u2', role: 'director' as const, full_name: 'Director', agency_id: 'agency-1', email: 'dir@example.com', phone: '0902', status: 'active' as const, created_at: '', updated_at: '' };
+      const managerUser1 = { id: 'u3', role: 'sales_manager' as const, full_name: 'GĐ Sàn 1', agency_id: 'agency-1', email: 'm1@example.com', phone: '0903', status: 'active' as const, created_at: '', updated_at: '' };
+      const teamLeaderUser1 = { id: 'u4', role: 'team_leader' as const, full_name: 'Leader 1', agency_id: 'agency-1', email: 'tl1@example.com', phone: '0904', status: 'active' as const, created_at: '', updated_at: '' };
+      const saleUser1 = { id: 'u5', role: 'sale_agent' as const, full_name: 'Sale 1', agency_id: 'agency-1', email: 's1@example.com', phone: '0905', status: 'active' as const, created_at: '', updated_at: '' };
+
+      // Admin & Director xem được tất cả sàn
+      expect(financialCalculationService.canAccessAgency(adminUser, 'agency-1')).toBe(true);
+      expect(financialCalculationService.canAccessAgency(adminUser, 'agency-2')).toBe(true);
+      expect(financialCalculationService.canAccessAgency(directorUser, 'agency-2')).toBe(true);
+
+      // Giám đốc sàn 1 chỉ xem được sàn 1, từ chối sàn 2
+      expect(financialCalculationService.canAccessAgency(managerUser1, 'agency-1')).toBe(true);
+      expect(financialCalculationService.canAccessAgency(managerUser1, 'agency-2')).toBe(false);
+
+      // Team leader sàn 1 chỉ xem được sàn 1, từ chối sàn 2
+      expect(financialCalculationService.canAccessAgency(teamLeaderUser1, 'agency-1')).toBe(true);
+      expect(financialCalculationService.canAccessAgency(teamLeaderUser1, 'agency-2')).toBe(false);
+
+      // Chuyên viên tư vấn (Sale) không có quyền quản lý sàn
+      expect(financialCalculationService.canAccessAgency(saleUser1, 'agency-1')).toBe(false);
     });
   });
 });

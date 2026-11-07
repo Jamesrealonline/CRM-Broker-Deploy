@@ -4,14 +4,27 @@
 // ========================================================
 
 import { supabase, isLiveSupabaseConfigured } from '@/lib/supabase';
-import { Project, ProjectKnowledge, ProjectFaq, SalesScript, LeadStatus, SoldProduct } from '@/domain/types';
+import { 
+  Project, 
+  ProjectKnowledge, 
+  ProjectFaq, 
+  SalesScript, 
+  LeadStatus, 
+  SoldProduct,
+  ProjectCommissionPolicy,
+  CommissionTier,
+  RoleCommissionRate
+} from '@/domain/types';
 import { INITIAL_PROJECTS, INITIAL_KNOWLEDGE, INITIAL_TRANSACTIONS } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
+import { financialCalculationService, TimeRangeFilter } from '@/domain/services/financialCalculationService';
+import { contractRepository } from './contractRepository';
 
 const STORAGE_KEY_PROJECTS = 'crm_projects';
 const STORAGE_KEY_KNOWLEDGE = 'crm_project_knowledge';
 const STORAGE_KEY_SCRIPTS = 'crm_sales_scripts';
 const STORAGE_KEY_FAQS = 'crm_project_faqs';
+const STORAGE_KEY_POLICIES = 'crm_project_policies';
 
 export class ProjectRepository {
   async getProjects(): Promise<Project[]> {
@@ -215,25 +228,224 @@ export class ProjectRepository {
       });
   }
 
-  async getProjectFinancialStats(projectId: string): Promise<{
+  async getProjectPolicies(projectId: string): Promise<ProjectCommissionPolicy[]> {
+    if (isLiveSupabaseConfigured) {
+      const { data: polData, error: polErr } = await supabase
+        .from('project_commission_policies')
+        .select(`
+          *,
+          tiers:commission_tiers(*),
+          role_rates:role_commission_rates(*)
+        `)
+        .eq('project_id', projectId)
+        .order('valid_from', { ascending: false });
+
+      if (!polErr && polData && polData.length > 0) {
+        return polData as ProjectCommissionPolicy[];
+      }
+    }
+
+    const raw = localStorage.getItem(STORAGE_KEY_POLICIES);
+    let list: ProjectCommissionPolicy[] = raw ? JSON.parse(raw) : [];
+    const projPolicies = list.filter(p => p.project_id === projectId);
+    if (projPolicies.length > 0) return projPolicies;
+
+    // Default policy fallback
+    const proj = await this.getProjectById(projectId);
+    const defaultPolicy: ProjectCommissionPolicy = {
+      id: `pol-${projectId}`,
+      project_id: projectId,
+      company_commission_rate: proj?.commission_rate ?? 3.5,
+      recognition_milestone: proj?.recognition_milestone ?? 'first_installment',
+      valid_from: '2026-01-01',
+      valid_to: '2026-12-31',
+      is_active: true,
+      notes: 'Chính sách mở bán Q4/2026',
+      tiers: [
+        {
+          id: `t1-${projectId}`,
+          policy_id: `pol-${projectId}`,
+          tier_type: 'contract_count',
+          min_threshold: 1,
+          max_threshold: 4,
+          bonus_rate: 0,
+          target_role: 'all',
+          is_active: true,
+        },
+        {
+          id: `t2-${projectId}`,
+          policy_id: `pol-${projectId}`,
+          tier_type: 'contract_count',
+          min_threshold: 5,
+          max_threshold: 9,
+          bonus_rate: 0.3,
+          target_role: 'all',
+          is_active: true,
+        },
+        {
+          id: `t3-${projectId}`,
+          policy_id: `pol-${projectId}`,
+          tier_type: 'contract_count',
+          min_threshold: 10,
+          max_threshold: null,
+          bonus_rate: 0.6,
+          target_role: 'all',
+          is_active: true,
+        },
+      ],
+      role_rates: [
+        { id: `r1-${projectId}`, policy_id: `pol-${projectId}`, role: 'sale_agent', default_rate: proj?.sale_commission_rate ?? 1.8 },
+        { id: `r2-${projectId}`, policy_id: `pol-${projectId}`, role: 'team_leader', default_rate: 0.4 },
+        { id: `r3-${projectId}`, policy_id: `pol-${projectId}`, role: 'sales_manager', default_rate: 0.3 },
+        { id: `r4-${projectId}`, policy_id: `pol-${projectId}`, role: 'director', default_rate: 0.2 },
+      ],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    list.push(defaultPolicy);
+    localStorage.setItem(STORAGE_KEY_POLICIES, JSON.stringify(list));
+    return [defaultPolicy];
+  }
+
+  async saveCommissionPolicy(policy: Partial<ProjectCommissionPolicy>): Promise<ProjectCommissionPolicy> {
+    const newPolicy: ProjectCommissionPolicy = {
+      id: policy.id || crypto.randomUUID(),
+      project_id: policy.project_id!,
+      company_commission_rate: policy.company_commission_rate ?? 3.5,
+      recognition_milestone: policy.recognition_milestone ?? 'first_installment',
+      valid_from: policy.valid_from || new Date().toISOString().slice(0, 10),
+      valid_to: policy.valid_to || null,
+      is_active: policy.is_active ?? true,
+      notes: policy.notes || '',
+      tiers: policy.tiers || [],
+      role_rates: policy.role_rates || [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (isLiveSupabaseConfigured) {
+      // Deactivate previous active policies for the project if this is active
+      if (newPolicy.is_active) {
+        await supabase
+          .from('project_commission_policies')
+          .update({ is_active: false })
+          .eq('project_id', newPolicy.project_id);
+      }
+
+      await supabase.from('project_commission_policies').upsert({
+        id: newPolicy.id,
+        project_id: newPolicy.project_id,
+        company_commission_rate: newPolicy.company_commission_rate,
+        recognition_milestone: newPolicy.recognition_milestone,
+        valid_from: newPolicy.valid_from,
+        valid_to: newPolicy.valid_to,
+        is_active: newPolicy.is_active,
+        notes: newPolicy.notes,
+        updated_at: new Date().toISOString(),
+      });
+
+      // Upsert tiers
+      if (newPolicy.tiers.length > 0) {
+        await supabase.from('commission_tiers').delete().eq('policy_id', newPolicy.id);
+        const tiersToInsert = newPolicy.tiers.map(t => ({
+          ...t,
+          policy_id: newPolicy.id,
+        }));
+        await supabase.from('commission_tiers').insert(tiersToInsert);
+      }
+
+      // Also update project table cache
+      await supabase
+        .from('projects')
+        .update({
+          commission_rate: newPolicy.company_commission_rate,
+          recognition_milestone: newPolicy.recognition_milestone,
+          sale_commission_rate: newPolicy.role_rates.find(r => r.role === 'sale_agent')?.default_rate ?? 1.8,
+        })
+        .eq('id', newPolicy.project_id);
+    }
+
+    const raw = localStorage.getItem(STORAGE_KEY_POLICIES);
+    let list: ProjectCommissionPolicy[] = raw ? JSON.parse(raw) : [];
+    if (newPolicy.is_active) {
+      list = list.map(p => p.project_id === newPolicy.project_id ? { ...p, is_active: false } : p);
+    }
+    const existingIdx = list.findIndex(p => p.id === newPolicy.id);
+    if (existingIdx !== -1) {
+      list[existingIdx] = newPolicy;
+    } else {
+      list.unshift(newPolicy);
+    }
+    localStorage.setItem(STORAGE_KEY_POLICIES, JSON.stringify(list));
+
+    // Update project cache
+    const projects = await this.getProjects();
+    const pIdx = projects.findIndex(p => p.id === newPolicy.project_id);
+    if (pIdx !== -1) {
+      projects[pIdx].commission_rate = newPolicy.company_commission_rate;
+      projects[pIdx].recognition_milestone = newPolicy.recognition_milestone;
+      projects[pIdx].sale_commission_rate = newPolicy.role_rates.find(r => r.role === 'sale_agent')?.default_rate ?? 1.8;
+      localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(projects));
+    }
+
+    return newPolicy;
+  }
+
+  async getProjectFinancialStats(projectId: string, timeFilter?: TimeRangeFilter): Promise<{
     total_contracts: number;
     total_revenue: number;
     total_commission: number;
     total_sale_commission: number;
+    expected_commission: number;
+    realized_commission: number;
+    expected_sale_commission: number;
+    realized_sale_commission: number;
+    inventory: {
+      totalUnits: number;
+      soldUnits: number;
+      depositUnits: number;
+      bookingUnits: number;
+      availableUnits: number;
+    };
     sold_products: SoldProduct[];
+    current_policy?: ProjectCommissionPolicy;
+    policies: ProjectCommissionPolicy[];
   }> {
-    const sold = await this.getSoldProducts(projectId);
-    const total_contracts = sold.length;
-    const total_revenue = sold.reduce((acc, curr) => acc + curr.deal_value, 0);
-    const total_commission = sold.reduce((acc, curr) => acc + curr.commission_amount, 0);
-    const total_sale_commission = sold.reduce((acc, curr) => acc + curr.sale_commission_amount, 0);
+    const [project, allTransactions, policies] = await Promise.all([
+      this.getProjectById(projectId),
+      contractRepository.getTransactions({ projectId }),
+      this.getProjectPolicies(projectId),
+    ]);
+
+    const activePolicy = policies.find(p => p.is_active) || policies[0];
+    const projObj = project || {
+      id: projectId,
+      name: 'Dự án',
+      code: 'PRJ',
+      total_units: 500,
+      recognition_milestone: activePolicy?.recognition_milestone || 'first_installment',
+    } as Project;
+
+    const aggregated = financialCalculationService.aggregateProjectSales(
+      projObj,
+      allTransactions,
+      timeFilter
+    );
 
     return {
-      total_contracts,
-      total_revenue,
-      total_commission,
-      total_sale_commission,
-      sold_products: sold,
+      total_contracts: aggregated.totalContracts,
+      total_revenue: aggregated.totalRevenue,
+      total_commission: aggregated.expectedCompanyCommission,
+      total_sale_commission: aggregated.expectedSaleCommission,
+      expected_commission: aggregated.expectedCompanyCommission,
+      realized_commission: aggregated.realizedCompanyCommission,
+      expected_sale_commission: aggregated.expectedSaleCommission,
+      realized_sale_commission: aggregated.realizedSaleCommission,
+      inventory: aggregated.inventory,
+      sold_products: aggregated.soldProducts,
+      current_policy: activePolicy,
+      policies,
     };
   }
 

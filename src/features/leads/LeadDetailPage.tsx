@@ -19,13 +19,21 @@ import {
   CheckCircle2, 
   Copy, 
   AlertCircle,
-  FileText
+  FileText,
+  DollarSign,
+  TrendingUp,
+  Award,
+  ShieldCheck,
+  Check,
+  X
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { leadRepository } from '@/data/repositories/leadRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
+import { contractRepository } from '@/data/repositories/contractRepository';
+import { financialCalculationService } from '@/domain/services/financialCalculationService';
 import { aiRepository, AILeadInsightResult } from '@/data/repositories/aiRepository';
-import { Lead, LeadActivity, LeadStatusHistory, LeadStatus, ProjectKnowledge } from '@/domain/types';
+import { Lead, LeadActivity, LeadStatusHistory, LeadStatus, ProjectKnowledge, ProjectCommissionPolicy, Transaction } from '@/domain/types';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -46,7 +54,13 @@ export const LeadDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   // Tab
-  const [activeTab, setActiveTab] = useState<'timeline' | 'activities' | 'ai'>('ai');
+  const [activeTab, setActiveTab] = useState<'timeline' | 'activities' | 'ai' | 'deals'>('deals');
+
+  // Customer Deals & Commission
+  const [customerDeals, setCustomerDeals] = useState<ReturnType<typeof financialCalculationService.aggregateCustomerDeals> | null>(null);
+  const [projectPolicy, setProjectPolicy] = useState<ProjectCommissionPolicy | null>(null);
+  const [leadTransactions, setLeadTransactions] = useState<Transaction[]>([]);
+  const [isUpdatingMilestone, setIsUpdatingMilestone] = useState(false);
 
   // Modal chuyển trạng thái giao dịch
   const [statusModalOpen, setStatusModalOpen] = useState(false);
@@ -78,14 +92,22 @@ export const LeadDetailPage: React.FC = () => {
         const leadData = await leadRepository.getLeadById(id);
         if (leadData) {
           setLead(leadData);
-          const [actList, histList, knowData] = await Promise.all([
+          const [actList, histList, knowData, txList, policies] = await Promise.all([
             leadRepository.getLeadActivities(id),
             leadRepository.getLeadStatusHistory(id),
             projectRepository.getProjectKnowledge(leadData.project_id),
+            contractRepository.getTransactions({ leadId: id }),
+            projectRepository.getProjectPolicies(leadData.project_id),
           ]);
           setActivities(actList);
           setHistory(histList);
           setKnowledge(knowData);
+          setLeadTransactions(txList);
+
+          const activePolicy = policies.find(p => p.is_active) || policies[0];
+          setProjectPolicy(activePolicy);
+          const deals = financialCalculationService.aggregateCustomerDeals(id, txList, activePolicy);
+          setCustomerDeals(deals);
         }
       } catch (err) {
         console.error(err);
@@ -95,6 +117,25 @@ export const LeadDetailPage: React.FC = () => {
     };
     fetchLeadData();
   }, [id, currentUser]);
+
+  const handleToggleFirstInstallment = async (txId: string, currentPaid: boolean) => {
+    if (!id || !lead) return;
+    setIsUpdatingMilestone(true);
+    try {
+      await contractRepository.updateContractMilestone(txId, {
+        first_installment_paid: !currentPaid,
+        first_installment_date: !currentPaid ? new Date().toISOString() : undefined,
+      });
+      const txList = await contractRepository.getTransactions({ leadId: id });
+      setLeadTransactions(txList);
+      const deals = financialCalculationService.aggregateCustomerDeals(id, txList, projectPolicy);
+      setCustomerDeals(deals);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUpdatingMilestone(false);
+    }
+  };
 
   // Kích hoạt AI Intelligence
   const handleGenerateAI = async () => {
@@ -348,6 +389,18 @@ export const LeadDetailPage: React.FC = () => {
           {/* TAB HEADERS */}
           <div className="flex border-b border-slate-200 gap-6 text-xs font-semibold">
             <button
+              onClick={() => setActiveTab('deals')}
+              className={`pb-3 flex items-center gap-1.5 transition-colors border-b-2 ${
+                activeTab === 'deals'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <FileText className="h-4 w-4 text-emerald-600" />
+              Giao Dịch & Hợp Đồng ({customerDeals?.totalProducts || 0})
+            </button>
+
+            <button
               onClick={() => setActiveTab('ai')}
               className={`pb-3 flex items-center gap-1.5 transition-colors border-b-2 ${
                 activeTab === 'ai'
@@ -384,7 +437,256 @@ export const LeadDetailPage: React.FC = () => {
             </button>
           </div>
 
-          {/* TAB 1: AI ASSISTANT PANEL */}
+          {/* TAB: THÔNG TIN GIAO DỊCH & HỢP ĐỒNG CỦA KHÁCH HÀNG (MODULE 2) */}
+          {activeTab === 'deals' && (
+            <div className="space-y-5">
+              {/* Thẻ tổng cộng nhiều sản phẩm */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-4 bg-slate-900 text-white rounded-2xl shadow-sm">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Tổng Sản Phẩm</span>
+                  <span className="text-xl font-black text-white">{customerDeals?.totalProducts || 0}</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">căn / sản phẩm</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Tổng Giá Trị GD</span>
+                  <span className="text-lg font-black text-blue-400">{formatCurrencyVND(customerDeals?.totalDealValue || 0)}</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">doanh số giao dịch</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Tổng Hoa Hồng CĐT</span>
+                  <span className="text-lg font-black text-amber-400">{formatCurrencyVND(customerDeals?.totalCompanyCommission || 0)}</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">công ty nhận từ CĐT</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Tổng Hoa Hồng Sale</span>
+                  <span className="text-lg font-black text-indigo-300">{formatCurrencyVND(customerDeals?.totalSaleCommission || 0)}</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">cơ bản + lũy tiến</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Thực Nhận Theo Mốc</span>
+                  <span className="text-lg font-black text-emerald-400">{formatCurrencyVND(customerDeals?.totalRealizedCommission || 0)}</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">đủ điều kiện ghi nhận</span>
+                </div>
+              </div>
+
+              {/* Banner quy tắc ghi nhận hoa hồng theo dự án */}
+              <div className="flex items-center justify-between p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-blue-600 shrink-0" />
+                  <span>
+                    <strong>Quy tắc dự án {lead.project_name}:</strong> Điều kiện ghi nhận hoa hồng:
+                    <span className="ml-1.5 px-2 py-0.5 rounded-full bg-blue-600 text-white font-bold text-[11px]">
+                      {projectPolicy?.recognition_milestone === 'deposit'
+                        ? '1. Sau khi nộp cọc'
+                        : projectPolicy?.recognition_milestone === 'contract'
+                        ? '2. Sau khi ký HĐMB'
+                        : '3. Sau khi đóng tiền Đợt 1 thành công'}
+                    </span>
+                  </span>
+                </div>
+                <span className="text-[11px] text-blue-700 hidden sm:inline">
+                  Tỷ lệ CĐT: <strong>{projectPolicy?.company_commission_rate || 3.5}%</strong> • Tỷ lệ Sale: <strong>{projectPolicy?.role_rates.find(r => r.role === 'sale_agent')?.default_rate || 1.8}%</strong>
+                </span>
+              </div>
+
+              {/* Danh sách từng sản phẩm / hợp đồng của khách hàng */}
+              {!customerDeals || customerDeals.deals.length === 0 ? (
+                <Card className="p-8 text-center bg-white border-dashed border-2 border-slate-200">
+                  <FileText className="h-10 w-10 text-slate-300 mx-auto mb-2" />
+                  <h4 className="text-sm font-bold text-slate-800">Chưa có hợp đồng nào được ký kết</h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                    Khách hàng đang ở giai đoạn "{JOURNEY_STAGES.find(s => s.id === lead.status)?.label}". Chuyển trạng thái sang Đặt cọc hoặc Ký HĐMB để kích hoạt hợp đồng và tính toán hoa hồng.
+                  </p>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="mt-4"
+                    onClick={() => handleOpenStatusChange('deposit')}
+                  >
+                    Tạo giao dịch Đặt cọc / HĐMB
+                  </Button>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  {customerDeals.deals.map((deal, idx) => {
+                    const tx = deal.tx;
+                    const calc = deal.calculated;
+                    const tl = deal.timeline;
+
+                    return (
+                      <Card key={tx.id || idx} className="p-5 border-slate-200 bg-white hover:border-blue-300 transition-all shadow-sm">
+                        {/* Header sản phẩm */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-black text-slate-900 text-base">
+                                  {tx.unit_code || 'Sản phẩm ' + (idx + 1)}
+                                </span>
+                                <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                  {tx.contract_code || tx.code}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                Dự án: <span className="font-semibold text-slate-700">{lead.project_name}</span> • Chuyên viên: <span className="font-semibold text-slate-700">{lead.assigned_name || 'Sale'}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-xs text-slate-400 font-semibold uppercase">Giá trị giao dịch</div>
+                            <div className="text-lg font-black text-slate-900">{formatCurrencyVND(calc.dealValue)}</div>
+                          </div>
+                        </div>
+
+                        {/* Timeline 3 mốc: Cọc -> Ký HĐMB -> Đóng tiền Đợt 1 */}
+                        <div className="py-5 border-b border-slate-100">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-3">
+                            Tiến độ giao dịch & hợp đồng (Milestones)
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            {/* Mốc 1: Cọc */}
+                            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                  1. Đặt cọc
+                                </span>
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                  Đã cọc
+                                </span>
+                              </div>
+                              <div className="text-xs text-slate-600 space-y-0.5">
+                                <div>Số tiền: <strong className="text-slate-900">{formatCurrencyVND(tl.deposit?.amount || 100000000)}</strong></div>
+                                <div>Ngày cọc: <span className="text-slate-700">{formatDate(tl.deposit?.date || tx.created_at)}</span></div>
+                              </div>
+                            </div>
+
+                            {/* Mốc 2: Ký HĐMB */}
+                            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                                  2. Ký HĐMB
+                                </span>
+                                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                                  Đã ký
+                                </span>
+                              </div>
+                              <div className="text-xs text-slate-600 space-y-0.5">
+                                <div>Số HĐMB: <strong className="text-slate-900 font-mono">{tl.contract?.code || tx.contract_code || tx.code}</strong></div>
+                                <div>Ngày ký: <span className="text-slate-700">{formatDate(tl.contract?.date || tx.transaction_date || tx.created_at)}</span></div>
+                              </div>
+                            </div>
+
+                            {/* Mốc 3: Đóng tiền Đợt 1 */}
+                            <div className={`p-3 rounded-xl border ${
+                              tx.first_installment_paid 
+                                ? 'bg-emerald-50/50 border-emerald-200' 
+                                : 'bg-amber-50/50 border-amber-200'
+                            }`}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                  <span className={`w-2 h-2 rounded-full ${tx.first_installment_paid ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                                  3. Đóng tiền Đợt 1
+                                </span>
+                                {tx.first_installment_paid ? (
+                                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+                                    <Check className="h-3 w-3" /> Đã đóng
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
+                                    <Clock className="h-3 w-3" /> Chờ đóng
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-slate-600 space-y-0.5">
+                                <div>Số tiền: <strong className="text-slate-900">{formatCurrencyVND(tx.first_installment_amount || Math.round(calc.dealValue * 0.1))}</strong></div>
+                                <div>Hạn đóng: <span className="text-slate-700">{formatDate(tx.first_installment_date || new Date().toISOString())}</span></div>
+                              </div>
+                              <div className="mt-2 pt-2 border-t border-slate-200/60 flex justify-end">
+                                <button
+                                  type="button"
+                                  disabled={isUpdatingMilestone}
+                                  onClick={() => handleToggleFirstInstallment(tx.id, Boolean(tx.first_installment_paid))}
+                                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg transition-all ${
+                                    tx.first_installment_paid
+                                      ? 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
+                                  }`}
+                                >
+                                  {tx.first_installment_paid ? 'Hủy đánh dấu đợt 1' : '✓ Xác nhận đã thu tiền Đợt 1'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Phân tích hoa hồng sản phẩm */}
+                        <div className="pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
+                            <span className="font-bold text-slate-700 block">Hoa Hồng Công Ty Nhận Từ CĐT:</span>
+                            <div className="flex items-baseline justify-between">
+                              <span className="text-slate-500">Tỷ lệ chính sách: {calc.companyCommissionRate}%</span>
+                              <span className="text-base font-black text-amber-700">{formatCurrencyVND(calc.companyCommissionAmount)}</span>
+                            </div>
+                          </div>
+
+                          <div className="p-3.5 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-indigo-900">Hoa Hồng Chia Cho Sale:</span>
+                              {calc.progressiveBonusRate > 0 && (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
+                                  + Thưởng lũy tiến: {calc.progressiveBonusRate}%
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-baseline justify-between">
+                              <span className="text-indigo-700">
+                                Tỷ lệ: {calc.baseSaleRate}% cơ bản {calc.progressiveBonusRate > 0 ? `+ ${calc.progressiveBonusRate}% lũy tiến` : ''} = <strong>{calc.totalSaleRate}%</strong>
+                              </span>
+                              <span className="text-base font-black text-indigo-900">{formatCurrencyVND(calc.totalSaleCommissionAmount)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Trạng thái đủ điều kiện ghi nhận */}
+                        <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-500">Trạng thái ghi nhận hoa hồng:</span>
+                            {calc.isEligible ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                                Đủ điều kiện ghi nhận hoa hồng
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                <Clock className="h-3.5 w-3.5 text-amber-600" />
+                                Chờ đạt mốc ghi nhận ({
+                                  calc.recognitionMilestone === 'deposit'
+                                    ? 'Cọc'
+                                    : calc.recognitionMilestone === 'contract'
+                                    ? 'Ký HĐMB'
+                                    : 'Đóng tiền đợt 1'
+                                })
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-[11px] text-slate-400">
+                            Mã giao dịch: {tx.code}
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {activeTab === 'ai' && (
             <div className="space-y-5">
               {aiLoading ? (
