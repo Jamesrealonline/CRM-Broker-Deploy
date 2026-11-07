@@ -311,6 +311,62 @@ export class LeadRepository {
     return { success: true, lead: newLead };
   }
 
+  // 4.1 CẬP NHẬT THÔNG TIN LEAD (Ghi chú, Chân dung, Điểm số, Hành động tiếp theo)
+  async updateLead(leadId: string, updates: Partial<Lead>): Promise<{ success: boolean; lead?: Lead; error?: string }> {
+    if (isLiveSupabaseConfigured) {
+      const payload: any = {
+        updated_at: new Date().toISOString(),
+      };
+      if (updates.notes !== undefined) payload.notes = updates.notes;
+      if (updates.lead_score !== undefined) payload.lead_score = updates.lead_score;
+      if (updates.purpose !== undefined) payload.purpose = updates.purpose;
+      if (updates.preferred_property_type !== undefined) payload.preferred_property_type = updates.preferred_property_type;
+      if (updates.budget_min !== undefined) payload.budget_min = updates.budget_min;
+      if (updates.budget_max !== undefined) payload.budget_max = updates.budget_max;
+      if (updates.next_follow_up !== undefined) payload.next_follow_up = updates.next_follow_up;
+      if (updates.last_action_at !== undefined) payload.last_action_at = updates.last_action_at;
+
+      const { data, error } = await supabase
+        .from('leads')
+        .update(payload)
+        .eq('id', leadId)
+        .select(`
+          *,
+          customer:customers(full_name, phone, email),
+          project:projects(name)
+        `)
+        .single();
+
+      if (error) return { success: false, error: error.message };
+      return {
+        success: true,
+        lead: {
+          ...data,
+          customer_name: data.customer?.full_name,
+          customer_phone: data.customer?.phone,
+          customer_email: data.customer?.email,
+          project_name: data.project?.name,
+        } as Lead,
+      };
+    }
+
+    this.ensureInitialized();
+    const leads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
+    const idx = leads.findIndex(l => l.id === leadId);
+    if (idx === -1) return { success: false, error: 'Không tìm thấy Lead.' };
+
+    const updatedLead: Lead = {
+      ...leads[idx],
+      ...updates,
+      updated_at: new Date().toISOString(),
+      last_action_at: updates.last_action_at || new Date().toISOString(),
+    };
+
+    leads[idx] = updatedLead;
+    localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
+    return { success: true, lead: updatedLead };
+  }
+
   // 5. CẬP NHẬT TRẠNG THÁI CUSTOMER JOURNEY KÈM GIAO DỊCH BẮT BUỘC (RPC RULE)
   async updateLeadStageWithTransaction(payload: {
     leadId: string;
