@@ -4,6 +4,7 @@
 // ========================================================
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Users, 
   TrendingUp, 
@@ -14,7 +15,9 @@ import {
   DollarSign, 
   Filter, 
   PieChart as PieIcon, 
-  BarChart3 
+  BarChart3,
+  Trophy,
+  Eye
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -33,12 +36,15 @@ import { projectRepository } from '@/data/repositories/projectRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
 import { Project, Agency } from '@/domain/types';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { formatCurrencyVND } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
 
 export const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
   const { currentUser } = useAuthStore();
   const [data, setData] = useState<DashboardKpiData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,6 +54,10 @@ export const DashboardPage: React.FC = () => {
   const [agencyId, setAgencyId] = useState<string>('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
+
+  // Modal hiệu suất sàn
+  const [perfAgencyId, setPerfAgencyId] = useState<string | null>(null);
+  const [perfModalOpen, setPerfModalOpen] = useState(false);
 
   useEffect(() => {
     const loadDropdowns = async () => {
@@ -125,6 +135,38 @@ export const DashboardPage: React.FC = () => {
               </option>
             ))}
           </select>
+
+          {agencyId && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setPerfAgencyId(agencyId);
+                setPerfModalOpen(true);
+              }}
+              className="text-xs py-1"
+            >
+              <Eye className="h-3.5 w-3.5 mr-1 text-blue-600" /> Hiệu suất sàn
+            </Button>
+          )}
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate('/leaderboard')}
+            className="text-xs py-1 text-amber-700 border-amber-300 hover:bg-amber-50"
+          >
+            <Trophy className="h-3.5 w-3.5 mr-1 text-amber-500" /> Bảng Thi Đua
+          </Button>
+
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => navigate('/transactions')}
+            className="text-xs py-1"
+          >
+            <FileCheck className="h-3.5 w-3.5 mr-1" /> Hợp Đồng & Giao Dịch
+          </Button>
         </div>
       </div>
 
@@ -312,6 +354,15 @@ export const DashboardPage: React.FC = () => {
           </div>
         </Card>
       </div>
+
+      {/* MODAL CHI TIẾT HIỆU SUẤT SÀN */}
+      {perfAgencyId && (
+        <AgencyPerformanceModal
+          agencyId={perfAgencyId}
+          isOpen={perfModalOpen}
+          onClose={() => setPerfModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

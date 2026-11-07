@@ -16,11 +16,17 @@ import {
   ExternalLink, 
   HelpCircle, 
   FileText,
-  ShieldCheck
+  FileCheck,
+  ShieldCheck,
+  DollarSign,
+  Award,
+  TrendingUp,
+  Percent,
+  Edit3
 } from 'lucide-react';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { aiRepository, ProjectEnrichProposal } from '@/data/repositories/aiRepository';
-import { Project, ProjectKnowledge, ProjectFaq } from '@/domain/types';
+import { Project, ProjectKnowledge, ProjectFaq, SoldProduct } from '@/domain/types';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -41,33 +47,78 @@ export const ProjectKnowledgePage: React.FC = () => {
   const [isSavingSummary, setIsSavingSummary] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState(false);
 
+  // Module Hoa Hồng & Sản Phẩm Bán Được
+  const [financialStats, setFinancialStats] = useState<{
+    total_contracts: number;
+    total_revenue: number;
+    total_commission: number;
+    total_sale_commission: number;
+    sold_products: SoldProduct[];
+  } | null>(null);
+
+  // Modal Cập Nhật Chính Sách Hoa Hồng Dự Án
+  const [commissionModalOpen, setCommissionModalOpen] = useState(false);
+  const [editCommRate, setEditCommRate] = useState(3.5);
+  const [editProgressive, setEditProgressive] = useState('');
+  const [editSaleCommRate, setEditSaleCommRate] = useState(1.8);
+  const [isSavingCommission, setIsSavingCommission] = useState(false);
+
   // AI Enrichment Modal
   const [enrichModalOpen, setEnrichModalOpen] = useState(false);
   const [proposals, setProposals] = useState<ProjectEnrichProposal[]>([]);
   const [isEnriching, setIsEnriching] = useState(false);
 
-  useEffect(() => {
+  const fetchProjectData = async () => {
     if (!id) return;
-    const fetchAll = async () => {
-      setLoading(true);
-      try {
-        const [proj, know, faqList] = await Promise.all([
-          projectRepository.getProjectById(id),
-          projectRepository.getProjectKnowledge(id),
-          projectRepository.getProjectFaqs(id),
-        ]);
-        setProject(proj);
-        setKnowledge(know);
-        setSummaryText(know?.summary_text || '');
-        setFaqs(faqList);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    try {
+      const [proj, know, faqList, stats] = await Promise.all([
+        projectRepository.getProjectById(id),
+        projectRepository.getProjectKnowledge(id),
+        projectRepository.getProjectFaqs(id),
+        projectRepository.getProjectFinancialStats(id),
+      ]);
+      setProject(proj);
+      setKnowledge(know);
+      setSummaryText(know?.summary_text || '');
+      setFaqs(faqList);
+      setFinancialStats(stats);
+      if (proj) {
+        setEditCommRate(proj.commission_rate ?? 3.5);
+        setEditProgressive(proj.progressive_commission || 'Đạt >= 5 căn: +0.3%, Đạt >= 10 căn: +0.6%');
+        setEditSaleCommRate(proj.sale_commission_rate ?? 1.8);
       }
-    };
-    fetchAll();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProjectData();
   }, [id]);
+
+  const handleSaveCommission = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id) return;
+    setIsSavingCommission(true);
+    try {
+      const updated = await projectRepository.updateProjectCommission(
+        id,
+        editCommRate,
+        editProgressive,
+        editSaleCommRate
+      );
+      setProject(updated);
+      setCommissionModalOpen(false);
+      await fetchProjectData();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSavingCommission(false);
+    }
+  };
 
   // Lưu tóm tắt văn bản và tự động điền các trường
   const handleSaveSummary = async () => {
@@ -139,6 +190,20 @@ export const ProjectKnowledgePage: React.FC = () => {
     await projectRepository.updateKnowledgeSummary(id, newSummary);
   };
 
+  const formatVND = (num: number) => {
+    if (num >= 1000000000) {
+      return (num / 1000000000).toFixed(2) + ' tỷ đ';
+    }
+    if (num >= 1000000) {
+      return (num / 1000000).toFixed(0) + ' tr đ';
+    }
+    return new Intl.NumberFormat('vi-VN').format(num) + ' đ';
+  };
+
+  const formatFullVND = (num: number) => {
+    return new Intl.NumberFormat('vi-VN').format(num) + ' đ';
+  };
+
   if (loading) {
     return <div className="p-6 space-y-4"><Skeleton className="h-20 w-full" /><Skeleton className="h-96 w-full" /></div>;
   }
@@ -169,6 +234,9 @@ export const ProjectKnowledgePage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setCommissionModalOpen(true)}>
+            <Edit3 className="h-4 w-4 mr-1.5" /> Cài đặt hoa hồng dự án
+          </Button>
           <Button variant="outline" size="sm" onClick={() => navigate('/scripts')}>
             <FileText className="h-4 w-4 mr-1.5" /> Quản lý Sales Scripts
           </Button>
@@ -177,6 +245,164 @@ export const ProjectKnowledgePage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* MODULE CHÍNH SÁCH HOA HỒNG & HIỆU SUẤT BÁN HÀNG */}
+      <Card className="border-blue-200 bg-gradient-to-br from-blue-50/25 via-white to-indigo-50/20">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Percent className="h-4 w-4 text-blue-600" />
+              Chính Sách Hoa Hồng & Hiệu Suất Bán Hàng Dự Án
+            </CardTitle>
+            <Button size="sm" variant="ghost" className="text-xs text-blue-600" onClick={() => setCommissionModalOpen(true)}>
+              Chỉnh sửa tỷ lệ hoa hồng
+            </Button>
+          </div>
+        </CardHeader>
+
+        <div className="space-y-4">
+          {/* 6 Thẻ KPI tài chính dự án */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                <Percent className="h-3 w-3 text-blue-600" /> % Hoa hồng CĐT
+              </div>
+              <div className="text-lg font-black text-blue-700 mt-1">
+                {project.commission_rate ?? 3.5}%
+              </div>
+              <div className="text-[10px] text-slate-400">Do CĐT chi trả</div>
+            </div>
+
+            <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                <Award className="h-3 w-3 text-amber-600" /> % Hoa hồng Sale
+              </div>
+              <div className="text-lg font-black text-amber-700 mt-1">
+                {project.sale_commission_rate ?? 1.8}%
+              </div>
+              <div className="text-[10px] text-slate-400">Sale chốt nhận</div>
+            </div>
+
+            <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                <TrendingUp className="h-3 w-3 text-emerald-600" /> % Lũy tiến
+              </div>
+              <div className="text-xs font-bold text-emerald-700 mt-1 truncate" title={project.progressive_commission}>
+                {project.progressive_commission || 'Không có'}
+              </div>
+              <div className="text-[10px] text-slate-400">Theo mốc doanh số</div>
+            </div>
+
+            <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                <FileCheck className="h-3 w-3 text-purple-600" /> Tổng Số HĐMB
+              </div>
+              <div className="text-lg font-black text-purple-700 mt-1">
+                {financialStats?.total_contracts ?? 0} căn
+              </div>
+              <div className="text-[10px] text-slate-400">Đã ký kết chính thức</div>
+            </div>
+
+            <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                <DollarSign className="h-3 w-3 text-blue-600" /> Tổng Doanh Số
+              </div>
+              <div className="text-lg font-black text-slate-900 mt-1">
+                {financialStats ? formatVND(financialStats.total_revenue) : '0 đ'}
+              </div>
+              <div className="text-[10px] text-slate-400">Giá trị hợp đồng</div>
+            </div>
+
+            <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                <Award className="h-3 w-3 text-emerald-600" /> Tổng Hoa Hồng
+              </div>
+              <div className="text-lg font-black text-emerald-700 mt-1">
+                {financialStats ? formatVND(financialStats.total_commission) : '0 đ'}
+              </div>
+              <div className="text-[10px] text-slate-400">Toàn dự án</div>
+            </div>
+          </div>
+
+          {/* Bảng Các sản phẩm bán được */}
+          <div className="mt-4 pt-3 border-t border-slate-200/80">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                Các Sản Phẩm Bán Được Của Dự Án ({financialStats?.sold_products.length || 0} sản phẩm)
+              </span>
+              <span className="text-[11px] text-slate-500">
+                Bao gồm mã căn, khách hàng, chuyên viên chốt và tiến độ thanh toán
+              </span>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5">Mã Căn</th>
+                    <th className="p-2.5">Loại Hình</th>
+                    <th className="p-2.5 text-right">Giá Bán / GTGD</th>
+                    <th className="p-2.5">Mã HĐMB</th>
+                    <th className="p-2.5">Khách Hàng</th>
+                    <th className="p-2.5">Chuyên Viên Chốt</th>
+                    <th className="p-2.5">Ngày Bán</th>
+                    <th className="p-2.5 text-center">Tiến Độ Đợt 1</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {!financialStats || financialStats.sold_products.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-5 text-center text-slate-400">
+                        Chưa có sản phẩm nào được ký HĐMB trong dự án này.
+                      </td>
+                    </tr>
+                  ) : (
+                    financialStats.sold_products.map((sp) => (
+                      <tr key={sp.id} className="hover:bg-slate-50">
+                        <td className="p-2.5 font-bold text-blue-700">
+                          {sp.unit_code}
+                        </td>
+                        <td className="p-2.5 text-slate-600">
+                          {sp.property_type}
+                        </td>
+                        <td className="p-2.5 text-right font-black text-slate-900">
+                          {formatFullVND(sp.deal_value)}
+                        </td>
+                        <td className="p-2.5 font-mono text-[11px] font-semibold text-slate-800">
+                          {sp.contract_code}
+                        </td>
+                        <td className="p-2.5">
+                          <div className="font-semibold text-slate-900">{sp.customer_name}</div>
+                          <div className="text-[10px] text-slate-400">{sp.customer_phone}</div>
+                        </td>
+                        <td className="p-2.5">
+                          <div className="font-semibold text-slate-800">{sp.sale_name}</div>
+                          <div className="text-[10px] text-slate-400">{sp.team_name || 'Team Q1'}</div>
+                        </td>
+                        <td className="p-2.5 text-slate-500">
+                          {new Date(sp.sold_date).toLocaleDateString('vi-VN')}
+                        </td>
+                        <td className="p-2.5 text-center">
+                          {sp.first_installment_paid ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Đã đóng
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                              Chờ đóng
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       {saveSuccessMsg && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2 animate-in fade-in">
@@ -368,6 +594,70 @@ Chính sách: Vay 70% lãi suất 0% trong 24 tháng
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* 6. MODAL CÀI ĐẶT CHÍNH SÁCH HOA HỒNG DỰ ÁN */}
+      <Modal
+        isOpen={commissionModalOpen}
+        onClose={() => setCommissionModalOpen(false)}
+        title="Cấu Hình Chính Sách Hoa Hồng Dự Án"
+        description={`Cập nhật % hoa hồng CĐT chi trả, chính sách lũy tiến và % hoa hồng phân bổ cho chuyên viên tư vấn cho dự án ${project.name}.`}
+        maxWidth="md"
+      >
+        <form onSubmit={handleSaveCommission} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              % Hoa hồng Chủ Đầu Tư (CĐT) chi trả cho Sàn *
+            </label>
+            <Input
+              type="number"
+              step="0.1"
+              required
+              value={editCommRate}
+              onChange={(e) => setEditCommRate(Number(e.target.value))}
+              placeholder="Ví dụ: 3.5"
+            />
+            <p className="text-[11px] text-slate-400 mt-0.5">Thường dao động từ 3.0% - 5.0% tuỳ phân khúc dự án.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              % Hoa hồng Chuyên Viên Tư Vấn (Sale) nhận được *
+            </label>
+            <Input
+              type="number"
+              step="0.1"
+              required
+              value={editSaleCommRate}
+              onChange={(e) => setEditSaleCommRate(Number(e.target.value))}
+              placeholder="Ví dụ: 1.8"
+            />
+            <p className="text-[11px] text-slate-400 mt-0.5">Tỷ lệ chi trả cho chuyên viên tư vấn trực tiếp chốt giao dịch.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Quy chế Hoa hồng Lũy Tiến (Nếu có)
+            </label>
+            <textarea
+              rows={3}
+              value={editProgressive}
+              onChange={(e) => setEditProgressive(e.target.value)}
+              placeholder="Ví dụ: Đạt >= 5 căn: +0.3%, Đạt >= 10 căn: +0.6%"
+              className="w-full p-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-[11px] text-slate-400 mt-0.5">Áp dụng thưởng thêm khi vượt mốc chỉ tiêu giao dịch.</p>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <Button type="button" variant="outline" size="sm" onClick={() => setCommissionModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button type="submit" variant="primary" size="sm" disabled={isSavingCommission}>
+              {isSavingCommission ? 'Đang lưu...' : 'Lưu Thay Đổi Hoa Hồng'}
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

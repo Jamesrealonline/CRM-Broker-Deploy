@@ -103,6 +103,12 @@ export interface Project {
   expected_price_range?: string;
   scale?: string;
   status: 'upcoming' | 'opening' | 'sold_out' | 'closed';
+  commission_rate?: number;
+  progressive_commission?: string;
+  sale_commission_rate?: number;
+  total_revenue?: number;
+  total_contracts?: number;
+  sold_units_count?: number;
   created_at?: string;
 }
 
@@ -191,6 +197,85 @@ export interface Transaction {
   notes?: string;
   created_by?: string;
   created_at?: string;
+
+  // Chi tiết hợp đồng, sản phẩm & hoa hồng (Module Tài chính & Hợp đồng)
+  unit_code?: string;
+  deal_value?: number;
+  commission_amount?: number;
+  sale_commission_rate?: number;
+  sale_commission_amount?: number;
+  deposit_date?: string;
+  contract_date?: string;
+  first_installment_amount?: number;
+  first_installment_date?: string;
+  first_installment_paid?: boolean;
+
+  // Joined fields for display
+  customer_name?: string;
+  customer_phone?: string;
+  project_id?: string;
+  project_name?: string;
+  agency_id?: string;
+  agency_name?: string;
+  team_id?: string;
+  team_name?: string;
+  sale_id?: string;
+  sale_name?: string;
+}
+
+export interface SoldProduct {
+  id: string;
+  project_id: string;
+  project_name?: string;
+  unit_code: string;
+  property_type: string;
+  deal_value: number;
+  contract_code: string;
+  sold_date: string;
+  sale_id: string;
+  sale_name: string;
+  team_name?: string;
+  agency_name?: string;
+  customer_name: string;
+  customer_phone?: string;
+  commission_amount: number;
+  sale_commission_amount: number;
+  first_installment_paid: boolean;
+}
+
+export interface AgencyPerformanceDetail {
+  agency_id: string;
+  agency_name: string;
+  agency_code: string;
+  director_name?: string;
+  total_members: number;
+  members: Array<{
+    id: string;
+    full_name: string;
+    email: string;
+    phone: string;
+    role: UserRole;
+    team_name?: string;
+    status: string;
+  }>;
+  lead_status_counts: Record<LeadStatus, number>;
+  total_leads: number;
+  total_revenue: number;
+  total_contracts: number;
+  total_commission: number;
+}
+
+export interface LeaderboardItem {
+  id: string;
+  name: string;
+  type: 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+  subtitle?: string;
+  avatar?: string;
+  revenue: number;           // Tổng doanh số (VND)
+  contracts_count: number;   // Tổng số HĐMB
+  commission: number;        // Tổng hoa hồng (VND)
+  rank?: number;
+  target_progress?: number;  // % hoàn thành KPI thi đua
 }
 
 export interface ProjectKnowledge {

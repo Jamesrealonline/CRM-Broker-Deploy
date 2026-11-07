@@ -19,6 +19,8 @@ import { ProjectsPage } from '@/features/projects/ProjectsPage';
 import { ProjectKnowledgePage } from '@/features/projects/ProjectKnowledgePage';
 import { SalesScriptsPage } from '@/features/scripts/SalesScriptsPage';
 import { NotificationsPage } from '@/features/notifications/NotificationsPage';
+import { TransactionsPage } from '@/features/transactions/TransactionsPage';
+import { LeaderboardPage } from '@/features/leaderboard/LeaderboardPage';
 import { AdminPage } from '@/features/admin/AdminPage';
 
 export const router = createBrowserRouter([
@@ -61,6 +63,14 @@ export const router = createBrowserRouter([
       {
         path: 'journey',
         element: <JourneyPage />,
+      },
+      {
+        path: 'transactions',
+        element: <TransactionsPage />,
+      },
+      {
+        path: 'leaderboard',
+        element: <LeaderboardPage />,
       },
       {
         path: 'distribution',

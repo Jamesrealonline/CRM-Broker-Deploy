@@ -29,9 +29,12 @@ import {
   Crown,
   ChevronRight,
   Edit,
-  UserCheck
+  UserCheck,
+  TrendingUp,
+  Eye
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
+import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
 import { 
   teamRepository, 
   CreateUserInput, 
@@ -105,6 +108,10 @@ export const AdminPage: React.FC = () => {
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [selectedUserForRole, setSelectedUserForRole] = useState<UserProfile | null>(null);
   const [targetRole, setTargetRole] = useState<UserRole>('sale_agent');
+
+  // Modal: Hiệu suất Sàn Giao Dịch
+  const [perfAgencyId, setPerfAgencyId] = useState<string | null>(null);
+  const [perfModalOpen, setPerfModalOpen] = useState(false);
   const [targetAgencyId, setTargetAgencyId] = useState<string>('');
   const [targetTeamId, setTargetTeamId] = useState<string>('');
 
@@ -649,8 +656,16 @@ export const AdminPage: React.FC = () => {
                     </div>
 
                     <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                      <span><strong>{teamsInAgency.length}</strong> Team kinh doanh</span>
-                      <span><strong>{salesInAgency.length}</strong> Nhân sự</span>
+                      <span><strong>{teamsInAgency.length}</strong> Team • <strong>{salesInAgency.length}</strong> Sale</span>
+                      <button
+                        onClick={() => {
+                          setPerfAgencyId(a.id);
+                          setPerfModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200 inline-flex items-center gap-1"
+                      >
+                        <Eye className="h-3 w-3" /> Hiệu suất sàn
+                      </button>
                     </div>
                   </div>
                 );
@@ -1376,6 +1391,15 @@ export const AdminPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* MODAL HIỆU SUẤT SÀN GIAO DỊCH */}
+      {perfAgencyId && (
+        <AgencyPerformanceModal
+          agencyId={perfAgencyId}
+          isOpen={perfModalOpen}
+          onClose={() => setPerfModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

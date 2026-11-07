@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Sparkles, MapPin, Tag, ChevronRight, ExternalLink } from 'lucide-react';
+import { Building2, Plus, Sparkles, MapPin, Tag, ChevronRight, DollarSign, Award, TrendingUp, Percent } from 'lucide-react';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { Project } from '@/domain/types';
 import { Button } from '@/components/ui/Button';
@@ -99,9 +99,34 @@ export const ProjectsPage: React.FC = () => {
                 </div>
 
                 <h3 className="text-sm font-bold text-slate-900 mb-1">{proj.name}</h3>
-                <p className="text-xs text-slate-500 mb-3">Chủ đầu tư: <span className="font-semibold text-slate-700">{proj.developer}</span></p>
+                <p className="text-xs text-slate-500 mb-2">Chủ đầu tư: <span className="font-semibold text-slate-700">{proj.developer}</span></p>
 
-                <div className="space-y-1.5 text-xs text-slate-600 border-t border-slate-100 pt-3">
+                {/* Module Hoa Hồng & Lũy Tiến */}
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 mb-3 space-y-1 text-[11px]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600 flex items-center gap-1">
+                      <Percent className="h-3 w-3 text-blue-600" /> % Hoa hồng CĐT:
+                    </span>
+                    <span className="font-bold text-blue-700 bg-blue-100/70 px-1.5 py-0.2 rounded">
+                      {proj.commission_rate ?? 3.5}%
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600 flex items-center gap-1">
+                      <Award className="h-3 w-3 text-amber-600" /> % Hoa hồng Sale:
+                    </span>
+                    <span className="font-bold text-amber-700 bg-amber-100/70 px-1.5 py-0.2 rounded">
+                      {proj.sale_commission_rate ?? 1.8}%
+                    </span>
+                  </div>
+                  {proj.progressive_commission && (
+                    <div className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 font-medium truncate">
+                      📈 {proj.progressive_commission}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 text-xs text-slate-600 border-t border-slate-100 pt-2.5">
                   <div className="flex items-start gap-1.5">
                     <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0 mt-0.5" />
                     <span className="line-clamp-2">{proj.location}</span>
@@ -113,9 +138,9 @@ export const ProjectsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between">
+              <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between">
                 <span className="text-[11px] text-blue-600 font-medium flex items-center gap-1">
-                  <Sparkles className="h-3 w-3" /> Tri thức AI & Scripts
+                  <Sparkles className="h-3 w-3" /> Tri thức & Sản phẩm
                 </span>
                 <Button
                   size="sm"
@@ -123,7 +148,7 @@ export const ProjectsPage: React.FC = () => {
                   onClick={() => navigate(`/projects/${proj.id}`)}
                   className="text-xs py-1"
                 >
-                  Quản lý tri thức <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                  Quản lý chi tiết <ChevronRight className="h-3.5 w-3.5 ml-1" />
                 </Button>
               </div>
             </Card>

@@ -4,8 +4,8 @@
 // ========================================================
 
 import { supabase, isLiveSupabaseConfigured } from '@/lib/supabase';
-import { Project, ProjectKnowledge, ProjectFaq, SalesScript, LeadStatus } from '@/domain/types';
-import { INITIAL_PROJECTS, INITIAL_KNOWLEDGE } from '../mockData';
+import { Project, ProjectKnowledge, ProjectFaq, SalesScript, LeadStatus, SoldProduct } from '@/domain/types';
+import { INITIAL_PROJECTS, INITIAL_KNOWLEDGE, INITIAL_TRANSACTIONS } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
 
 const STORAGE_KEY_PROJECTS = 'crm_projects';
@@ -45,6 +45,9 @@ export class ProjectRepository {
       expected_price_range: project.expected_price_range || '',
       scale: project.scale || '',
       status: 'upcoming',
+      commission_rate: project.commission_rate ?? 3.5,
+      progressive_commission: project.progressive_commission ?? 'Đạt >= 5 căn: +0.3%, Đạt >= 10 căn: +0.6%',
+      sale_commission_rate: project.sale_commission_rate ?? 1.5,
       created_at: new Date().toISOString(),
     };
 
@@ -58,6 +61,180 @@ export class ProjectRepository {
     projects.unshift(newProj);
     localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(projects));
     return newProj;
+  }
+
+  async updateProjectCommission(
+    projectId: string, 
+    commission_rate: number, 
+    progressive_commission: string, 
+    sale_commission_rate: number
+  ): Promise<Project> {
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('projects')
+        .update({
+          commission_rate,
+          progressive_commission,
+          sale_commission_rate,
+        })
+        .eq('id', projectId)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return data as Project;
+    }
+
+    const projects = await this.getProjects();
+    const idx = projects.findIndex(p => p.id === projectId);
+    if (idx === -1) throw new Error('Dự án không tồn tại');
+    projects[idx] = {
+      ...projects[idx],
+      commission_rate,
+      progressive_commission,
+      sale_commission_rate,
+    };
+    localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(projects));
+    return projects[idx];
+  }
+
+  async getSoldProducts(projectId?: string): Promise<SoldProduct[]> {
+    if (isLiveSupabaseConfigured) {
+      let query = supabase
+        .from('transactions')
+        .select(`
+          id,
+          code,
+          unit_code,
+          deal_value,
+          amount,
+          commission_amount,
+          sale_commission_amount,
+          contract_code,
+          contract_date,
+          transaction_date,
+          first_installment_paid,
+          status,
+          lead:leads!inner (
+            id,
+            project_id,
+            assigned_to,
+            customer:customers (
+              full_name,
+              phone
+            ),
+            project:projects (
+              id,
+              name,
+              property_type
+            ),
+            agency:agencies (
+              name
+            ),
+            team:teams (
+              name
+            ),
+            assigned_user:profiles!leads_assigned_to_fkey (
+              id,
+              full_name
+            )
+          )
+        `)
+        .eq('type', 'contract')
+        .eq('status', 'confirmed');
+
+      if (projectId) {
+        query = query.eq('lead.project_id', projectId);
+      }
+
+      const { data, error } = await query;
+      if (!error && data) {
+        return (data as any[]).map(item => {
+          const l = item.lead || {};
+          const c = l.customer || {};
+          const p = l.project || {};
+          const u = l.assigned_user || {};
+          return {
+            id: item.id,
+            project_id: p.id || l.project_id,
+            project_name: p.name || 'Dự án',
+            unit_code: item.unit_code || 'Chưa định danh',
+            property_type: p.property_type || 'Căn hộ',
+            deal_value: Number(item.deal_value || item.amount || 0),
+            contract_code: item.contract_code || item.code,
+            sold_date: item.contract_date || item.transaction_date || item.created_at,
+            sale_id: u.id || l.assigned_to || '',
+            sale_name: u.full_name || 'Chuyên viên',
+            team_name: l.team?.name,
+            agency_name: l.agency?.name,
+            customer_name: c.full_name || 'Khách hàng',
+            customer_phone: c.phone || '',
+            commission_amount: Number(item.commission_amount || 0),
+            sale_commission_amount: Number(item.sale_commission_amount || 0),
+            first_installment_paid: Boolean(item.first_installment_paid),
+          };
+        });
+      }
+    }
+
+    // Local / Mock fallback
+    const rawTxs = localStorage.getItem('crm_transactions');
+    const txs: any[] = rawTxs ? JSON.parse(rawTxs) : INITIAL_TRANSACTIONS;
+    const projects = await this.getProjects();
+    const rawLeads = localStorage.getItem('crm_leads');
+    const leads: any[] = rawLeads ? JSON.parse(rawLeads) : [];
+
+    const contracts = txs.filter(t => t.type === 'contract' && t.status === 'confirmed');
+    return contracts
+      .filter(t => {
+        if (!projectId) return true;
+        const matchingLead = leads.find(l => l.id === t.lead_id);
+        return matchingLead?.project_id === projectId || t.project_id === projectId;
+      })
+      .map(t => {
+        const lead = (leads.find(l => l.id === t.lead_id) || {}) as any;
+        const proj = (projects.find(p => p.id === (lead.project_id || t.project_id)) || {}) as Partial<Project>;
+        return {
+          id: t.id,
+          project_id: proj.id || t.project_id || '33333333-1111-1111-1111-111111111111',
+          project_name: proj.name || 'Vinhomes Grand Park',
+          unit_code: t.unit_code || 'OG-S7.02-15.08',
+          property_type: proj.property_type || 'Căn hộ',
+          deal_value: Number(t.deal_value || t.amount || 3200000000),
+          contract_code: t.contract_code || t.code || 'HĐMB-2026',
+          sold_date: t.contract_date || t.transaction_date || new Date().toISOString(),
+          sale_id: t.created_by || 'aaaaaaaa-6666-1111-1111-111111111111',
+          sale_name: t.sale_name || 'Phạm Mai Anh',
+          team_name: t.team_name || 'Team Eagle Q1',
+          agency_name: t.agency_name || 'Sàn Giao Dịch Quận 1',
+          customer_name: t.customer_name || 'Khách hàng',
+          customer_phone: t.customer_phone || '',
+          commission_amount: Number(t.commission_amount || 112000000),
+          sale_commission_amount: Number(t.sale_commission_amount || 57600000),
+          first_installment_paid: Boolean(t.first_installment_paid),
+        };
+      });
+  }
+
+  async getProjectFinancialStats(projectId: string): Promise<{
+    total_contracts: number;
+    total_revenue: number;
+    total_commission: number;
+    total_sale_commission: number;
+    sold_products: SoldProduct[];
+  }> {
+    const sold = await this.getSoldProducts(projectId);
+    const total_contracts = sold.length;
+    const total_revenue = sold.reduce((acc, curr) => acc + curr.deal_value, 0);
+    const total_commission = sold.reduce((acc, curr) => acc + curr.commission_amount, 0);
+    const total_sale_commission = sold.reduce((acc, curr) => acc + curr.sale_commission_amount, 0);
+
+    return {
+      total_contracts,
+      total_revenue,
+      total_commission,
+      total_sale_commission,
+      sold_products: sold,
+    };
   }
 
   async getProjectKnowledge(projectId: string): Promise<ProjectKnowledge | null> {

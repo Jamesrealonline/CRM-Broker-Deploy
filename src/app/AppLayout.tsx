@@ -22,7 +22,9 @@ import {
   ChevronDown,
   Sparkles,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  FileCheck,
+  Trophy
 } from 'lucide-react';
 import { useAuthStore } from './useAuthStore';
 import { USER_ROLES } from '@/domain/constants';
@@ -62,6 +64,8 @@ export const AppLayout: React.FC = () => {
     { to: '/dashboard', label: 'Tổng quan KPI', icon: LayoutDashboard },
     { to: '/leads', label: 'Quản lý Lead', icon: Users },
     { to: '/journey', label: 'Customer Journey', icon: GitCommit },
+    { to: '/transactions', label: 'Giao dịch & Hợp đồng', icon: FileCheck },
+    { to: '/leaderboard', label: 'Bảng Thi Đua & Hiệu Suất', icon: Trophy },
     { to: '/distribution', label: 'Phân bổ Lead', icon: Share2 },
     { to: '/projects', label: 'Dự án & Tri thức AI', icon: Building2 },
     { to: '/scripts', label: 'Sales Scripts', icon: FileText },
