@@ -31,7 +31,11 @@ import {
   Edit,
   UserCheck,
   TrendingUp,
-  Eye
+  Eye,
+  Clock,
+  Send,
+  RefreshCw,
+  Archive
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
@@ -42,8 +46,20 @@ import {
   CreateTeamInput 
 } from '@/data/repositories/teamRepository';
 import { auditRepository } from '@/data/repositories/auditRepository';
-import { UserProfile, Agency, Team, AuditLog, UserRole } from '@/domain/types';
-import { USER_ROLES } from '@/domain/constants';
+import { autoTransferService, DEFAULT_AUTO_TRANSFER_CONFIG } from '@/domain/services/autoTransferService';
+import { notificationService, DEFAULT_EMAIL_CONFIG } from '@/domain/services/notificationService';
+import { 
+  UserProfile, 
+  Agency, 
+  Team, 
+  AuditLog, 
+  UserRole,
+  AutoTransferConfig,
+  EmailNotificationConfig,
+  NotificationLog,
+  LeadStatus
+} from '@/domain/types';
+import { USER_ROLES, JOURNEY_STAGES } from '@/domain/constants';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -54,13 +70,24 @@ import { Skeleton } from '@/components/ui/Skeleton';
 
 export const AdminPage: React.FC = () => {
   const { currentUser, realUser } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'teams' | 'settings' | 'audit'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'teams' | 'settings' | 'audit' | 'auto_transfer'>('users');
 
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Module 6 & 7: Auto-transfer & Email configs
+  const [autoTransferConfig, setAutoTransferConfig] = useState<AutoTransferConfig>(DEFAULT_AUTO_TRANSFER_CONFIG);
+  const [emailConfig, setEmailConfig] = useState<EmailNotificationConfig>(DEFAULT_EMAIL_CONFIG);
+  const [notificationLogs, setNotificationLogs] = useState<NotificationLog[]>([]);
+  const [isSavingAutoConfig, setIsSavingAutoConfig] = useState(false);
+  const [isSavingEmailConfig, setIsSavingEmailConfig] = useState(false);
+  const [autoConfigSaved, setAutoConfigSaved] = useState(false);
+  const [emailConfigSaved, setEmailConfigSaved] = useState(false);
+  const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
+  const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'pending' | 'failed'>('all');
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -122,17 +149,47 @@ export const AdminPage: React.FC = () => {
 
   const reloadData = async () => {
     setLoading(true);
-    const [uList, aList, tList, logs] = await Promise.all([
+    const [uList, aList, tList, logs, aConfig, eConfig, nLogs] = await Promise.all([
       teamRepository.getProfiles(),
       teamRepository.getAgencies(),
       teamRepository.getTeams(),
       auditRepository.getAuditLogs(),
+      autoTransferService.getConfig(),
+      notificationService.getEmailConfig(),
+      notificationService.getNotificationLogs(50),
     ]);
     setProfiles(uList);
     setAgencies(aList);
     setTeams(tList);
     setAuditLogs(logs);
+    setAutoTransferConfig(aConfig);
+    setEmailConfig(eConfig);
+    setNotificationLogs(nLogs);
     setLoading(false);
+  };
+
+  const handleSaveAutoConfig = async () => {
+    setIsSavingAutoConfig(true);
+    await autoTransferService.saveConfig(autoTransferConfig);
+    setIsSavingAutoConfig(false);
+    setAutoConfigSaved(true);
+    setTimeout(() => setAutoConfigSaved(false), 3000);
+  };
+
+  const handleSaveEmailConfig = async () => {
+    setIsSavingEmailConfig(true);
+    await notificationService.saveEmailConfig(emailConfig);
+    setIsSavingEmailConfig(false);
+    setEmailConfigSaved(true);
+    setTimeout(() => setEmailConfigSaved(false), 3000);
+  };
+
+  const handleRetryNotification = async (logId: string) => {
+    setRetryingLogId(logId);
+    await notificationService.retryNotification(logId);
+    const updated = await notificationService.getNotificationLogs(50);
+    setNotificationLogs(updated);
+    setRetryingLogId(null);
   };
 
   useEffect(() => {
@@ -418,6 +475,7 @@ export const AdminPage: React.FC = () => {
             { id: 'users', label: `Tài khoản & Nhân sự (${profiles.length})`, icon: Users },
             { id: 'teams', label: `Cơ cấu Sàn (${agencies.length}) & Team (${teams.length})`, icon: Building2 },
             { id: 'permissions', label: 'Ma trận Phân quyền 6 Vai trò', icon: KeyRound },
+            { id: 'auto_transfer', label: 'Tự Động Chuyển Lead & Email', icon: Clock },
             { id: 'settings', label: 'Cấu hình Hệ thống', icon: Sliders },
             { id: 'audit', label: 'Nhật ký Bảo mật (Audit)', icon: ShieldAlert },
           ].map((tab) => {
@@ -845,6 +903,436 @@ export const AdminPage: React.FC = () => {
             </Button>
           </div>
         </Card>
+      )}
+
+      {/* 5.5 TAB: TỰ ĐỘNG CHUYỂN LEAD & THÔNG BÁO EMAIL (MODULE 6 & 7) */}
+      {activeTab === 'auto_transfer' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* CARD 1: CẤU HÌNH TỰ ĐỘNG CHUYỂN LEAD QUÁ HẠN 24H */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-blue-600" />
+                    Cấu Hình Tự Động Chuyển Lead 24H Liên Tục
+                  </CardTitle>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoTransferConfig.enabled}
+                      onChange={(e) => setAutoTransferConfig({ ...autoTransferConfig, enabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Quy tắc 24 giờ liên tục (Wall-clock real time). Bỏ qua hoàn toàn ngày nghỉ / giờ làm việc để đảm bảo tốc độ phản hồi khách hàng.
+                </p>
+              </CardHeader>
+
+              <div className="p-5 space-y-4 text-xs">
+                {autoConfigSaved && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Đã lưu thành công cấu hình tự động chuyển lead!</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Thời hạn chăm sóc tối đa (Giờ liên tục)
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={168}
+                      value={autoTransferConfig.deadline_hours}
+                      onChange={(e) => setAutoTransferConfig({ ...autoTransferConfig, deadline_hours: Number(e.target.value) })}
+                      className="text-xs"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Mặc định: 24 giờ liên tục</p>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Cảnh báo trước khi chuyển (Mốc giờ)
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={autoTransferConfig.deadline_hours}
+                      value={autoTransferConfig.pre_warning_hours}
+                      onChange={(e) => setAutoTransferConfig({ ...autoTransferConfig, pre_warning_hours: Number(e.target.value) })}
+                      className="text-xs"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Mặc định: 20 giờ (trước 4 giờ)</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Số lần chuyển tự động tối đa cho 1 Lead
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={autoTransferConfig.max_transfer_count}
+                      onChange={(e) => setAutoTransferConfig({ ...autoTransferConfig, max_transfer_count: Number(e.target.value) })}
+                      className="text-xs"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Hết số lần này sẽ chuyển về Kho lead chung</p>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Ưu tiên chia Sale cùng team
+                    </label>
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="checkbox"
+                        checked={autoTransferConfig.priority_same_team}
+                        onChange={(e) => setAutoTransferConfig({ ...autoTransferConfig, priority_same_team: e.target.checked })}
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-slate-700 font-medium">Ưu tiên cùng team trước</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Giờ yên tĩnh */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-700">Giờ yên tĩnh (Quiet Hours)</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoTransferConfig.quiet_hours_enabled}
+                        onChange={(e) => setAutoTransferConfig({ ...autoTransferConfig, quiet_hours_enabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-8 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Trong khung giờ này sẽ không gửi chuông/email cảnh báo đêm (đồng hồ deadline vẫn chạy ngầm).
+                  </p>
+                  {autoTransferConfig.quiet_hours_enabled && (
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <span className="text-[11px] text-slate-500 block mb-1">Bắt đầu:</span>
+                        <Input
+                          type="time"
+                          value={autoTransferConfig.quiet_hours_start}
+                          onChange={(e) => setAutoTransferConfig({ ...autoTransferConfig, quiet_hours_start: e.target.value })}
+                          className="text-xs"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[11px] text-slate-500 block mb-1">Kết thúc:</span>
+                        <Input
+                          type="time"
+                          value={autoTransferConfig.quiet_hours_end}
+                          onChange={(e) => setAutoTransferConfig({ ...autoTransferConfig, quiet_hours_end: e.target.value })}
+                          className="text-xs"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Trạng thái dừng đồng hồ */}
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1.5">
+                    Trạng thái tạm dừng đồng hồ chăm sóc (Stop-Clock)
+                  </label>
+                  <p className="text-[11px] text-slate-500 mb-2">
+                    Lead ở các trạng thái này sẽ được bảo lưu cho Sale hiện tại, không tự động chuyển đi.
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto p-2 bg-slate-50 border rounded-lg">
+                    {JOURNEY_STAGES.map((s) => {
+                      const isChecked = autoTransferConfig.stop_clock_statuses.includes(s.id);
+                      return (
+                        <label key={s.id} className="flex items-center gap-1.5 p-1 rounded hover:bg-white cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...autoTransferConfig.stop_clock_statuses, s.id]
+                                : autoTransferConfig.stop_clock_statuses.filter(st => st !== s.id);
+                              setAutoTransferConfig({ ...autoTransferConfig, stop_clock_statuses: next });
+                            }}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                          />
+                          <span className="text-[11px] text-slate-700">{s.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveAutoConfig}
+                  isLoading={isSavingAutoConfig}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  Lưu Cấu Hình Chuyển Lead
+                </Button>
+              </div>
+            </Card>
+
+            {/* CARD 2: CẤU HÌNH THÔNG BÁO EMAIL & IN-APP */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-purple-600" />
+                    Cấu Hình Thông Báo Email & In-App (Module 6)
+                  </CardTitle>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={emailConfig.enabled}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, enabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Gửi email tiếng Việt responsive kèm nút CTA mở nhanh hồ sơ lead. Tự động thử lại 3 lần nếu lỗi mạng.
+                </p>
+              </CardHeader>
+
+              <div className="p-5 space-y-4 text-xs">
+                {emailConfigSaved && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Đã lưu thành công cấu hình email!</span>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                    <div>
+                      <span className="font-semibold text-slate-800 block">Khi được giao lead mới</span>
+                      <span className="text-[11px] text-slate-500">Gửi email cho Sale nhận lead kèm nút CTA chi tiết</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={emailConfig.enable_new_assign}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, enable_new_assign: e.target.checked })}
+                      className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                    <div>
+                      <span className="font-semibold text-slate-800 block">Khi nhận lead được điều chuyển</span>
+                      <span className="text-[11px] text-slate-500">Gửi email cho Sale mới kèm lịch sử chăm sóc cũ</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={emailConfig.enable_transfer}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, enable_transfer: e.target.checked })}
+                      className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                    <div>
+                      <span className="font-semibold text-slate-800 block">Khi lead bị thu hồi do quá hạn</span>
+                      <span className="text-[11px] text-slate-500">Gửi thông báo cho Sale cũ lý do thu hồi</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={emailConfig.enable_revoke}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, enable_revoke: e.target.checked })}
+                      className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                    <div>
+                      <span className="font-semibold text-slate-800 block">Cảnh báo sắp hết hạn (Mốc 20h)</span>
+                      <span className="text-[11px] text-slate-500">Nhắc nhở Sale còn 4h để liên hệ khách hàng</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={emailConfig.enable_overdue_warning}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, enable_overdue_warning: e.target.checked })}
+                      className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                    <div>
+                      <span className="font-semibold text-slate-800 block">Gửi bản sao (CC) cho Trưởng phòng / Team Leader</span>
+                      <span className="text-[11px] text-slate-500">Cho phép quản lý nắm bắt tiến độ phân bổ lead</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={emailConfig.cc_manager}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, cc_manager: e.target.checked })}
+                      className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-4 w-4"
+                    />
+                  </label>
+                </div>
+
+                <div className="p-3 bg-purple-50/50 border border-purple-100 rounded-lg text-[11px] text-purple-800 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-purple-600" />
+                    Chống Spam & Idempotency Key kích hoạt:
+                  </div>
+                  <p>
+                    - Phân bổ hàng loạt (Bulk Assign): Tự động gộp thành 1 email tổng hợp bảng danh sách cho mỗi Sale.
+                  </p>
+                  <p>
+                    - Khóa trùng lặp: Ngăn gửi trùng lặp cùng 1 sự kiện trong vòng 1 giờ cho cùng 1 lead.
+                  </p>
+                </div>
+
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveEmailConfig}
+                  isLoading={isSavingEmailConfig}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  Lưu Cấu Hình Email
+                </Button>
+              </div>
+            </Card>
+          </div>
+
+          {/* CARD 3: NHẬT KÝ THÔNG BÁO EMAIL & IN-APP */}
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Send className="h-4 w-4 text-blue-600" />
+                    Nhật Ký Gửi Thông Báo Email & In-App (Notification Logs)
+                  </CardTitle>
+                  <p className="text-xs text-slate-500">
+                    Theo dõi trạng thái gửi email, mã sự kiện, số lần thử lại (retries) và thông tin lỗi.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg text-xs">
+                  {(['all', 'sent', 'failed', 'pending'] as const).map((st) => (
+                    <button
+                      key={st}
+                      onClick={() => setLogStatusFilter(st)}
+                      className={`px-2.5 py-1 rounded capitalize font-medium transition-colors ${
+                        logStatusFilter === st
+                          ? 'bg-white text-blue-600 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {st === 'all' ? 'Tất cả' : st === 'sent' ? 'Thành công' : st === 'failed' ? 'Thất bại' : 'Đang gửi'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
+                    <th className="py-2.5 px-4">Thời Gian</th>
+                    <th className="py-2.5 px-4">Người Nhận</th>
+                    <th className="py-2.5 px-4">Sự Kiện</th>
+                    <th className="py-2.5 px-4">Kênh</th>
+                    <th className="py-2.5 px-4">Trạng Thái</th>
+                    <th className="py-2.5 px-4">Lần Thử</th>
+                    <th className="py-2.5 px-4">Chi Tiết / Lỗi</th>
+                    <th className="py-2.5 px-4 text-right">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(() => {
+                    const filteredLogs = notificationLogs.filter(l => 
+                      logStatusFilter === 'all' ? true : l.status === logStatusFilter
+                    );
+
+                    if (filteredLogs.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-slate-400">
+                            Chưa có nhật ký thông báo nào phù hợp.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filteredLogs.slice(0, 30).map((log) => {
+                      const stMap = {
+                        sent: { label: 'Đã gửi', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                        failed: { label: 'Thất bại', color: 'bg-rose-50 text-rose-700 border-rose-200' },
+                        pending: { label: 'Đang gửi', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+                      }[log.status];
+
+                      return (
+                        <tr key={log.id} className="hover:bg-slate-50/50">
+                          <td className="py-2.5 px-4 font-mono text-[11px] text-slate-500">
+                            {formatDate(log.created_at)}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span className="font-semibold text-slate-900 block">{log.recipient_name || 'Sale'}</span>
+                            <span className="text-[11px] text-slate-400">{log.recipient_email}</span>
+                          </td>
+                          <td className="py-2.5 px-4 font-mono text-[11px] text-slate-700">
+                            {log.event_type}
+                          </td>
+                          <td className="py-2.5 px-4 capitalize text-slate-600">
+                            {log.channel}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${stMap.color}`}>
+                              {stMap.label}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-slate-700">
+                            {log.retry_count}/3
+                          </td>
+                          <td className="py-2.5 px-4 text-slate-500 text-[11px] max-w-xs truncate" title={log.error_message || log.content}>
+                            {log.error_message ? (
+                              <span className="text-rose-600 font-medium">{log.error_message}</span>
+                            ) : (
+                              log.title
+                            )}
+                          </td>
+                          <td className="py-2.5 px-4 text-right">
+                            {log.status === 'failed' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleRetryNotification(log.id)}
+                                isLoading={retryingLogId === log.id}
+                                className="text-[11px] py-1 px-2 border-rose-200 text-rose-700 hover:bg-rose-50"
+                              >
+                                <RotateCcw className="h-3 w-3 mr-1" /> Thử lại
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
       )}
 
       {/* 6. TAB 5: AUDIT LOGS */}

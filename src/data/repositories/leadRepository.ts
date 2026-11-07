@@ -10,10 +10,14 @@ import {
   Transaction, 
   LeadActivity, 
   LeadStatusHistory, 
-  UserProfile 
+  UserProfile,
+  LeadAssignmentHistory,
+  AssignmentReason
 } from '@/domain/types';
 import { normalizePhone } from '@/lib/utils';
 import { INITIAL_PROJECTS, INITIAL_AGENCIES, INITIAL_TEAMS } from '../mockData';
+import { notificationService } from '@/domain/services/notificationService';
+import { autoTransferService } from '@/domain/services/autoTransferService';
 
 const STORAGE_KEY_LEADS = 'crm_leads';
 const STORAGE_KEY_CUSTOMERS = 'crm_customers';
@@ -21,6 +25,7 @@ const STORAGE_KEY_TRANSACTIONS = 'crm_transactions';
 const STORAGE_KEY_ACTIVITIES = 'crm_activities';
 const STORAGE_KEY_STATUS_HISTORY = 'crm_status_history';
 const STORAGE_KEY_ASSIGNMENTS = 'crm_assignments';
+const STORAGE_KEY_ASSIGNMENT_HISTORY = 'crm_lead_assignment_history';
 
 export interface LeadFilters {
   search?: string;
@@ -244,6 +249,11 @@ export class LeadRepository {
 
       if (cErr) return { success: false, error: cErr.message };
 
+      const isSale = payload.currentUser.role === 'sale_agent';
+      const assignedToId = isSale ? payload.currentUser.id : null;
+      const initialDeadline = assignedToId ? autoTransferService.computeCareDeadline(new Date().toISOString(), 24) : null;
+      const initialPreviousSales = assignedToId ? [assignedToId] : [];
+
       // 2. Tạo Lead
       const { data: lead, error: lErr } = await supabase
         .from('leads')
@@ -252,17 +262,40 @@ export class LeadRepository {
           project_id: payload.projectId,
           agency_id: payload.currentUser.agency_id,
           team_id: payload.currentUser.team_id,
-          assigned_to: payload.currentUser.role === 'sale_agent' ? payload.currentUser.id : null,
+          assigned_to: assignedToId,
           status: 'new',
           budget_min: payload.budgetMin,
           budget_max: payload.budgetMax,
           purpose: payload.purpose || 'investment',
           notes: payload.notes,
+          care_deadline_at: initialDeadline,
+          last_care_updated_at: new Date().toISOString(),
+          auto_transfer_count: 0,
+          previous_assigned_sales: initialPreviousSales,
         })
         .select()
         .single();
 
       if (lErr) return { success: false, error: lErr.message };
+
+      if (assignedToId && payload.currentUser.email) {
+        notificationService.sendNotification({
+          leadId: lead.id,
+          recipientId: assignedToId,
+          recipientEmail: payload.currentUser.email,
+          recipientName: payload.currentUser.full_name,
+          eventType: 'new_assign',
+          channel: 'both',
+          variables: {
+            ten_khach_hang: payload.fullName,
+            so_dien_thoai: payload.phone,
+            du_an: projectName,
+            nguoi_giao: payload.currentUser.full_name,
+            ghi_chu: payload.notes || 'Tự tạo lead mới',
+            han_cham_soc: initialDeadline || '24 giờ',
+          },
+        }).catch(err => console.error('Error dispatching notification:', err));
+      }
 
       return { success: true, lead };
     }
@@ -272,6 +305,10 @@ export class LeadRepository {
     const leads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
     const newLeadId = crypto.randomUUID();
     const newCustomerId = crypto.randomUUID();
+    const isSale = payload.currentUser.role === 'sale_agent';
+    const assignedToId = isSale ? payload.currentUser.id : undefined;
+    const initialDeadline = assignedToId ? autoTransferService.computeCareDeadline(new Date().toISOString(), 24) : undefined;
+    const initialPreviousSales = assignedToId ? [assignedToId] : [];
 
     const newLead: Lead = {
       id: newLeadId,
@@ -285,8 +322,8 @@ export class LeadRepository {
       agency_name: INITIAL_AGENCIES[0].name,
       team_id: payload.currentUser.team_id,
       team_name: INITIAL_TEAMS[0].name,
-      assigned_to: payload.currentUser.role === 'sale_agent' ? payload.currentUser.id : undefined,
-      assigned_name: payload.currentUser.role === 'sale_agent' ? payload.currentUser.full_name : 'Chưa phân bổ',
+      assigned_to: assignedToId,
+      assigned_name: isSale ? payload.currentUser.full_name : 'Chưa phân bổ',
       status: 'new',
       lead_score: 60,
       budget_min: payload.budgetMin || 2000000000,
@@ -294,6 +331,10 @@ export class LeadRepository {
       purpose: payload.purpose || 'investment',
       notes: payload.notes || 'Tiếp nhận từ form nhập liệu',
       created_at: new Date().toISOString(),
+      care_deadline_at: initialDeadline,
+      last_care_updated_at: new Date().toISOString(),
+      auto_transfer_count: 0,
+      previous_assigned_sales: initialPreviousSales,
     };
 
     leads.unshift(newLead);
@@ -308,14 +349,42 @@ export class LeadRepository {
       content: `Lead được khởi tạo cho dự án ${projectName}. Ghi chú: ${payload.notes || 'Không'}`,
     });
 
+    if (assignedToId && payload.currentUser.email) {
+      notificationService.sendNotification({
+        leadId: newLeadId,
+        recipientId: assignedToId,
+        recipientEmail: payload.currentUser.email,
+        recipientName: payload.currentUser.full_name,
+        eventType: 'new_assign',
+        channel: 'both',
+        variables: {
+          ten_khach_hang: payload.fullName,
+          so_dien_thoai: payload.phone,
+          du_an: projectName,
+          nguoi_giao: payload.currentUser.full_name,
+          ghi_chu: payload.notes || 'Tự tạo lead mới',
+          han_cham_soc: initialDeadline || '24 giờ',
+        },
+      }).catch(err => console.error('Error dispatching notification:', err));
+    }
+
     return { success: true, lead: newLead };
   }
 
   // 4.1 CẬP NHẬT THÔNG TIN LEAD (Ghi chú, Chân dung, Điểm số, Hành động tiếp theo)
   async updateLead(leadId: string, updates: Partial<Lead>): Promise<{ success: boolean; lead?: Lead; error?: string }> {
+    const isCareUpdate = updates.notes !== undefined || 
+                         updates.lead_score !== undefined || 
+                         updates.purpose !== undefined || 
+                         updates.preferred_property_type !== undefined ||
+                         updates.next_follow_up !== undefined;
+
+    const nowIso = new Date().toISOString();
+    const newDeadline = isCareUpdate ? autoTransferService.computeCareDeadline(nowIso, 24) : undefined;
+
     if (isLiveSupabaseConfigured) {
       const payload: any = {
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
       };
       if (updates.notes !== undefined) payload.notes = updates.notes;
       if (updates.lead_score !== undefined) payload.lead_score = updates.lead_score;
@@ -325,6 +394,11 @@ export class LeadRepository {
       if (updates.budget_max !== undefined) payload.budget_max = updates.budget_max;
       if (updates.next_follow_up !== undefined) payload.next_follow_up = updates.next_follow_up;
       if (updates.last_action_at !== undefined) payload.last_action_at = updates.last_action_at;
+
+      if (isCareUpdate) {
+        payload.last_care_updated_at = nowIso;
+        if (newDeadline) payload.care_deadline_at = newDeadline;
+      }
 
       const { data, error } = await supabase
         .from('leads')
@@ -358,8 +432,9 @@ export class LeadRepository {
     const updatedLead: Lead = {
       ...leads[idx],
       ...updates,
-      updated_at: new Date().toISOString(),
-      last_action_at: updates.last_action_at || new Date().toISOString(),
+      updated_at: nowIso,
+      last_action_at: updates.last_action_at || nowIso,
+      ...(isCareUpdate ? { last_care_updated_at: nowIso, care_deadline_at: newDeadline } : {}),
     };
 
     leads[idx] = updatedLead;
@@ -392,6 +467,9 @@ export class LeadRepository {
       }
     }
 
+    const nowIso = new Date().toISOString();
+    const newDeadline = autoTransferService.computeCareDeadline(nowIso, 24);
+
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase.rpc('update_lead_stage_with_transaction', {
         p_lead_id: payload.leadId,
@@ -404,6 +482,16 @@ export class LeadRepository {
 
       if (error) return { success: false, error: error.message };
       if (!data.success) return { success: false, error: data.message };
+
+      // Cập nhật reset hạn chăm sóc 24h
+      await supabase
+        .from('leads')
+        .update({
+          last_care_updated_at: nowIso,
+          care_deadline_at: newDeadline,
+        })
+        .eq('id', payload.leadId);
+
       return { success: true };
     }
 
@@ -416,8 +504,10 @@ export class LeadRepository {
     const oldStatus = leads[leadIdx].status;
     leads[leadIdx].status = payload.newStatus;
     if (payload.notes) leads[leadIdx].notes = payload.notes;
-    leads[leadIdx].updated_at = new Date().toISOString();
-    leads[leadIdx].last_action_at = new Date().toISOString();
+    leads[leadIdx].updated_at = nowIso;
+    leads[leadIdx].last_action_at = nowIso;
+    leads[leadIdx].last_care_updated_at = nowIso;
+    leads[leadIdx].care_deadline_at = newDeadline;
 
     localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
 
@@ -430,12 +520,12 @@ export class LeadRepository {
         type: payload.newStatus as any,
         code: payload.txCode || `TX-${Date.now()}`,
         amount: payload.txAmount || (payload.newStatus === 'booking' ? 50000000 : 100000000),
-        transaction_date: payload.txDate || new Date().toISOString(),
+        transaction_date: payload.txDate || nowIso,
         contract_code: payload.newStatus === 'contract' ? payload.txCode : undefined,
         status: 'confirmed',
         notes: payload.notes,
         created_by: payload.currentUser.id,
-        created_at: new Date().toISOString(),
+        created_at: nowIso,
       };
       txs.push(newTx);
       localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(txs));
@@ -451,7 +541,7 @@ export class LeadRepository {
       old_status: oldStatus,
       new_status: payload.newStatus,
       notes: payload.notes || 'Chuyển trạng thái trên Customer Journey Kanban',
-      created_at: new Date().toISOString(),
+      created_at: nowIso,
     });
     localStorage.setItem(STORAGE_KEY_STATUS_HISTORY, JSON.stringify(history));
 
@@ -469,6 +559,9 @@ export class LeadRepository {
 
   // 6. PHÂN BỔ ROUND ROBIN (RPC)
   async assignRoundRobin(leadId: string, projectId: string, teamId?: string): Promise<{ success: boolean; saleName?: string; error?: string }> {
+    const nowIso = new Date().toISOString();
+    const newDeadline = autoTransferService.computeCareDeadline(nowIso, 24);
+
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase.rpc('assign_lead_round_robin', {
         p_lead_id: leadId,
@@ -478,6 +571,16 @@ export class LeadRepository {
 
       if (error) return { success: false, error: error.message };
       if (!data.success) return { success: false, error: data.message };
+
+      // Cập nhật deadline & lịch sử
+      await supabase
+        .from('leads')
+        .update({
+          care_deadline_at: newDeadline,
+          last_care_updated_at: nowIso,
+        })
+        .eq('id', leadId);
+
       return { success: true, saleName: data.sale_name };
     }
 
@@ -496,9 +599,21 @@ export class LeadRepository {
     const eligible = teamId ? saleCandidates.filter(s => s.teamId === teamId) : saleCandidates;
     const selected = eligible[Math.floor(Math.random() * eligible.length)] || saleCandidates[0];
 
+    const oldAssigneeId = lead.assigned_to;
+    const oldAssigneeName = lead.assigned_name;
+
     lead.assigned_to = selected.id;
     lead.assigned_name = selected.name;
-    lead.updated_at = new Date().toISOString();
+    lead.updated_at = nowIso;
+    lead.last_care_updated_at = nowIso;
+    lead.care_deadline_at = newDeadline;
+
+    if (!Array.isArray(lead.previous_assigned_sales)) {
+      lead.previous_assigned_sales = [];
+    }
+    if (oldAssigneeId && !lead.previous_assigned_sales.includes(oldAssigneeId)) {
+      lead.previous_assigned_sales.push(oldAssigneeId);
+    }
 
     localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
 
@@ -510,11 +625,203 @@ export class LeadRepository {
       assigned_to: selected.id,
       assigned_name: selected.name,
       method: 'round_robin',
-      assigned_at: new Date().toISOString(),
+      assigned_at: nowIso,
     });
     localStorage.setItem(STORAGE_KEY_ASSIGNMENTS, JSON.stringify(assignments));
 
+    // Ghi nhận lead_assignment_history
+    const history: LeadAssignmentHistory[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ASSIGNMENT_HISTORY) || '[]');
+    history.unshift({
+      id: crypto.randomUUID(),
+      lead_id: leadId,
+      from_sale_id: oldAssigneeId,
+      from_sale_name: oldAssigneeName,
+      to_sale_id: selected.id,
+      to_sale_name: selected.name,
+      reason: 'round_robin',
+      transfer_count: lead.auto_transfer_count || 0,
+      created_by: 'Hệ thống Round Robin',
+      created_at: nowIso,
+    });
+    localStorage.setItem(STORAGE_KEY_ASSIGNMENT_HISTORY, JSON.stringify(history));
+
     return { success: true, saleName: selected.name };
+  }
+
+  // 6.1 PHÂN BỔ HÀNG LOẠT (BULK ASSIGN) KÈM GỘP EMAIL DIGEST
+  async assignBulkLeads(
+    leadIds: string[],
+    targetSale: UserProfile,
+    currentUser: UserProfile,
+    reason: string = 'Phân bổ hàng loạt từ người quản lý'
+  ): Promise<{ success: boolean; updatedCount: number; error?: string }> {
+    if (!leadIds || leadIds.length === 0) {
+      return { success: false, updatedCount: 0, error: 'Chưa chọn Lead nào để phân bổ.' };
+    }
+
+    const nowIso = new Date().toISOString();
+    const newDeadline = autoTransferService.computeCareDeadline(nowIso, 24);
+    const affectedLeads: Lead[] = [];
+
+    if (isLiveSupabaseConfigured) {
+      for (const id of leadIds) {
+        const { data: leadData } = await supabase.from('leads').select('*').eq('id', id).single();
+        if (leadData) {
+          const prevSales: string[] = Array.isArray(leadData.previous_assigned_sales) ? [...leadData.previous_assigned_sales] : [];
+          if (leadData.assigned_to && !prevSales.includes(leadData.assigned_to)) {
+            prevSales.push(leadData.assigned_to);
+          }
+
+          await supabase.from('leads').update({
+            assigned_to: targetSale.id,
+            team_id: targetSale.team_id || leadData.team_id,
+            agency_id: targetSale.agency_id || leadData.agency_id,
+            care_deadline_at: newDeadline,
+            last_care_updated_at: nowIso,
+            previous_assigned_sales: prevSales,
+            updated_at: nowIso,
+          }).eq('id', id);
+
+          await supabase.from('lead_assignment_history').insert({
+            lead_id: id,
+            from_sale_id: leadData.assigned_to,
+            to_sale_id: targetSale.id,
+            reason: 'bulk_assign',
+            transfer_count: leadData.auto_transfer_count || 0,
+            notes: reason,
+            created_by: currentUser.full_name,
+          });
+
+          affectedLeads.push({
+            ...leadData,
+            assigned_to: targetSale.id,
+            assigned_name: targetSale.full_name,
+            care_deadline_at: newDeadline,
+          } as Lead);
+        }
+      }
+    } else {
+      this.ensureInitialized();
+      const leads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
+      const history: LeadAssignmentHistory[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ASSIGNMENT_HISTORY) || '[]');
+
+      for (const id of leadIds) {
+        const lead = leads.find(l => l.id === id);
+        if (lead) {
+          const oldAssigneeId = lead.assigned_to;
+          const oldAssigneeName = lead.assigned_name;
+
+          if (!Array.isArray(lead.previous_assigned_sales)) lead.previous_assigned_sales = [];
+          if (oldAssigneeId && !lead.previous_assigned_sales.includes(oldAssigneeId)) {
+            lead.previous_assigned_sales.push(oldAssigneeId);
+          }
+
+          lead.assigned_to = targetSale.id;
+          lead.assigned_name = targetSale.full_name;
+          lead.team_id = targetSale.team_id || lead.team_id;
+          lead.agency_id = targetSale.agency_id || lead.agency_id;
+          lead.care_deadline_at = newDeadline;
+          lead.last_care_updated_at = nowIso;
+          lead.updated_at = nowIso;
+
+          history.unshift({
+            id: crypto.randomUUID(),
+            lead_id: id,
+            from_sale_id: oldAssigneeId,
+            from_sale_name: oldAssigneeName,
+            to_sale_id: targetSale.id,
+            to_sale_name: targetSale.full_name,
+            reason: 'bulk_assign',
+            transfer_count: lead.auto_transfer_count || 0,
+            notes: reason,
+            created_by: currentUser.full_name,
+            created_at: nowIso,
+          });
+
+          affectedLeads.push(lead);
+        }
+      }
+
+      localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
+      localStorage.setItem(STORAGE_KEY_ASSIGNMENT_HISTORY, JSON.stringify(history));
+    }
+
+    // Gửi email gộp 1 lần (Digest) cho Sale nhận
+    if (targetSale.email && affectedLeads.length > 0) {
+      notificationService.sendBulkAssignDigest(
+        targetSale,
+        affectedLeads,
+        currentUser.full_name
+      ).catch(err => console.error('Error sending bulk assign digest:', err));
+    }
+
+    return { success: true, updatedCount: affectedLeads.length };
+  }
+
+  // 6.2 ĐIỀU CHUYỂN SALE THỦ CÔNG (MANUAL REASSIGN)
+  async manualReassignLead(
+    leadId: string,
+    newSale: UserProfile,
+    reason: string,
+    currentUser: UserProfile
+  ): Promise<{ success: boolean; error?: string }> {
+    const lead = await this.getLeadById(leadId);
+    if (!lead) return { success: false, error: 'Không tìm thấy Lead.' };
+
+    const result = await autoTransferService.transferLead(
+      lead,
+      newSale,
+      'manual_transfer',
+      currentUser.full_name,
+      reason
+    );
+
+    return { success: result.success, error: result.error };
+  }
+
+  // 6.3 THU HỒI LEAD VỀ KHO CHUNG (RECLAIM TO POOL)
+  async reclaimLeadToPool(
+    leadId: string,
+    reason: string,
+    currentUser: UserProfile
+  ): Promise<{ success: boolean; error?: string }> {
+    const lead = await this.getLeadById(leadId);
+    if (!lead) return { success: false, error: 'Không tìm thấy Lead.' };
+
+    const result = await autoTransferService.transferLead(
+      lead,
+      null,
+      'pool_reclaim',
+      currentUser.full_name,
+      reason
+    );
+
+    return { success: result.success, error: result.error };
+  }
+
+  // 6.4 GIA HẠN THỜI GIAN CHĂM SÓC LEAD
+  async extendCareDeadline(
+    leadId: string,
+    hours: number,
+    reason: string,
+    currentUser: UserProfile
+  ): Promise<boolean> {
+    return autoTransferService.extendDeadline(leadId, hours, reason, currentUser.full_name);
+  }
+
+  // 6.5 CẤU HÌNH MIỄN CHUYỂN TỰ ĐỘNG
+  async setLeadExempt(
+    leadId: string,
+    isExempt: boolean,
+    reason: string,
+    currentUser: UserProfile
+  ): Promise<boolean> {
+    return autoTransferService.setExemptStatus(leadId, isExempt, reason, currentUser.full_name);
+  }
+
+  // 6.6 LẤY LỊCH SỬ ĐIỀU CHUYỂN CỦA LEAD
+  async getAssignmentHistory(leadId: string): Promise<LeadAssignmentHistory[]> {
+    return autoTransferService.getLeadAssignmentHistory(leadId);
   }
 
   // 7. HOẠT ĐỘNG VÀ TIMELINE
@@ -537,6 +844,9 @@ export class LeadRepository {
   }
 
   async addActivity(leadId: string, payload: { userId: string; userName?: string; type: any; title: string; content?: string }): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const newDeadline = autoTransferService.computeCareDeadline(nowIso, 24);
+
     if (isLiveSupabaseConfigured) {
       await supabase.from('lead_activities').insert({
         lead_id: leadId,
@@ -545,6 +855,13 @@ export class LeadRepository {
         title: payload.title,
         content: payload.content,
       });
+
+      // Cập nhật reset đồng hồ 24h trên lead
+      await supabase.from('leads').update({
+        last_care_updated_at: nowIso,
+        care_deadline_at: newDeadline,
+      }).eq('id', leadId);
+
       return;
     }
 
@@ -557,9 +874,18 @@ export class LeadRepository {
       type: payload.type,
       title: payload.title,
       content: payload.content,
-      created_at: new Date().toISOString(),
+      created_at: nowIso,
     });
     localStorage.setItem(STORAGE_KEY_ACTIVITIES, JSON.stringify(all));
+
+    // Reset đồng hồ trên mock leads
+    const leads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
+    const leadIdx = leads.findIndex(l => l.id === leadId);
+    if (leadIdx !== -1) {
+      leads[leadIdx].last_care_updated_at = nowIso;
+      leads[leadIdx].care_deadline_at = newDeadline;
+      localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
+    }
   }
 
   async getLeadStatusHistory(leadId: string): Promise<LeadStatusHistory[]> {
@@ -619,6 +945,10 @@ export class LeadRepository {
           notes: 'Quan tâm chính sách thanh toán và tiềm năng tăng giá.',
           created_at: new Date(Date.now() - (30 - i) * 86400000).toISOString(),
           last_action_at: new Date().toISOString(),
+          last_care_updated_at: new Date(Date.now() - (i % 24) * 3600000).toISOString(),
+          care_deadline_at: new Date(Date.now() + (24 - (i % 28)) * 3600000).toISOString(),
+          auto_transfer_count: i % 3,
+          previous_assigned_sales: ['aaaaaaaa-6666-1111-1111-111111111111'],
         };
 
         if (status === 'booking') {

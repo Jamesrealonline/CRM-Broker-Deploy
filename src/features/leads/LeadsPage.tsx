@@ -17,12 +17,21 @@ import {
   Calendar, 
   ChevronRight,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  Clock,
+  CheckSquare,
+  Square,
+  UserCheck,
+  Send,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { leadRepository } from '@/data/repositories/leadRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
-import { Lead, Project, LeadStatus } from '@/domain/types';
+import { teamRepository } from '@/data/repositories/teamRepository';
+import { autoTransferService } from '@/domain/services/autoTransferService';
+import { Lead, Project, LeadStatus, UserProfile } from '@/domain/types';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -63,12 +72,81 @@ export const LeadsPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Bulk Assign State (Module 6 & 7)
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [sales, setSales] = useState<UserProfile[]>([]);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [targetSaleId, setTargetSaleId] = useState('');
+  const [bulkReason, setBulkReason] = useState('Phân bổ hàng loạt theo kế hoạch kinh doanh');
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkFeedback, setBulkFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   useEffect(() => {
     projectRepository.getProjects().then((list) => {
       setProjects(list);
       if (list.length > 0 && !newProjectId) setNewProjectId(list[0].id);
     });
+
+    teamRepository.getProfiles().then((profs) => {
+      const activeSales = profs.filter(p => (p.role === 'sale_agent' || p.role === 'team_leader') && p.status === 'active');
+      setSales(activeSales);
+      if (activeSales.length > 0 && !targetSaleId) {
+        setTargetSaleId(activeSales[0].id);
+      }
+    });
   }, [newProjectId]);
+
+  const toggleSelectAll = () => {
+    if (selectedLeadIds.length === leads.length) {
+      setSelectedLeadIds([]);
+    } else {
+      setSelectedLeadIds(leads.map(l => l.id));
+    }
+  };
+
+  const toggleSelectLead = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedLeadIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkAssign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser || selectedLeadIds.length === 0 || !targetSaleId) return;
+
+    const targetSale = sales.find(s => s.id === targetSaleId);
+    if (!targetSale) return;
+
+    setBulkSubmitting(true);
+    setBulkFeedback(null);
+
+    const res = await leadRepository.assignBulkLeads(
+      selectedLeadIds,
+      targetSale,
+      currentUser,
+      bulkReason
+    );
+
+    setBulkSubmitting(false);
+    if (res.success) {
+      setBulkFeedback({
+        type: 'success',
+        text: `Đã phân bổ thành công ${res.updatedCount} lead cho chuyên viên ${targetSale.full_name} và gửi 1 email tổng hợp duy nhất.`,
+      });
+      setSelectedLeadIds([]);
+      setTimeout(() => {
+        setBulkModalOpen(false);
+        setBulkFeedback(null);
+        fetchLeads();
+      }, 1500);
+    } else {
+      setBulkFeedback({
+        type: 'error',
+        text: res.error || 'Phân bổ hàng loạt thất bại.',
+      });
+    }
+  };
 
   const fetchLeads = async () => {
     if (!currentUser) return;
@@ -236,6 +314,37 @@ export const LeadsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* 2.5 BANNER PHÂN BỔ HÀNG LOẠT KHI CHỌN NHIỀU LEAD */}
+      {selectedLeadIds.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-200 p-3.5 rounded-xl text-blue-900 shadow-sm animate-fadeIn">
+          <div className="flex items-center gap-2.5 text-xs font-semibold">
+            <div className="p-1.5 bg-blue-600 text-white rounded-lg">
+              <CheckSquare className="h-4 w-4" />
+            </div>
+            <div>
+              <span>Đã chọn <strong className="text-blue-700 font-bold">{selectedLeadIds.length}</strong> khách hàng</span>
+              <span className="text-slate-500 font-normal ml-2 hidden sm:inline">(Sẽ gộp vào 1 thông báo phân bổ duy nhất)</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {['admin', 'director', 'sales_manager', 'team_leader'].includes(currentUser?.role || '') && (
+              <Button 
+                variant="primary" 
+                size="sm" 
+                onClick={() => setBulkModalOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+              >
+                <UserCheck className="h-4 w-4 mr-1.5" />
+                Phân bổ cho Sale ({selectedLeadIds.length})
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setSelectedLeadIds([])}>
+              Bỏ chọn tất cả
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* 3. BẢNG DANH SÁCH LEADS */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
@@ -258,9 +367,18 @@ export const LeadsPage: React.FC = () => {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+                  <th className="py-3 px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={leads.length > 0 && selectedLeadIds.length === leads.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
+                    />
+                  </th>
                   <th className="py-3 px-4">Khách Hàng</th>
                   <th className="py-3 px-4">Dự Án</th>
                   <th className="py-3 px-4">Trạng Thái</th>
+                  <th className="py-3 px-4">Đồng Hồ 24h</th>
                   <th className="py-3 px-4">Điểm Lead</th>
                   <th className="py-3 px-4">Ngân Sách</th>
                   <th className="py-3 px-4">Phụ Trách</th>
@@ -273,13 +391,32 @@ export const LeadsPage: React.FC = () => {
                   const stage = JOURNEY_STAGES.find((s) => s.id === lead.status);
                   const isMarketing = currentUser?.role === 'marketing_manager';
                   const displayPhone = isMarketing ? maskPhone(lead.customer_phone) : lead.customer_phone;
+                  const isSelected = selectedLeadIds.includes(lead.id);
+
+                  // Đếm ngược 24h
+                  const careInfo = autoTransferService.getCareRemainingHours(lead);
+                  const colorClasses = {
+                    green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                    yellow: 'bg-amber-50 text-amber-700 border-amber-200',
+                    red: 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse font-bold',
+                    gray: 'bg-slate-100 text-slate-600 border-slate-200',
+                  }[careInfo.badgeColor];
 
                   return (
                     <tr
                       key={lead.id}
                       onClick={() => navigate(`/leads/${lead.id}`)}
-                      className="hover:bg-blue-50/40 transition-colors cursor-pointer group"
+                      className={`hover:bg-blue-50/40 transition-colors cursor-pointer group ${isSelected ? 'bg-blue-50/20' : ''}`}
                     >
+                      <td className="py-3.5 px-3 text-center" onClick={(e) => toggleSelectLead(lead.id, e)}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
+                        />
+                      </td>
+
                       <td className="py-3.5 px-4">
                         <div className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
                           {lead.customer_name}
@@ -302,6 +439,16 @@ export const LeadsPage: React.FC = () => {
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${stage?.bgColor} ${stage?.color} ${stage?.borderColor}`}
                         >
                           {stage?.label}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <span
+                          title={careInfo.pauseReason || `Hạn chót: ${lead.care_deadline_at ? formatDate(lead.care_deadline_at) : '24h'}`}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${colorClasses}`}
+                        >
+                          <Clock className="h-3 w-3" />
+                          {careInfo.badgeLabel}
                         </span>
                       </td>
 
@@ -494,6 +641,93 @@ export const LeadsPage: React.FC = () => {
             </Button>
             <Button type="submit" variant="primary" size="sm" isLoading={isSubmitting}>
               Lưu Khách Hàng
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 6. MODAL PHÂN BỔ HÀNG LOẠT CHO SALE (MODULE 6 & 7) */}
+      <Modal
+        isOpen={bulkModalOpen}
+        onClose={() => setBulkModalOpen(false)}
+        title={`Phân Bổ Hàng Loạt Cho Sale (${selectedLeadIds.length} Lead)`}
+        description="Giao đồng thời nhiều khách hàng cho chuyên viên tư vấn. Hệ thống tự động gộp 1 email tổng hợp để tránh spam."
+        maxWidth="md"
+      >
+        <form onSubmit={handleBulkAssign} className="space-y-4">
+          {bulkFeedback && (
+            <div className={`p-3 rounded-lg text-xs flex items-center gap-2 ${
+              bulkFeedback.type === 'success' 
+                ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' 
+                : 'bg-rose-50 border border-rose-200 text-rose-800'
+            }`}>
+              {bulkFeedback.type === 'success' ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+              )}
+              <span>{bulkFeedback.text}</span>
+            </div>
+          )}
+
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs space-y-2">
+            <div className="flex justify-between text-slate-600">
+              <span>Số lượng lead phân bổ:</span>
+              <strong className="text-blue-600">{selectedLeadIds.length} khách hàng</strong>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span>Hạn chăm sóc mới:</span>
+              <strong className="text-slate-800">24 giờ liên tục (Wall-clock)</strong>
+            </div>
+            <div className="flex justify-between text-slate-600">
+              <span>Kênh thông báo:</span>
+              <strong className="text-slate-800">Email tổng hợp (Digest) + In-App</strong>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Chọn Chuyên Viên Tư Vấn (Sale) *</label>
+            <select
+              required
+              value={targetSaleId}
+              onChange={(e) => setTargetSaleId(e.target.value)}
+              className="w-full text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-blue-500"
+            >
+              {sales.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.full_name} ({s.email}) {s.on_leave ? '- [Nghỉ phép]' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Sale sẽ nhận được danh sách tổng hợp bảng HTML kèm nút mở nhanh chi tiết từng lead.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Lý do / Chỉ đạo phân bổ</label>
+            <textarea
+              rows={2}
+              value={bulkReason}
+              onChange={(e) => setBulkReason(e.target.value)}
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-300 focus:outline-none focus:border-blue-500"
+              placeholder="Nhập lý do phân bổ hoặc yêu cầu liên hệ ngay..."
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button type="button" variant="outline" size="sm" onClick={() => setBulkModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button 
+              type="submit" 
+              variant="primary" 
+              size="sm" 
+              isLoading={bulkSubmitting}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Send className="h-4 w-4 mr-1.5" />
+              Xác Nhận Phân Bổ & Gửi Email
             </Button>
           </div>
         </form>

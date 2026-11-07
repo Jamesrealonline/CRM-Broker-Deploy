@@ -28,6 +28,9 @@ export interface UserProfile {
   totp_enabled: boolean;
   last_login_at?: string;
   created_at?: string;
+  accepts_leads?: boolean;
+  on_leave?: boolean;
+  email_notifications_enabled?: boolean;
 }
 
 export type LeadStatus = 
@@ -187,6 +190,15 @@ export interface Lead {
   next_follow_up?: string;
   created_at: string;
   updated_at?: string;
+
+  // Module 7: Care Deadline 24h & Auto-transfer
+  care_deadline_at?: string;
+  last_care_updated_at?: string;
+  auto_transfer_count?: number;
+  previous_assigned_sales?: string[];
+  is_exempt_auto_transfer?: boolean;
+  extended_until?: string;
+  extension_reason?: string;
 
   // Joined fields for display
   customer_name?: string;
@@ -417,4 +429,101 @@ export interface AuditLog {
   details?: Record<string, unknown>;
   ip_address?: string;
   created_at: string;
+}
+
+// Module 6 & 7: Lead Assignment History, Notifications & Auto-transfer
+export type AssignmentReason = 
+  | 'new_assign'
+  | 'manual_transfer'
+  | 'auto_overdue'
+  | 'bulk_assign'
+  | 'round_robin'
+  | 'pool_reclaim';
+
+export interface LeadAssignmentHistory {
+  id: string;
+  lead_id: string;
+  from_sale_id?: string;
+  from_sale_name?: string;
+  to_sale_id?: string;
+  to_sale_name?: string;
+  reason: AssignmentReason;
+  transfer_count: number;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+}
+
+export type NotificationEventType =
+  | 'new_assign'
+  | 'lead_transferred'
+  | 'lead_revoked'
+  | 'bulk_assign'
+  | 'overdue_warning'
+  | 'auto_transferred_new'
+  | 'auto_transferred_old'
+  | 'pool_alert';
+
+export interface NotificationLog {
+  id: string;
+  lead_id?: string;
+  recipient_id?: string;
+  recipient_email: string;
+  recipient_name?: string;
+  event_type: NotificationEventType;
+  channel: 'email' | 'in_app' | 'both';
+  title: string;
+  content: string;
+  status: 'pending' | 'sent' | 'failed';
+  retry_count: number;
+  error_message?: string;
+  idempotency_key?: string;
+  sent_at?: string;
+  created_at: string;
+}
+
+export interface AutoTransferConfig {
+  enabled: boolean;
+  deadline_hours: number;       // Mặc định 24 giờ liên tục
+  pre_warning_hours: number;    // Mặc định cảnh báo ở mốc 20 giờ (trước 4 giờ)
+  max_transfer_count: number;   // Mặc định 3 lần
+  stop_clock_statuses: LeadStatus[];
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  priority_same_team: boolean;
+  cc_manager: boolean;
+}
+
+export interface EmailNotificationConfig {
+  enabled: boolean;
+  enable_new_assign: boolean;
+  enable_transfer: boolean;
+  enable_revoke: boolean;
+  enable_overdue_warning: boolean;
+  cc_manager: boolean;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_user?: string;
+  smtp_from_name?: string;
+  smtp_from_email?: string;
+}
+
+export interface AutoTransferScanResult {
+  scannedCount: number;
+  transferredCount: number;
+  warnedCount: number;
+  poolReclaimedCount: number;
+  exemptSkippedCount: number;
+  stopClockSkippedCount: number;
+  details: Array<{
+    leadId: string;
+    customerName: string;
+    action: 'transferred' | 'warned' | 'pool_reclaimed' | 'exempt_skipped' | 'stop_clock_skipped';
+    fromSale?: string;
+    toSale?: string;
+    deadline?: string;
+    remainingHours?: number;
+    reason?: string;
+  }>;
 }

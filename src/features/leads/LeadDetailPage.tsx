@@ -25,15 +25,32 @@ import {
   Award,
   ShieldCheck,
   Check,
-  X
+  X,
+  History,
+  UserCheck,
+  RotateCcw,
+  AlertTriangle,
+  Send
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { leadRepository } from '@/data/repositories/leadRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { contractRepository } from '@/data/repositories/contractRepository';
+import { teamRepository } from '@/data/repositories/teamRepository';
+import { autoTransferService } from '@/domain/services/autoTransferService';
 import { financialCalculationService } from '@/domain/services/financialCalculationService';
 import { aiRepository, AILeadInsightResult } from '@/data/repositories/aiRepository';
-import { Lead, LeadActivity, LeadStatusHistory, LeadStatus, ProjectKnowledge, ProjectCommissionPolicy, Transaction } from '@/domain/types';
+import { 
+  Lead, 
+  LeadActivity, 
+  LeadStatusHistory, 
+  LeadStatus, 
+  ProjectKnowledge, 
+  ProjectCommissionPolicy, 
+  Transaction,
+  LeadAssignmentHistory,
+  UserProfile
+} from '@/domain/types';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -50,17 +67,35 @@ export const LeadDetailPage: React.FC = () => {
   const [lead, setLead] = useState<Lead | null>(null);
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [history, setHistory] = useState<LeadStatusHistory[]>([]);
+  const [assignmentHistory, setAssignmentHistory] = useState<LeadAssignmentHistory[]>([]);
   const [knowledge, setKnowledge] = useState<ProjectKnowledge | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Tab
-  const [activeTab, setActiveTab] = useState<'timeline' | 'activities' | 'ai' | 'deals'>('deals');
+  // Tab (Module 7: thêm assignments)
+  const [activeTab, setActiveTab] = useState<'timeline' | 'activities' | 'ai' | 'deals' | 'assignments'>('deals');
 
   // Customer Deals & Commission
   const [customerDeals, setCustomerDeals] = useState<ReturnType<typeof financialCalculationService.aggregateCustomerDeals> | null>(null);
   const [projectPolicy, setProjectPolicy] = useState<ProjectCommissionPolicy | null>(null);
   const [leadTransactions, setLeadTransactions] = useState<Transaction[]>([]);
   const [isUpdatingMilestone, setIsUpdatingMilestone] = useState(false);
+
+  // Manager Actions State (Module 6 & 7)
+  const [managerSales, setManagerSales] = useState<UserProfile[]>([]);
+  const [reassignModalOpen, setReassignModalOpen] = useState(false);
+  const [reassignSaleId, setReassignSaleId] = useState('');
+  const [reassignReason, setReassignReason] = useState('Quản lý điều chuyển chuyên viên phụ trách');
+  const [reassignLoading, setReassignLoading] = useState(false);
+
+  const [extendModalOpen, setExtendModalOpen] = useState(false);
+  const [extendHours, setExtendHours] = useState(24);
+  const [extendReason, setExtendReason] = useState('Gia hạn thêm thời gian để chuẩn bị tài liệu dự án');
+  const [extendLoading, setExtendLoading] = useState(false);
+
+  const [exemptModalOpen, setExemptModalOpen] = useState(false);
+  const [isExemptVal, setIsExemptVal] = useState(true);
+  const [exemptReason, setExemptReason] = useState('Khách hàng VIP ngoại giao, miễn chuyển tự động');
+  const [exemptLoading, setExemptLoading] = useState(false);
 
   // Modal chuyển trạng thái giao dịch
   const [statusModalOpen, setStatusModalOpen] = useState(false);
@@ -92,17 +127,27 @@ export const LeadDetailPage: React.FC = () => {
         const leadData = await leadRepository.getLeadById(id);
         if (leadData) {
           setLead(leadData);
-          const [actList, histList, knowData, txList, policies] = await Promise.all([
+          setIsExemptVal(Boolean(leadData.is_exempt_auto_transfer));
+          const [actList, histList, knowData, txList, policies, assignHist, profs] = await Promise.all([
             leadRepository.getLeadActivities(id),
             leadRepository.getLeadStatusHistory(id),
             projectRepository.getProjectKnowledge(leadData.project_id),
             contractRepository.getTransactions({ leadId: id }),
             projectRepository.getProjectPolicies(leadData.project_id),
+            leadRepository.getAssignmentHistory(id),
+            teamRepository.getProfiles(),
           ]);
           setActivities(actList);
           setHistory(histList);
+          setAssignmentHistory(assignHist);
           setKnowledge(knowData);
           setLeadTransactions(txList);
+
+          const activeSales = profs.filter(p => (p.role === 'sale_agent' || p.role === 'team_leader') && p.status === 'active');
+          setManagerSales(activeSales);
+          if (activeSales.length > 0 && !reassignSaleId) {
+            setReassignSaleId(activeSales[0].id);
+          }
 
           const activePolicy = policies.find(p => p.is_active) || policies[0];
           setProjectPolicy(activePolicy);
@@ -233,6 +278,64 @@ export const LeadDetailPage: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Module 7: Điều chuyển thủ công
+  const handleManualReassign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lead || !currentUser || !reassignSaleId) return;
+    const targetSale = managerSales.find(s => s.id === reassignSaleId);
+    if (!targetSale) return;
+
+    setReassignLoading(true);
+    const res = await leadRepository.manualReassignLead(lead.id, targetSale, reassignReason, currentUser);
+    setReassignLoading(false);
+
+    if (res.success) {
+      setReassignModalOpen(false);
+      const [updatedLead, updatedHist] = await Promise.all([
+        leadRepository.getLeadById(lead.id),
+        leadRepository.getAssignmentHistory(lead.id),
+      ]);
+      if (updatedLead) setLead(updatedLead);
+      setAssignmentHistory(updatedHist);
+    } else {
+      alert(res.error || 'Điều chuyển thất bại');
+    }
+  };
+
+  // Module 7: Gia hạn hạn chăm sóc
+  const handleExtendDeadline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lead || !currentUser) return;
+    setExtendLoading(true);
+    const ok = await leadRepository.extendCareDeadline(lead.id, extendHours, extendReason, currentUser);
+    setExtendLoading(false);
+
+    if (ok) {
+      setExtendModalOpen(false);
+      const updatedLead = await leadRepository.getLeadById(lead.id);
+      if (updatedLead) setLead(updatedLead);
+    } else {
+      alert('Gia hạn thất bại');
+    }
+  };
+
+  // Module 7: Cấu hình miễn chuyển
+  const handleToggleExempt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lead || !currentUser) return;
+    setExemptLoading(true);
+    const ok = await leadRepository.setLeadExempt(lead.id, isExemptVal, exemptReason, currentUser);
+    setExemptLoading(false);
+
+    if (ok) {
+      setExemptModalOpen(false);
+      const updatedLead = await leadRepository.getLeadById(lead.id);
+      if (updatedLead) setLead(updatedLead);
+    } else {
+      alert('Cập nhật miễn chuyển thất bại');
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -305,6 +408,111 @@ export const LeadDetailPage: React.FC = () => {
           </select>
         </div>
       </div>
+
+      {/* 1.5 BANNER ĐẾM NGƯỢC 24H LIÊN TỤC & ĐIỀU CHUYỂN TỰ ĐỘNG (MODULE 7) */}
+      {(() => {
+        const care = autoTransferService.getCareRemainingHours(lead);
+        const isManager = ['admin', 'director', 'sales_manager', 'team_leader'].includes(currentUser?.role || '');
+
+        const styleMap = {
+          green: {
+            bg: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+            badge: 'bg-emerald-600 text-white',
+            border: 'border-emerald-300',
+            icon: <Clock className="h-5 w-5 text-emerald-600 shrink-0" />,
+          },
+          yellow: {
+            bg: 'bg-amber-50 border-amber-200 text-amber-900',
+            badge: 'bg-amber-600 text-white',
+            border: 'border-amber-300',
+            icon: <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />,
+          },
+          red: {
+            bg: 'bg-rose-50 border-rose-200 text-rose-900',
+            badge: 'bg-rose-600 text-white animate-pulse',
+            border: 'border-rose-300',
+            icon: <AlertCircle className="h-5 w-5 text-rose-600 shrink-0" />,
+          },
+          gray: {
+            bg: 'bg-slate-50 border-slate-200 text-slate-800',
+            badge: 'bg-slate-500 text-white',
+            border: 'border-slate-300',
+            icon: <Clock className="h-5 w-5 text-slate-400 shrink-0" />,
+          },
+        }[care.badgeColor];
+
+        return (
+          <div className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-sm ${styleMap.bg}`}>
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-white rounded-lg border shadow-xs mt-0.5">
+                {styleMap.icon}
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-sm">
+                    {care.isPaused ? 'Đồng hồ chăm sóc: Tạm dừng' : `Hạn chót chăm sóc: ${care.badgeLabel}`}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${styleMap.badge}`}>
+                    {care.badgeColor === 'red' ? 'Cần Xử Lý Ngay' : care.badgeColor === 'yellow' ? 'Sắp Hết Hạn' : care.badgeColor === 'green' ? 'Đúng Tiến Độ' : 'Tạm Dừng'}
+                  </span>
+                  {lead.auto_transfer_count ? (
+                    <span className="text-[11px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200">
+                      Đã chuyển: {lead.auto_transfer_count}/3 lần
+                    </span>
+                  ) : null}
+                  {lead.is_exempt_auto_transfer && (
+                    <span className="text-[11px] font-semibold text-purple-700 bg-purple-100 px-2 py-0.5 rounded border border-purple-200">
+                      Miễn chuyển tự động
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs opacity-90">
+                  {care.isPaused
+                    ? (care.pauseReason || 'Đồng hồ dừng do lead ở trạng thái đặc biệt hoặc đã có lịch hẹn chăm sóc')
+                    : care.isOverdue
+                    ? `Lead đã quá hạn 24h liên tục. Hệ thống sẽ tự động chuyển cho Sale tiếp theo nếu chưa có ghi nhận chăm sóc.`
+                    : `Hạn chót cập nhật: ${lead.care_deadline_at ? formatDate(lead.care_deadline_at) : '24 giờ từ khi nhận'}. Bất kỳ tương tác (cuộc gọi, ghi chú) hoặc đổi trạng thái sẽ gia hạn thêm 24h.`}
+                </p>
+              </div>
+            </div>
+
+            {isManager && (
+              <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-200">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReassignModalOpen(true)}
+                  className="bg-white hover:bg-slate-50 text-xs shadow-xs"
+                >
+                  <UserCheck className="h-3.5 w-3.5 mr-1 text-blue-600" />
+                  Điều chuyển Sale
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setExtendModalOpen(true)}
+                  className="bg-white hover:bg-slate-50 text-xs shadow-xs"
+                >
+                  <Clock className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                  Gia hạn 24h
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setIsExemptVal(!lead.is_exempt_auto_transfer);
+                    setExemptModalOpen(true);
+                  }}
+                  className="bg-white hover:bg-slate-50 text-xs shadow-xs"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1 text-purple-600" />
+                  {lead.is_exempt_auto_transfer ? 'Bỏ miễn chuyển' : 'Miễn chuyển'}
+                </Button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 2. MAIN GRID (LEFT: INFO PROFILE, RIGHT: TABS TIMELINE / AI) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -434,6 +642,18 @@ export const LeadDetailPage: React.FC = () => {
             >
               <Clock className="h-4 w-4 text-slate-500" />
               Lịch Sử Chuyển Trạng Thái ({history.length})
+            </button>
+
+            <button
+              onClick={() => setActiveTab('assignments')}
+              className={`pb-3 flex items-center gap-1.5 transition-colors border-b-2 ${
+                activeTab === 'assignments'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <History className="h-4 w-4 text-slate-500" />
+              Lịch Sử Điều Chuyển ({assignmentHistory.length})
             </button>
           </div>
 
@@ -838,6 +1058,81 @@ export const LeadDetailPage: React.FC = () => {
               </div>
             </Card>
           )}
+
+          {/* TAB 4: LỊCH SỬ ĐIỀU CHUYỂN PHỤ TRÁCH LEAD (MODULE 6 & 7) */}
+          {activeTab === 'assignments' && (
+            <Card className="p-5">
+              <CardHeader className="px-0 pt-0">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <History className="h-4 w-4 text-blue-600" />
+                  Nhật Ký Điều Chuyển Phụ Trách & Phân Bổ Lead
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  Ghi nhận toàn bộ các lần phân bổ ban đầu, điều chuyển tự động do quá hạn 24h, phân bổ hàng loạt hoặc thay đổi thủ công.
+                </p>
+              </CardHeader>
+
+              {assignmentHistory.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs">
+                  Chưa có lịch sử điều chuyển nào cho Lead này.
+                </div>
+              ) : (
+                <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                  {assignmentHistory.map((item, idx) => {
+                    const reasonMap: Record<string, { label: string; color: string }> = {
+                      new_assign: { label: 'Khởi tạo & Giao mới', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                      round_robin: { label: 'Xoay vòng Round-Robin', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+                      auto_overdue: { label: 'Tự động chuyển do quá hạn 24h', color: 'bg-rose-50 text-rose-700 border-rose-200' },
+                      manual_transfer: { label: 'Quản lý điều chuyển thủ công', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+                      bulk_assign: { label: 'Phân bổ hàng loạt (Digest)', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+                      pool_reclaim: { label: 'Thu hồi về Kho lead chung', color: 'bg-slate-100 text-slate-700 border-slate-300' },
+                    };
+
+                    const rInfo = reasonMap[item.reason] || { label: item.reason, color: 'bg-slate-50 text-slate-700 border-slate-200' };
+
+                    return (
+                      <div key={item.id || idx} className="relative">
+                        <div className="absolute -left-6 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white bg-blue-600 shadow-xs" />
+                        <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${rInfo.color}`}>
+                                {rInfo.label}
+                              </span>
+                              {item.transfer_count ? (
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                  (Lần chuyển thứ {item.transfer_count})
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              {formatDate(item.created_at)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 font-medium text-slate-800">
+                            <span className="text-slate-500">{item.from_sale_name || 'Hệ thống / Kho chung'}</span>
+                            <span className="text-blue-500 font-bold">➔</span>
+                            <span className="text-blue-700 font-bold">{item.to_sale_name || 'Kho lead chung'}</span>
+                          </div>
+
+                          {item.notes && (
+                            <p className="text-slate-600 text-[11px] bg-white p-2 rounded border border-slate-200/80">
+                              {item.notes}
+                            </p>
+                          )}
+
+                          <div className="text-[10px] text-slate-400">
+                            Thực hiện bởi: <span className="font-medium text-slate-600">{item.created_by || 'Hệ thống'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          )}
         </div>
       </div>
 
@@ -997,6 +1292,150 @@ export const LeadDetailPage: React.FC = () => {
             </Button>
             <Button type="submit" variant="primary" size="sm">
               Lưu hoạt động
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 5. MODAL ĐIỀU CHUYỂN SALE THỦ CÔNG (MODULE 7) */}
+      <Modal
+        isOpen={reassignModalOpen}
+        onClose={() => setReassignModalOpen(false)}
+        title="Điều Chuyển Chuyên Viên Phụ Trách (Sale)"
+        description="Giao Lead này cho Sale khác. Hệ thống sẽ reset đồng hồ 24h, ghi nhận lịch sử và gửi thông báo email."
+        maxWidth="md"
+      >
+        <form onSubmit={handleManualReassign} className="space-y-4">
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Chọn Chuyên Viên Nhận Lead *</label>
+            <select
+              required
+              value={reassignSaleId}
+              onChange={(e) => setReassignSaleId(e.target.value)}
+              className="w-full text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white"
+            >
+              {managerSales.map((s) => (
+                <option key={s.id} value={s.id} disabled={s.id === lead.assigned_to}>
+                  {s.full_name} ({s.email}) {s.id === lead.assigned_to ? '(Đang phụ trách)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Lý do điều chuyển *</label>
+            <textarea
+              rows={2}
+              required
+              value={reassignReason}
+              onChange={(e) => setReassignReason(e.target.value)}
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-300"
+              placeholder="Nhập lý do điều chuyển phụ trách..."
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button type="button" variant="outline" size="sm" onClick={() => setReassignModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button type="submit" variant="primary" size="sm" isLoading={reassignLoading} className="bg-blue-600 hover:bg-blue-700">
+              <Send className="h-4 w-4 mr-1.5" />
+              Xác Nhận & Gửi Email
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 6. MODAL GIA HẠN THỜI GIAN CHĂM SÓC 24H */}
+      <Modal
+        isOpen={extendModalOpen}
+        onClose={() => setExtendModalOpen(false)}
+        title="Gia Hạn Đồng Hồ Chăm Sóc Lead"
+        description="Cộng thêm thời gian vào hạn chót của Sale hiện tại mà không chuyển Lead sang người khác."
+        maxWidth="md"
+      >
+        <form onSubmit={handleExtendDeadline} className="space-y-4">
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Số giờ gia hạn thêm *</label>
+            <select
+              value={extendHours}
+              onChange={(e) => setExtendHours(Number(e.target.value))}
+              className="w-full text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white"
+            >
+              <option value={12}>+12 giờ</option>
+              <option value={24}>+24 giờ (1 ngày)</option>
+              <option value={48}>+48 giờ (2 ngày)</option>
+              <option value={72}>+72 giờ (3 ngày)</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Lý do gia hạn *</label>
+            <textarea
+              rows={2}
+              required
+              value={extendReason}
+              onChange={(e) => setExtendReason(e.target.value)}
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-300"
+              placeholder="Ví dụ: Khách đang đi công tác, hẹn thứ 2 phản hồi..."
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button type="button" variant="outline" size="sm" onClick={() => setExtendModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button type="submit" variant="primary" size="sm" isLoading={extendLoading} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Clock className="h-4 w-4 mr-1.5" />
+              Xác Nhận Gia Hạn
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 7. MODAL CẤU HÌNH MIỄN CHUYỂN TỰ ĐỘNG */}
+      <Modal
+        isOpen={exemptModalOpen}
+        onClose={() => setExemptModalOpen(false)}
+        title="Cấu Hình Miễn Chuyển Tự Động"
+        description="Khi bật miễn chuyển, hệ thống sẽ KHÔNG tự động chuyển Lead này sang Sale khác kể cả khi quá hạn 24h."
+        maxWidth="md"
+      >
+        <form onSubmit={handleToggleExempt} className="space-y-4">
+          <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg text-xs space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer font-bold text-purple-900">
+              <input
+                type="checkbox"
+                checked={isExemptVal}
+                onChange={(e) => setIsExemptVal(e.target.checked)}
+                className="h-4 w-4 rounded border-purple-300 text-purple-600 focus:ring-purple-500"
+              />
+              <span>Kích hoạt quyền miễn chuyển tự động cho Lead này</span>
+            </label>
+            <p className="text-[11px] text-purple-700 font-normal">
+              Thích hợp cho Lead VIP, người thân, quan hệ ngoại giao chỉ định đích danh Sale chăm sóc.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Lý do cấu hình *</label>
+            <textarea
+              rows={2}
+              required
+              value={exemptReason}
+              onChange={(e) => setExemptReason(e.target.value)}
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-300"
+              placeholder="Nhập lý do miễn chuyển..."
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button type="button" variant="outline" size="sm" onClick={() => setExemptModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button type="submit" variant="primary" size="sm" isLoading={exemptLoading} className="bg-purple-600 hover:bg-purple-700 text-white">
+              <ShieldCheck className="h-4 w-4 mr-1.5" />
+              Lưu Cấu Hình
             </Button>
           </div>
         </form>
