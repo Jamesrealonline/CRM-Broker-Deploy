@@ -502,8 +502,8 @@ export interface EmailNotificationConfig {
   enable_revoke: boolean;
   enable_overdue_warning: boolean;
   cc_manager: boolean;
-  dispatch_mode?: 'client_direct' | 'server_smtp' | 'resend_api'; // Chế độ: trực tiếp 1-click từ máy hoặc chạy ngầm server
-  provider?: 'gmail_smtp' | 'resend' | 'custom_smtp';
+  dispatch_mode?: 'client_direct' | 'google_apps_script' | 'resend_api' | 'server_smtp'; // Chế độ: trực tiếp 1-click từ máy hoặc chạy ngầm server
+  provider?: 'gmail_smtp' | 'resend' | 'google_apps_script' | 'custom_smtp';
   smtp_host?: string;
   smtp_port?: number;
   smtp_user?: string;
@@ -511,6 +511,7 @@ export interface EmailNotificationConfig {
   smtp_from_name?: string;
   smtp_from_email?: string;
   resend_api_key?: string;      // API Key Resend (nếu dùng)
+  google_apps_script_url?: string; // Webhook URL từ script.google.com (miễn phí, không cần App Password)
 }
 
 export interface AutoTransferScanResult {

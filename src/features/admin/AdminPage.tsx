@@ -41,7 +41,8 @@ import {
   Key,
   ExternalLink,
   Sparkles,
-  MessageSquare
+  MessageSquare,
+  Copy
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
@@ -101,6 +102,7 @@ export const AdminPage: React.FC = () => {
   const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showAppPassGuide, setShowAppPassGuide] = useState(false);
+  const [copiedGasCode, setCopiedGasCode] = useState(false);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -1178,7 +1180,7 @@ export const AdminPage: React.FC = () => {
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
                       Chọn Phương Thức Gửi Thông Báo Ưu Tiên:
                     </label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                       <button
                         type="button"
                         onClick={() => setEmailConfig({ ...emailConfig, dispatch_mode: 'client_direct' })}
@@ -1193,7 +1195,25 @@ export const AdminPage: React.FC = () => {
                           1-Click Gmail & Zalo
                         </div>
                         <div className="text-[10px] text-slate-600 leading-tight">
-                          Khuyên dùng! Mở trực tiếp từ máy, không cần mật khẩu ứng dụng, không bị Google chặn.
+                          Khuyên dùng khi có người thao tác! Mở sẵn Gmail/Zalo, không cần cài đặt mật khẩu.
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEmailConfig({ ...emailConfig, dispatch_mode: 'google_apps_script', provider: 'google_apps_script' })}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          emailConfig.dispatch_mode === 'google_apps_script'
+                            ? 'border-indigo-600 bg-indigo-50/70 font-semibold text-indigo-950 shadow-sm ring-1 ring-indigo-500'
+                            : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 text-xs text-indigo-800 font-bold mb-1">
+                          <Send className="h-3.5 w-3.5 text-indigo-600" />
+                          Google Apps Script (Tự Động)
+                        </div>
+                        <div className="text-[10px] text-slate-600 leading-tight">
+                          Tự động đảo lead 24/7 bằng chính Gmail miễn phí. Không cần App Password, không bao giờ bị chặn!
                         </div>
                       </button>
 
@@ -1211,7 +1231,7 @@ export const AdminPage: React.FC = () => {
                           Resend API (Tự Động)
                         </div>
                         <div className="text-[10px] text-slate-600 leading-tight">
-                          Miễn phí 3.000 email/tháng, chỉ cần 1 API key, chạy tự động trên máy chủ.
+                          Miễn phí 3.000 email/tháng, chỉ cần 1 API key, chạy ngầm tự động 100%.
                         </div>
                       </button>
 
@@ -1229,7 +1249,7 @@ export const AdminPage: React.FC = () => {
                           Gmail SMTP Server
                         </div>
                         <div className="text-[10px] text-slate-600 leading-tight">
-                          Cần tạo Google App Password 16 ký tự trên tài khoản cá nhân.
+                          Dành cho tài khoản cá nhân có thể tạo Google App Password 16 ký tự.
                         </div>
                       </button>
                     </div>
@@ -1248,6 +1268,78 @@ export const AdminPage: React.FC = () => {
                       👉 <strong>Giải pháp tức thì:</strong> Hãy sử dụng chế độ <strong>"1-Click Gmail & Zalo"</strong> bên trên! Mỗi khi bạn phân bổ hoặc điều chuyển lead, CRM sẽ mở sẵn tab Gmail hoặc Zalo với nội dung điền sẵn 100%, bạn chỉ cần bấm "Gửi" ngay từ máy của mình.
                     </p>
                   </div>
+
+                  {/* Fields for Google Apps Script Webhook (Chạy ngầm tự động 24/7 bằng chính Gmail miễn phí) */}
+                  {emailConfig.dispatch_mode === 'google_apps_script' && (
+                    <div className="space-y-3 pt-1">
+                      <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-950 text-[11px] space-y-2">
+                        <div className="font-bold flex items-center justify-between text-indigo-900">
+                          <span className="flex items-center gap-1.5">
+                            <Sparkles className="h-4 w-4 text-indigo-600" />
+                            Cách Kết Nối Gmail Tự Động 24/7 Bằng Google Apps Script (3 Bước Miễn Phí 100%):
+                          </span>
+                          <a
+                            href="https://script.google.com"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:text-indigo-900 underline"
+                          >
+                            Mở script.google.com <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
+                        <ol className="list-decimal pl-4 space-y-1 leading-relaxed text-indigo-900/90">
+                          <li>Truy cập <strong>script.google.com</strong> bằng tài khoản Gmail của bạn $\rightarrow$ Nhấn nút <strong>"Dự án mới" (New project)</strong>.</li>
+                          <li>
+                            Xóa hết mã có sẵn và dán đoạn mã bên dưới vào:
+                            <div className="relative mt-1">
+                              <pre className="p-2.5 bg-slate-900 text-slate-100 rounded font-mono text-[10px] overflow-x-auto">
+{`function doPost(e) {
+  var data = JSON.parse(e.postData.contents);
+  MailApp.sendEmail({
+    to: data.to,
+    subject: data.subject,
+    htmlBody: data.html
+  });
+  return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+}`}
+                              </pre>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(`function doPost(e) {\n  var data = JSON.parse(e.postData.contents);\n  MailApp.sendEmail({\n    to: data.to,\n    subject: data.subject,\n    htmlBody: data.html\n  });\n  return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);\n}`);
+                                  setCopiedGasCode(true);
+                                  setTimeout(() => setCopiedGasCode(false), 2000);
+                                }}
+                                className="absolute right-2 top-2 px-2 py-1 bg-white/20 hover:bg-white/30 text-white rounded text-[10px] font-semibold flex items-center gap-1 backdrop-blur"
+                              >
+                                {copiedGasCode ? <CheckCircle2 className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                                {copiedGasCode ? 'Đã copy code!' : 'Copy Mã Script'}
+                              </button>
+                            </div>
+                          </li>
+                          <li>
+                            Nhấn <strong>Triển khai (Deploy)</strong> $\rightarrow$ <strong>Triển khai mới (New deployment)</strong> $\rightarrow$ Chọn loại <strong>Ứng dụng web (Web app)</strong> $\rightarrow$ Ở mục <em>"Ai có quyền truy cập" (Who has access)</em>, chọn <strong>"Bất kỳ ai" (Anyone)</strong> $\rightarrow$ Nhấn <strong>Triển khai</strong> và sao chép <strong>URL ứng dụng web</strong> dán vào ô bên dưới.
+                          </li>
+                        </ol>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          URL Webhook Google Apps Script (Web app URL):
+                        </label>
+                        <input
+                          type="url"
+                          value={emailConfig.google_apps_script_url || ''}
+                          onChange={(e) => setEmailConfig({ ...emailConfig, google_apps_script_url: e.target.value })}
+                          placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none bg-white font-mono"
+                        />
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          * Tự động gửi email qua chính Gmail của bạn kể cả lúc nửa đêm khi lead quá hạn 24h mà không cần mở máy!
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Fields for Gmail SMTP */}
                   {emailConfig.dispatch_mode === 'server_smtp' && (

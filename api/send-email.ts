@@ -29,8 +29,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const smtpUser = config?.smtp_user || process.env.GMAIL_SMTP_USER;
     const smtpPass = config?.smtp_pass || process.env.GMAIL_SMTP_PASS;
     const resendApiKey = config?.resend_api_key || process.env.RESEND_API_KEY;
+    const googleAppsScriptUrl = config?.google_apps_script_url || process.env.GOOGLE_APPS_SCRIPT_URL;
 
-    // 1. GỬI QUA RESEND API NẾU ĐƯỢC CHỌN
+    // 1. GỬI QUA GOOGLE APPS SCRIPT WEBHOOK (MIỄN PHÍ CỦA GOOGLE, TỰ ĐỘNG CHẠY NGẦM, KHÔNG CẦN APP PASSWORD)
+    if (provider === 'google_apps_script' || (googleAppsScriptUrl && !smtpPass && !resendApiKey)) {
+      if (!googleAppsScriptUrl) {
+        return res.status(400).json({
+          success: false,
+          error: 'Chưa cấu hình URL Google Apps Script Webhook. Vui lòng thiết lập trong Cấu hình Quản trị.',
+        });
+      }
+
+      const gasRes = await fetch(googleAppsScriptUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to,
+          subject,
+          html,
+          cc,
+          fromName: fromName || 'CRM Bất Động Sản',
+        }),
+      });
+
+      if (!gasRes.ok) {
+        const gasErr = await gasRes.text();
+        return res.status(400).json({
+          success: false,
+          error: `Google Apps Script trả lời lỗi: ${gasErr.slice(0, 200)}`,
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        provider: 'google_apps_script',
+      });
+    }
+
+    // 2. GỬI QUA RESEND API NẾU ĐƯỢC CHỌN
     if (provider === 'resend' || (resendApiKey && !smtpPass)) {
       if (!resendApiKey) {
         return res.status(400).json({

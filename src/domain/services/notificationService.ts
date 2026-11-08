@@ -491,14 +491,14 @@ ${leadListPlain}
     let attempts = 0;
     const maxRetries = 3;
     const config = await this.getEmailConfig();
-    const hasLiveCredentials = (config.smtp_user && config.smtp_pass) || config.resend_api_key;
+    const hasLiveCredentials = (config.smtp_user && config.smtp_pass) || config.resend_api_key || config.google_apps_script_url;
 
     while (attempts < maxRetries) {
       try {
         attempts++;
         console.log(`[NotificationService] Đang gửi email "${log.title}" tới ${log.recipient_email} (Lần thử ${attempts}/${maxRetries})...`);
 
-        // Nếu đã cấu hình tài khoản Gmail hoặc Resend, gọi API serverless thực để gửi ra ngoài
+        // Nếu đã cấu hình tài khoản Gmail, Apps Script hoặc Resend, gọi API serverless thực để gửi ra ngoài
         if (hasLiveCredentials && typeof window !== 'undefined') {
           const res = await fetch('/api/send-email', {
             method: 'POST',
@@ -510,12 +510,13 @@ ${leadListPlain}
               fromName: config.smtp_from_name || 'CRM Bất Động Sản',
               fromEmail: config.smtp_from_email || config.smtp_user,
               config: {
-                provider: config.provider || 'gmail_smtp',
+                provider: config.provider || (config.google_apps_script_url ? 'google_apps_script' : 'gmail_smtp'),
                 smtp_host: config.smtp_host || 'smtp.gmail.com',
                 smtp_port: config.smtp_port || 465,
                 smtp_user: config.smtp_user,
                 smtp_pass: config.smtp_pass,
                 resend_api_key: config.resend_api_key,
+                google_apps_script_url: config.google_apps_script_url,
               },
             }),
           });
@@ -557,10 +558,10 @@ ${leadListPlain}
   async sendTestEmail(targetEmail: string): Promise<{ success: boolean; error?: string }> {
     const config = await this.getEmailConfig();
     if (!config.smtp_user || !config.smtp_pass) {
-      if (!config.resend_api_key) {
+      if (!config.resend_api_key && !config.google_apps_script_url) {
         return { 
           success: false, 
-          error: 'Vui lòng điền Email Gmail và Mật khẩu ứng dụng 16 ký tự (App Password) trước khi gửi thử.' 
+          error: 'Vui lòng điền URL Google Apps Script Webhook, Resend API hoặc Mật khẩu ứng dụng trước khi gửi thử.' 
         };
       }
     }
@@ -580,8 +581,8 @@ ${leadListPlain}
               </div>
               <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; font-size: 13px; line-height: 1.6; color: #334155;">
                 <p style="margin: 0 0 8px 0;">Xin chào,</p>
-                <p style="margin: 0 0 8px 0;">Email này được gửi thử từ hệ thống CRM Broker qua tài khoản gửi: <strong>${config.smtp_user || 'Hệ thống'}</strong>.</p>
-                <p style="margin: 0;">Cấu hình Gmail SMTP đã hoạt động chính xác. Từ bây giờ các Sale sẽ nhận được email ngay khi được phân bổ hoặc điều chuyển lead mới!</p>
+                <p style="margin: 0 0 8px 0;">Email này được gửi thử từ hệ thống CRM Broker qua tài khoản gửi: <strong>${config.smtp_user || config.smtp_from_email || 'Google Apps Script / Resend'}</strong>.</p>
+                <p style="margin: 0;">Cấu hình cổng gửi email đã hoạt động chính xác. Từ bây giờ các Sale sẽ nhận được email ngay cả khi hệ thống tự động đảo lead lúc nửa đêm!</p>
               </div>
               <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center;">
                 Thời gian gửi: ${new Date().toLocaleString('vi-VN')}
@@ -591,12 +592,13 @@ ${leadListPlain}
           fromName: config.smtp_from_name || 'CRM Bất Động Sản',
           fromEmail: config.smtp_from_email || config.smtp_user,
           config: {
-            provider: config.provider || 'gmail_smtp',
+            provider: config.provider || (config.google_apps_script_url ? 'google_apps_script' : 'gmail_smtp'),
             smtp_host: config.smtp_host || 'smtp.gmail.com',
             smtp_port: config.smtp_port || 465,
             smtp_user: config.smtp_user,
             smtp_pass: config.smtp_pass,
             resend_api_key: config.resend_api_key,
+            google_apps_script_url: config.google_apps_script_url,
           },
         }),
       });
