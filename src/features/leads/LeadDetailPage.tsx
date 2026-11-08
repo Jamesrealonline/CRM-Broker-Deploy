@@ -103,6 +103,7 @@ export const LeadDetailPage: React.FC = () => {
   const [targetStatus, setTargetStatus] = useState<LeadStatus>('contacted');
   const [txCode, setTxCode] = useState('');
   const [txAmount, setTxAmount] = useState('50000000');
+  const [unitCode, setUnitCode] = useState('');
   const [txDate, setTxDate] = useState(new Date().toISOString().slice(0, 10));
   const [statusNotes, setStatusNotes] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
@@ -211,6 +212,7 @@ export const LeadDetailPage: React.FC = () => {
   const handleOpenStatusChange = (status: LeadStatus) => {
     setTargetStatus(status);
     setStatusError(null);
+    setUnitCode('');
     if (status === 'booking') {
       setTxCode(`BK-${Date.now().toString().slice(-6)}`);
       setTxAmount('50000000');
@@ -236,6 +238,7 @@ export const LeadDetailPage: React.FC = () => {
       currentUser,
       txCode,
       txAmount: Number(txAmount),
+      unitCode,
       txDate,
       notes: statusNotes,
     });
@@ -1150,6 +1153,18 @@ export const LeadDetailPage: React.FC = () => {
           {statusError && (
             <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs">
               {statusError}
+            </div>
+          )}
+
+          {['booking', 'deposit', 'contract'].includes(targetStatus) && (
+            <div className="space-y-1">
+              <Input
+                label="Mã căn hộ / sản phẩm *"
+                required
+                value={unitCode}
+                onChange={(e) => setUnitCode(e.target.value)}
+                placeholder="Ví dụ: A-12.04"
+              />
             </div>
           )}
 

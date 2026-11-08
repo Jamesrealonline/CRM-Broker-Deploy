@@ -18,6 +18,7 @@ import { normalizePhone } from '@/lib/utils';
 import { INITIAL_PROJECTS, INITIAL_AGENCIES, INITIAL_TEAMS } from '../mockData';
 import { notificationService } from '@/domain/services/notificationService';
 import { autoTransferService } from '@/domain/services/autoTransferService';
+import { findTransitionRule, STOP_CLOCK_STATUSES } from '@/domain/leadTransitions';
 
 const STORAGE_KEY_LEADS = 'crm_leads';
 const STORAGE_KEY_CUSTOMERS = 'crm_customers';
@@ -399,11 +400,14 @@ export class LeadRepository {
 
   // 4.1 CẬP NHẬT THÔNG TIN LEAD (Ghi chú, Chân dung, Điểm số, Hành động tiếp theo)
   async updateLead(leadId: string, updates: Partial<Lead>): Promise<{ success: boolean; lead?: Lead; error?: string }> {
-    const isCareUpdate = updates.notes !== undefined || 
-                         updates.lead_score !== undefined || 
-                         updates.purpose !== undefined || 
-                         updates.preferred_property_type !== undefined ||
-                         updates.next_follow_up !== undefined;
+    // Không cho phép cập nhật trực tiếp cột status - bắt buộc thông qua RPC change_lead_status
+    const { status: _ignoredStatus, ...sanitizedUpdates } = updates;
+
+    const isCareUpdate = sanitizedUpdates.notes !== undefined || 
+                         sanitizedUpdates.lead_score !== undefined || 
+                         sanitizedUpdates.purpose !== undefined || 
+                         sanitizedUpdates.preferred_property_type !== undefined ||
+                         sanitizedUpdates.next_follow_up !== undefined;
 
     const nowIso = new Date().toISOString();
     const newDeadline = isCareUpdate ? autoTransferService.computeCareDeadline(nowIso, 24) : undefined;
@@ -412,14 +416,14 @@ export class LeadRepository {
       const payload: any = {
         updated_at: nowIso,
       };
-      if (updates.notes !== undefined) payload.notes = updates.notes;
-      if (updates.lead_score !== undefined) payload.lead_score = updates.lead_score;
-      if (updates.purpose !== undefined) payload.purpose = updates.purpose;
-      if (updates.preferred_property_type !== undefined) payload.preferred_property_type = updates.preferred_property_type;
-      if (updates.budget_min !== undefined) payload.budget_min = updates.budget_min;
-      if (updates.budget_max !== undefined) payload.budget_max = updates.budget_max;
-      if (updates.next_follow_up !== undefined) payload.next_follow_up = updates.next_follow_up;
-      if (updates.last_action_at !== undefined) payload.last_action_at = updates.last_action_at;
+      if (sanitizedUpdates.notes !== undefined) payload.notes = sanitizedUpdates.notes;
+      if (sanitizedUpdates.lead_score !== undefined) payload.lead_score = sanitizedUpdates.lead_score;
+      if (sanitizedUpdates.purpose !== undefined) payload.purpose = sanitizedUpdates.purpose;
+      if (sanitizedUpdates.preferred_property_type !== undefined) payload.preferred_property_type = sanitizedUpdates.preferred_property_type;
+      if (sanitizedUpdates.budget_min !== undefined) payload.budget_min = sanitizedUpdates.budget_min;
+      if (sanitizedUpdates.budget_max !== undefined) payload.budget_max = sanitizedUpdates.budget_max;
+      if (sanitizedUpdates.next_follow_up !== undefined) payload.next_follow_up = sanitizedUpdates.next_follow_up;
+      if (sanitizedUpdates.last_action_at !== undefined) payload.last_action_at = sanitizedUpdates.last_action_at;
 
       if (isCareUpdate) {
         payload.last_care_updated_at = nowIso;
@@ -457,9 +461,9 @@ export class LeadRepository {
 
     const updatedLead: Lead = {
       ...leads[idx],
-      ...updates,
+      ...sanitizedUpdates,
       updated_at: nowIso,
-      last_action_at: updates.last_action_at || nowIso,
+      last_action_at: sanitizedUpdates.last_action_at || nowIso,
       ...(isCareUpdate ? { last_care_updated_at: nowIso, care_deadline_at: newDeadline } : {}),
     };
 
@@ -468,7 +472,7 @@ export class LeadRepository {
     return { success: true, lead: updatedLead };
   }
 
-  // 5. CẬP NHẬT TRẠNG THÁI CUSTOMER JOURNEY KÈM GIAO DỊCH BẮT BUỘC (RPC RULE)
+  // 5. CẬP NHẬT TRẠNG THÁI CUSTOMER JOURNEY KÈM GIAO DỊCH BẮT BUỘC (RPC change_lead_status)
   async updateLeadStageWithTransaction(payload: {
     leadId: string;
     newStatus: LeadStatus;
@@ -477,57 +481,131 @@ export class LeadRepository {
     txAmount?: number;
     txDate?: string;
     notes?: string;
+    unitCode?: string;
+    dealValue?: number;
+    contractCode?: string;
   }): Promise<{ success: boolean; error?: string }> {
-    // Kiểm tra quy tắc nghiệp vụ: Booking, Cọc, HĐMB bắt buộc có thông tin giao dịch
-    if (payload.newStatus === 'booking') {
-      if (!payload.txCode || !payload.txCode.trim()) {
-        return { success: false, error: 'Mã Booking là bắt buộc khi chuyển sang trạng thái Booking giữ chỗ!' };
-      }
-    } else if (payload.newStatus === 'deposit') {
-      if (!payload.txAmount || payload.txAmount <= 0) {
-        return { success: false, error: 'Số tiền đặt cọc hợp lệ (> 0) là bắt buộc khi chuyển sang trạng thái Đặt cọc!' };
-      }
-    } else if (payload.newStatus === 'contract') {
-      if (!payload.txCode || !payload.txCode.trim()) {
-        return { success: false, error: 'Mã hợp đồng (HĐMB) là bắt buộc khi chuyển sang trạng thái Ký HĐMB!' };
-      }
-    }
-
     const nowIso = new Date().toISOString();
-    const newDeadline = autoTransferService.computeCareDeadline(nowIso, 24);
 
     if (isLiveSupabaseConfigured) {
-      const { data, error } = await supabase.rpc('update_lead_stage_with_transaction', {
+      const { data, error } = await supabase.rpc('change_lead_status', {
         p_lead_id: payload.leadId,
-        p_new_status: payload.newStatus,
-        p_tx_code: payload.txCode || null,
-        p_tx_amount: payload.txAmount || null,
-        p_tx_date: payload.txDate || null,
-        p_notes: payload.notes || null,
+        p_to_status: payload.newStatus,
+        p_payload: {
+          amount: payload.txAmount,
+          deal_value: payload.dealValue || payload.txAmount,
+          code: payload.txCode,
+          receipt_code: payload.txCode,
+          contract_code: payload.contractCode || (payload.newStatus === 'contract' ? payload.txCode : undefined),
+          unit_code: payload.unitCode,
+          notes: payload.notes,
+          user_id: payload.currentUser.id,
+        },
       });
 
       if (error) return { success: false, error: error.message };
-      if (!data.success) return { success: false, error: data.message };
-
-      // Cập nhật reset hạn chăm sóc 24h
-      await supabase
-        .from('leads')
-        .update({
-          last_care_updated_at: nowIso,
-          care_deadline_at: newDeadline,
-        })
-        .eq('id', payload.leadId);
+      if (data && !data.success) return { success: false, error: data.message || 'Cập nhật trạng thái thất bại.' };
 
       return { success: true };
     }
 
-    // Local Storage Mock logic
+    // Local Storage Mock logic (Mô phỏng 100% quy tắc kiểm tra của RPC DB)
     this.ensureInitialized();
     const leads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
     const leadIdx = leads.findIndex(l => l.id === payload.leadId);
     if (leadIdx === -1) return { success: false, error: 'Không tìm thấy Lead.' };
 
-    const oldStatus = leads[leadIdx].status;
+    const lead = leads[leadIdx];
+    const oldStatus = lead.status;
+
+    // 1. Trạng thái không thay đổi -> Thành công
+    if (oldStatus === payload.newStatus) {
+      return { success: true };
+    }
+
+    // 2. Kiểm tra ràng buộc tài chính bắt buộc trước (Financial Milestones Validation)
+    const isFinancialStage = ['booking', 'deposit', 'contract'].includes(payload.newStatus);
+    const resolvedUnitCode = payload.unitCode !== undefined 
+      ? payload.unitCode.trim() 
+      : (payload.txCode ? 'A-01.01' : '');
+
+    if (isFinancialStage) {
+      if (payload.newStatus === 'booking') {
+        if (!payload.txCode || !payload.txCode.trim()) {
+          return { success: false, error: 'Mã Booking là bắt buộc khi chuyển sang trạng thái Booking giữ chỗ!' };
+        }
+      }
+
+      if (payload.newStatus === 'deposit') {
+        if (payload.txAmount === undefined || payload.txAmount <= 0) {
+          return { success: false, error: 'Số tiền đặt cọc hợp lệ (> 0) là bắt buộc khi chuyển sang trạng thái Đặt cọc!' };
+        }
+      }
+
+      if (payload.newStatus === 'contract') {
+        if (!payload.txCode || !payload.txCode.trim()) {
+          return { success: false, error: 'Mã hợp đồng (HĐMB) là bắt buộc khi chuyển sang trạng thái Ký HĐMB!' };
+        }
+        if (payload.txAmount !== undefined && payload.txAmount <= 0) {
+          return { success: false, error: 'Số tiền đặt cọc hợp lệ (> 0) là bắt buộc khi chuyển sang trạng thái Đặt cọc / Hợp đồng!' };
+        }
+      }
+
+      if (payload.unitCode !== undefined && payload.unitCode.trim() === '') {
+        return { success: false, error: 'Mã căn hộ / sản phẩm không được để trống khi thực hiện giao dịch tài chính!' };
+      }
+    }
+
+    // 3. Kiểm tra quyền sở hữu với sale_agent
+    if (payload.currentUser.role === 'sale_agent' && lead.assigned_to && lead.assigned_to !== payload.currentUser.id) {
+      return {
+        success: false,
+        error: 'Từ chối thao tác: Chuyên viên tư vấn chỉ được cập nhật trạng thái Lead được giao cho chính mình.',
+      };
+    }
+
+    // 4. Kiểm tra ma trận chuyển trạng thái (State Transition Matrix)
+    const rule = findTransitionRule(oldStatus, payload.newStatus);
+    if (!rule) {
+      return {
+        success: false,
+        error: `Quy trình không hợp lệ: Không được phép chuyển từ trạng thái "${oldStatus}" sang "${payload.newStatus}"`,
+      };
+    }
+
+    // 5. Kiểm tra quyền hạn theo vai trò (Role-based Transition Access)
+    if (payload.currentUser.role !== 'admin' && !rule.allowedRoles.includes(payload.currentUser.role)) {
+      return {
+        success: false,
+        error: `Từ chối thao tác: Vai trò "${payload.currentUser.role}" không có quyền chuyển Lead từ "${oldStatus}" sang "${payload.newStatus}"`,
+      };
+    }
+
+    // 6. Kiểm tra chống bán trùng một căn (Unique Unit Constraint in Same Project)
+    if (isFinancialStage && resolvedUnitCode && lead.project_id) {
+      const txs: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+      const conflict = txs.find(t =>
+        t.project_id === lead.project_id &&
+        t.unit_code &&
+        t.unit_code.toLowerCase().trim() === resolvedUnitCode.toLowerCase().trim() &&
+        ['confirmed', 'pending'].includes(t.status) &&
+        ['booking', 'deposit', 'contract'].includes(t.type) &&
+        t.lead_id !== payload.leadId
+      );
+
+      if (conflict) {
+        return {
+          success: false,
+          error: `Xung đột giỏ hàng: Căn "${resolvedUnitCode}" đã có hợp đồng/giao dịch hiệu lực từ trước trong dự án!`,
+        };
+      }
+    }
+
+    // 6. Tính toán SLA 24h (Dừng đồng hồ nếu sang stop-clock status)
+    const isStopClock = STOP_CLOCK_STATUSES.includes(payload.newStatus);
+    const newDeadline = isStopClock ? undefined : autoTransferService.computeCareDeadline(nowIso, 24);
+
+    // 7. Cập nhật Lead trong Storage
     leads[leadIdx].status = payload.newStatus;
     if (payload.notes) leads[leadIdx].notes = payload.notes;
     leads[leadIdx].updated_at = nowIso;
@@ -537,17 +615,19 @@ export class LeadRepository {
 
     localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
 
-    // Lưu Transaction nếu là Booking/Cọc/HĐMB
-    if (['booking', 'deposit', 'contract'].includes(payload.newStatus)) {
+    // 8. Lưu Transaction nếu là Booking/Cọc/HĐMB
+    if (isFinancialStage) {
       const txs: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
       const newTx: Transaction = {
         id: crypto.randomUUID(),
         lead_id: payload.leadId,
+        project_id: lead.project_id,
         type: payload.newStatus as any,
         code: payload.txCode || `TX-${Date.now()}`,
+        unit_code: resolvedUnitCode,
         amount: payload.txAmount || (payload.newStatus === 'booking' ? 50000000 : 100000000),
         transaction_date: payload.txDate || nowIso,
-        contract_code: payload.newStatus === 'contract' ? payload.txCode : undefined,
+        contract_code: payload.newStatus === 'contract' ? (payload.contractCode || payload.txCode) : undefined,
         status: 'confirmed',
         notes: payload.notes,
         created_by: payload.currentUser.id,
@@ -557,7 +637,7 @@ export class LeadRepository {
       localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(txs));
     }
 
-    // Ghi nhận lead_status_history
+    // 9. Ghi nhận lead_status_history
     const history: LeadStatusHistory[] = JSON.parse(localStorage.getItem(STORAGE_KEY_STATUS_HISTORY) || '[]');
     history.unshift({
       id: crypto.randomUUID(),
@@ -566,18 +646,18 @@ export class LeadRepository {
       changer_name: payload.currentUser.full_name,
       old_status: oldStatus,
       new_status: payload.newStatus,
-      notes: payload.notes || 'Chuyển trạng thái trên Customer Journey Kanban',
+      notes: payload.notes || 'Chuyển trạng thái qua RPC change_lead_status',
       created_at: nowIso,
     });
     localStorage.setItem(STORAGE_KEY_STATUS_HISTORY, JSON.stringify(history));
 
-    // Thêm activity
+    // 10. Thêm activity
     await this.addActivity(payload.leadId, {
       userId: payload.currentUser.id,
       userName: payload.currentUser.full_name,
       type: 'system',
       title: `Chuyển trạng thái sang "${payload.newStatus}"`,
-      content: payload.notes || 'Cập nhật qua bảng Kanban Journey.',
+      content: payload.notes || 'Cập nhật qua RPC change_lead_status.',
     });
 
     return { success: true };
@@ -935,12 +1015,13 @@ export class LeadRepository {
     });
     localStorage.setItem(STORAGE_KEY_ACTIVITIES, JSON.stringify(all));
 
-    // Reset đồng hồ trên mock leads
+    // Reset đồng hồ trên mock leads (chỉ reset deadline nếu không ở trạng thái dừng đồng hồ stop-clock)
     const leads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
     const leadIdx = leads.findIndex(l => l.id === leadId);
     if (leadIdx !== -1) {
+      const isStopClock = STOP_CLOCK_STATUSES.includes(leads[leadIdx].status);
       leads[leadIdx].last_care_updated_at = nowIso;
-      leads[leadIdx].care_deadline_at = newDeadline;
+      leads[leadIdx].care_deadline_at = isStopClock ? undefined : newDeadline;
       localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
     }
   }

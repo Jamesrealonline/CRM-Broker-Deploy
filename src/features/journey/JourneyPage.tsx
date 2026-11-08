@@ -131,6 +131,7 @@ export const JourneyPage: React.FC = () => {
   const [pendingDrop, setPendingDrop] = useState<{ leadId: string; targetStage: LeadStatus } | null>(null);
   const [txCode, setTxCode] = useState('');
   const [txAmount, setTxAmount] = useState('50000000');
+  const [unitCode, setUnitCode] = useState('');
   const [txDate, setTxDate] = useState(new Date().toISOString().slice(0, 10));
   const [txNotes, setTxNotes] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -189,6 +190,7 @@ export const JourneyPage: React.FC = () => {
     // QUY TẮC BẮT BUỘC: Nếu kéo vào Booking, Đặt cọc, HĐMB -> BẬT MODAL NHẬP GIAO DỊCH
     if (['booking', 'deposit', 'contract'].includes(targetStage)) {
       setPendingDrop({ leadId, targetStage });
+      setUnitCode('');
       if (targetStage === 'booking') {
         setTxCode(`BK-${Date.now().toString().slice(-6)}`);
         setTxAmount('50000000');
@@ -238,6 +240,7 @@ export const JourneyPage: React.FC = () => {
       currentUser,
       txCode,
       txAmount: Number(txAmount),
+      unitCode,
       txDate,
       notes: txNotes,
     });
@@ -343,6 +346,16 @@ export const JourneyPage: React.FC = () => {
               {errorMsg}
             </div>
           )}
+
+          <div className="space-y-1">
+            <Input
+              label="Mã căn hộ / sản phẩm *"
+              required
+              value={unitCode}
+              onChange={(e) => setUnitCode(e.target.value)}
+              placeholder="Ví dụ: A-12.04"
+            />
+          </div>
 
           {pendingDrop?.targetStage === 'booking' && (
             <div className="space-y-3 bg-orange-50/60 p-3 rounded-lg border border-orange-200">
