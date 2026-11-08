@@ -26,6 +26,8 @@ export const ProjectsPage: React.FC = () => {
   const [location, setLocation] = useState('');
   const [propertyType, setPropertyType] = useState('Căn hộ, Shophouse');
   const [priceRange, setPriceRange] = useState('');
+  const [commissionRate, setCommissionRate] = useState('3.5');
+  const [saleCommissionRate, setSaleCommissionRate] = useState('1.5');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -46,6 +48,8 @@ export const ProjectsPage: React.FC = () => {
         location,
         property_type: propertyType,
         expected_price_range: priceRange,
+        commission_rate: Number(commissionRate) || 3.5,
+        sale_commission_rate: Number(saleCommissionRate) || 1.5,
       });
       setCreateModalOpen(false);
       // Theo yêu cầu mục 7: Khi tạo dự án mới, hệ thống chuyển thẳng tới trang Dự án & Tri thức AI của dự án đó
@@ -207,6 +211,37 @@ export const ProjectsPage: React.FC = () => {
               onChange={(e) => setPriceRange(e.target.value)}
               placeholder="60 - 80 triệu/m²"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 p-3 bg-blue-50/60 rounded-xl border border-blue-200/80">
+            <div>
+              <Input
+                label="% Phí dự án (CĐT trả) *"
+                type="number"
+                step="0.1"
+                min="0"
+                max="100"
+                required
+                value={commissionRate}
+                onChange={(e) => setCommissionRate(e.target.value)}
+                placeholder="3.5"
+              />
+              <p className="text-[10px] text-blue-700 mt-1 font-medium">Tỷ lệ CĐT chi trả cho Sàn/Đại lý</p>
+            </div>
+            <div>
+              <Input
+                label="% Phí hoa hồng cho Sale *"
+                type="number"
+                step="0.1"
+                min="0"
+                max="100"
+                required
+                value={saleCommissionRate}
+                onChange={(e) => setSaleCommissionRate(e.target.value)}
+                placeholder="1.5"
+              />
+              <p className="text-[10px] text-amber-700 mt-1 font-medium">Tỷ lệ chi trả trực tiếp cho Sale</p>
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

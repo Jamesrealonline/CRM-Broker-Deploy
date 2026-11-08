@@ -21,12 +21,13 @@ import {
   Phone,
   Award,
   ChevronDown,
-  Edit2
+  Edit2,
+  Home
 } from 'lucide-react';
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { leadRepository } from '@/data/repositories/leadRepository';
-import { Transaction, Project, Lead } from '@/domain/types';
+import { Transaction, Project, Lead, ProjectUnit } from '@/domain/types';
 import { useAuthStore } from '@/app/useAuthStore';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -48,6 +49,11 @@ export const TransactionsPage: React.FC = () => {
 
   // Modal tạo giao dịch mới
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createProjectId, setCreateProjectId] = useState<string>('');
+  const [projectUnits, setProjectUnits] = useState<ProjectUnit[]>([]);
+  const [selectedUnitId, setSelectedUnitId] = useState('');
+  const [manualUnitInput, setManualUnitInput] = useState(false);
+  const [propertyType, setPropertyType] = useState('Căn hộ 2PN (2WC)');
   const [candidateLeads, setCandidateLeads] = useState<Lead[]>([]);
   const [selectedLeadId, setSelectedLeadId] = useState('');
   const [unitCode, setUnitCode] = useState('');
@@ -62,7 +68,7 @@ export const TransactionsPage: React.FC = () => {
   );
   const [firstInstallmentPaid, setFirstInstallmentPaid] = useState(false);
   const [commissionRate, setCommissionRate] = useState<number>(3.5);
-  const [saleCommissionRate, setSaleCommissionRate] = useState<number>(1.8);
+  const [saleCommissionRate, setSaleCommissionRate] = useState<number>(1.5);
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -98,16 +104,92 @@ export const TransactionsPage: React.FC = () => {
     loadData();
   }, [selectedProjectId, selectedType, searchQuery]);
 
-  // Load candidate leads when opening create modal
+  // Mở modal tạo hợp đồng mới và tải dữ liệu dự án & giỏ hàng
   const handleOpenCreateModal = async () => {
+    let prjList = projects;
+    if (prjList.length === 0) {
+      prjList = await projectRepository.getProjects();
+      setProjects(prjList);
+    }
+
+    const defaultProj = prjList[0];
+    const defaultProjId = defaultProj?.id || '';
+    setCreateProjectId(defaultProjId);
+    if (defaultProj) {
+      setCommissionRate(defaultProj.commission_rate ?? 3.5);
+      setSaleCommissionRate(defaultProj.sale_commission_rate ?? 1.5);
+    }
+
+    // Tải giỏ hàng của dự án
+    if (defaultProjId) {
+      const units = await projectRepository.getProjectUnits(defaultProjId);
+      setProjectUnits(units);
+      const firstAvail = units.find(u => u.status === 'available');
+      if (firstAvail) {
+        setSelectedUnitId(firstAvail.id);
+        setUnitCode(firstAvail.unit_code);
+        setDealValue(firstAvail.price);
+        setPropertyType(firstAvail.property_type);
+        setFirstInstallmentAmount(Math.round(firstAvail.price * 0.1));
+      } else {
+        setSelectedUnitId('');
+      }
+    }
+
     if (currentUser) {
       const res = await leadRepository.getLeads({ page: 1, pageSize: 50 }, currentUser);
       setCandidateLeads(res.leads);
-      if (res.leads.length > 0) {
-        setSelectedLeadId(res.leads[0].id);
+      // Ưu tiên chọn lead thuộc dự án
+      const matchingLead = res.leads.find(l => l.project_id === defaultProjId) || res.leads[0];
+      if (matchingLead) {
+        setSelectedLeadId(matchingLead.id);
       }
     }
+
     setCreateModalOpen(true);
+  };
+
+  // Khi thay đổi Dự án trong modal tạo hợp đồng
+  const handleProjectChange = async (projId: string) => {
+    setCreateProjectId(projId);
+    const p = projects.find(x => x.id === projId);
+    if (p) {
+      setCommissionRate(p.commission_rate ?? 3.5);
+      setSaleCommissionRate(p.sale_commission_rate ?? 1.5);
+    }
+
+    // Tải giỏ hàng sản phẩm tương ứng với dự án mới
+    const units = await projectRepository.getProjectUnits(projId);
+    setProjectUnits(units);
+    const firstAvail = units.find(u => u.status === 'available');
+    if (firstAvail) {
+      setSelectedUnitId(firstAvail.id);
+      setUnitCode(firstAvail.unit_code);
+      setDealValue(firstAvail.price);
+      setPropertyType(firstAvail.property_type);
+      setFirstInstallmentAmount(Math.round(firstAvail.price * 0.1));
+    } else {
+      setSelectedUnitId('');
+      setUnitCode('');
+    }
+
+    // Chọn lead phù hợp với dự án mới
+    const match = candidateLeads.find(l => l.project_id === projId);
+    if (match) {
+      setSelectedLeadId(match.id);
+    }
+  };
+
+  // Khi chọn một sản phẩm từ Giỏ Hàng
+  const handleUnitSelect = (uId: string) => {
+    setSelectedUnitId(uId);
+    const target = projectUnits.find(u => u.id === uId);
+    if (target) {
+      setUnitCode(target.unit_code);
+      setDealValue(target.price);
+      setPropertyType(target.property_type);
+      setFirstInstallmentAmount(Math.round(target.price * 0.1));
+    }
   };
 
   // Tính tự động hoa hồng khi đổi giá trị giao dịch hoặc %
@@ -119,8 +201,13 @@ export const TransactionsPage: React.FC = () => {
     if (!selectedLeadId) return;
     setIsSubmitting(true);
     try {
+      const selectedProj = projects.find(p => p.id === createProjectId);
+      const selectedLead = candidateLeads.find(l => l.id === selectedLeadId);
+
       await contractRepository.createContractTransaction({
         lead_id: selectedLeadId,
+        project_id: createProjectId,
+        project_name: selectedProj?.name,
         type: 'contract',
         code: `HD-${Date.now().toString().slice(-6)}`,
         contract_code: contractCode || `HĐMB-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
@@ -135,9 +222,18 @@ export const TransactionsPage: React.FC = () => {
         first_installment_amount: firstInstallmentAmount,
         first_installment_date: new Date(firstInstallmentDate).toISOString(),
         first_installment_paid: firstInstallmentPaid,
-        notes,
+        notes: notes || `Hợp đồng dự án ${selectedProj?.name || ''} - Căn ${unitCode}`,
         created_by: currentUser?.id,
       });
+
+      // Đồng thời cập nhật trạng thái của Căn trong giỏ hàng thành 'deposit'
+      if (createProjectId && unitCode) {
+        await projectRepository.updateUnitStatusByCode(createProjectId, unitCode, 'deposit', {
+          customer_name: selectedLead?.customer_name,
+          sale_name: currentUser?.full_name,
+        });
+      }
+
       setCreateModalOpen(false);
       await loadData();
     } catch (err) {
@@ -506,7 +602,75 @@ export const TransactionsPage: React.FC = () => {
         maxWidth="lg"
       >
         <form onSubmit={handleCreateContract} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          {/* 1. CHỌN DỰ ÁN */}
+          <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-200/80">
+            <label className="block text-xs font-bold text-blue-900 mb-1.5 flex items-center gap-1.5">
+              <Building2 className="h-4 w-4 text-blue-600" /> Chọn Dự Án Phân Phối *
+            </label>
+            <select
+              required
+              value={createProjectId}
+              onChange={(e) => handleProjectChange(e.target.value)}
+              className="w-full px-3 py-2 text-xs bg-white border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.code}) • Phí dự án: {p.commission_rate ?? 3.5}% • Phí Sale: {p.sale_commission_rate ?? 1.5}%
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-3 mt-1.5 text-[11px] text-blue-700">
+              <span>Đang áp dụng: <strong>% Phí dự án = {commissionRate}%</strong></span>
+              <span>•</span>
+              <span><strong>% Phí hoa hồng cho Sale = {saleCommissionRate}%</strong></span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* CHỌN SẢN PHẨM TỪ GIỎ HÀNG */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700 flex items-center gap-1">
+                  <Home className="h-3.5 w-3.5 text-indigo-600" /> Chọn Căn Từ Giỏ Hàng *
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setManualUnitInput(!manualUnitInput)}
+                  className="text-[10px] text-blue-600 hover:underline"
+                >
+                  {manualUnitInput ? '← Chọn giỏ hàng' : 'Nhập tự do →'}
+                </button>
+              </div>
+
+              {!manualUnitInput ? (
+                <select
+                  value={selectedUnitId}
+                  onChange={(e) => handleUnitSelect(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-indigo-50/50 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-slate-800"
+                >
+                  <option value="">-- Chọn sản phẩm giỏ hàng ({projectUnits.filter(u => u.status === 'available').length} căn trống) --</option>
+                  {projectUnits.map((u) => (
+                    <option key={u.id} value={u.id} disabled={u.status === 'sold' || u.status === 'locked'}>
+                      {u.unit_code} - {u.property_type} ({new Intl.NumberFormat('vi-VN').format(u.price)} đ) [{u.status === 'available' ? 'Còn trống' : u.status === 'booking' ? 'Giữ chỗ' : u.status === 'deposit' ? 'Đã cọc' : u.status}]
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  required
+                  value={unitCode}
+                  onChange={(e) => setUnitCode(e.target.value)}
+                  placeholder="Ví dụ: OG-S7.02-15.08"
+                />
+              )}
+              {selectedUnitId && !manualUnitInput && (
+                <p className="text-[10px] text-emerald-700 mt-1 font-medium">
+                  ✓ Đã tự động điền loại hình và giá bán niêm yết từ giỏ hàng.
+                </p>
+              )}
+            </div>
+
+            {/* KHÁCH HÀNG (LEAD) */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Khách Hàng (Lead) *</label>
               <select
@@ -517,20 +681,10 @@ export const TransactionsPage: React.FC = () => {
               >
                 {candidateLeads.map((l) => (
                   <option key={l.id} value={l.id}>
-                    {l.customer_name} ({l.customer_phone}) - {l.project_name}
+                    {l.customer_name} ({l.customer_phone}) - {l.project_name || 'Dự án'}
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Mã Căn Hộ / Sản Phẩm *</label>
-              <Input
-                required
-                value={unitCode}
-                onChange={(e) => setUnitCode(e.target.value)}
-                placeholder="Ví dụ: OG-S7.02-15.08"
-              />
             </div>
           </div>
 

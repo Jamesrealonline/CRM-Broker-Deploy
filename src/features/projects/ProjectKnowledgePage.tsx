@@ -43,7 +43,9 @@ import {
   ProjectCommissionPolicy,
   CommissionTier,
   RoleCommissionRate,
-  RecognitionMilestone
+  RecognitionMilestone,
+  ProjectUnit,
+  UnitStatus
 } from '@/domain/types';
 import { TimeRangeFilter } from '@/domain/services/financialCalculationService';
 import { Button } from '@/components/ui/Button';
@@ -106,21 +108,42 @@ export const ProjectKnowledgePage: React.FC = () => {
   const [proposals, setProposals] = useState<ProjectEnrichProposal[]>([]);
   const [isEnriching, setIsEnriching] = useState(false);
 
+  // Module Quản Lý Giỏ Hàng Sản Phẩm (Units)
+  const [units, setUnits] = useState<ProjectUnit[]>([]);
+  const [unitFilterStatus, setUnitFilterStatus] = useState<string>('all');
+  const [unitFilterType, setUnitFilterType] = useState<string>('all');
+  const [unitSearch, setUnitSearch] = useState<string>('');
+  const [unitModalOpen, setUnitModalOpen] = useState(false);
+  
+  // Form tạo căn mới
+  const [unitCode, setUnitCode] = useState('');
+  const [unitPropertyType, setUnitPropertyType] = useState('Căn hộ 2PN (2WC)');
+  const [unitBlock, setUnitBlock] = useState('');
+  const [unitFloor, setUnitFloor] = useState<number>(1);
+  const [unitArea, setUnitArea] = useState<number>(65);
+  const [unitPrice, setUnitPrice] = useState<number>(3500000000);
+  const [unitDirection, setUnitDirection] = useState('Đông Nam');
+  const [unitStatus, setUnitStatus] = useState<UnitStatus>('available');
+  const [unitNotes, setUnitNotes] = useState('');
+  const [isSavingUnit, setIsSavingUnit] = useState(false);
+
   const fetchProjectData = async (currentTimeFilter = timeFilter) => {
     if (!id) return;
     setLoading(true);
     try {
-      const [proj, know, faqList, stats] = await Promise.all([
+      const [proj, know, faqList, stats, unitList] = await Promise.all([
         projectRepository.getProjectById(id),
         projectRepository.getProjectKnowledge(id),
         projectRepository.getProjectFaqs(id),
         projectRepository.getProjectFinancialStats(id, { preset: currentTimeFilter }),
+        projectRepository.getProjectUnits(id),
       ]);
       setProject(proj);
       setKnowledge(know);
       setSummaryText(know?.summary_text || '');
       setFaqs(faqList);
       setFinancialStats(stats as any);
+      setUnits(unitList);
 
       // Populate policy form from active policy
       if (stats.current_policy) {
@@ -270,6 +293,62 @@ export const ProjectKnowledgePage: React.FC = () => {
     setSummaryText(newSummary.slice(0, 3000));
     await projectRepository.updateKnowledgeSummary(id, newSummary);
   };
+
+  // Quản lý Giỏ hàng (Units) Handlers
+  const handleCreateUnit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !unitCode) return;
+    setIsSavingUnit(true);
+    try {
+      const created = await projectRepository.createProjectUnit({
+        project_id: id,
+        project_name: project?.name,
+        unit_code: unitCode.trim(),
+        property_type: unitPropertyType,
+        block_tower: unitBlock.trim(),
+        floor: Number(unitFloor),
+        area_sqm: Number(unitArea),
+        price: Number(unitPrice),
+        direction: unitDirection,
+        status: unitStatus,
+        notes: unitNotes.trim(),
+      });
+      setUnits(prev => [created, ...prev]);
+      setUnitModalOpen(false);
+      setUnitCode('');
+      setUnitNotes('');
+    } catch (err) {
+      console.error(err);
+      alert('Không thể lưu sản phẩm vào giỏ hàng.');
+    } finally {
+      setIsSavingUnit(false);
+    }
+  };
+
+  const handleUpdateUnitStatus = async (unitId: string, newStatus: UnitStatus) => {
+    const updated = await projectRepository.updateProjectUnit(unitId, { status: newStatus });
+    if (updated) {
+      setUnits(prev => prev.map(u => u.id === unitId ? updated : u));
+    }
+  };
+
+  const handleDeleteUnit = async (unitId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa sản phẩm này khỏi giỏ hàng?')) return;
+    await projectRepository.deleteProjectUnit(unitId);
+    setUnits(prev => prev.filter(u => u.id !== unitId));
+  };
+
+  const filteredUnits = units.filter(u => {
+    if (unitFilterStatus !== 'all' && u.status !== unitFilterStatus) return false;
+    if (unitFilterType !== 'all' && u.property_type !== unitFilterType) return false;
+    if (unitSearch) {
+      const q = unitSearch.toLowerCase().trim();
+      return u.unit_code.toLowerCase().includes(q) || 
+             (u.block_tower && u.block_tower.toLowerCase().includes(q)) ||
+             (u.notes && u.notes.toLowerCase().includes(q));
+    }
+    return true;
+  });
 
   const formatVND = (num: number) => {
     if (num >= 1000000000) {
@@ -600,6 +679,191 @@ export const ProjectKnowledgePage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* 1.5. QUẢN LÝ GIỎ HÀNG DỰ ÁN (PROJECT INVENTORY) */}
+      <Card className="border-indigo-200 bg-white shadow-sm overflow-hidden">
+        <CardHeader className="bg-gradient-to-r from-indigo-50/50 via-white to-blue-50/30 border-b border-indigo-100">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-indigo-600" />
+                Quản Lý Giỏ Hàng & Bảng Hàng Sản Phẩm ({units.length} căn/lô)
+              </CardTitle>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Quản lý chi tiết theo mã sản phẩm, loại hình, diện tích, giá niêm yết và trạng thái giao dịch thời gian thực.
+              </p>
+            </div>
+
+            <Button size="sm" variant="primary" onClick={() => setUnitModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-xs">
+              <Plus className="h-3.5 w-3.5 mr-1" /> Thêm sản phẩm vào giỏ hàng
+            </Button>
+          </div>
+        </CardHeader>
+
+        <div className="p-4 space-y-4">
+          {/* STATS PILLS THEO TRẠNG THÁI */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+            <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200/80">
+              <div className="text-[10px] uppercase font-bold text-emerald-700">🟢 Còn trống (Bảng hàng)</div>
+              <div className="text-xl font-black text-emerald-800 mt-0.5">
+                {units.filter(u => u.status === 'available').length}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200/80">
+              <div className="text-[10px] uppercase font-bold text-amber-700">🟡 Đang giữ chỗ (Booking)</div>
+              <div className="text-xl font-black text-amber-800 mt-0.5">
+                {units.filter(u => u.status === 'booking').length}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-lg bg-orange-50 border border-orange-200/80">
+              <div className="text-[10px] uppercase font-bold text-orange-700">🟠 Đã cọc (Deposit)</div>
+              <div className="text-xl font-black text-orange-800 mt-0.5">
+                {units.filter(u => u.status === 'deposit').length}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-lg bg-slate-100 border border-slate-200">
+              <div className="text-[10px] uppercase font-bold text-slate-600">⚪ Đã bán (HĐMB)</div>
+              <div className="text-xl font-black text-slate-800 mt-0.5">
+                {units.filter(u => u.status === 'sold').length}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200/80">
+              <div className="text-[10px] uppercase font-bold text-rose-700">🔴 Khóa bảng hàng</div>
+              <div className="text-xl font-black text-rose-800 mt-0.5">
+                {units.filter(u => u.status === 'locked').length}
+              </div>
+            </div>
+          </div>
+
+          {/* BỘ LỌC & TÌM KIẾM SẢN PHẨM */}
+          <div className="flex flex-col sm:flex-row items-center gap-2.5 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Tìm mã căn (OG-S7...), phân khu, ghi chú..."
+                value={unitSearch}
+                onChange={(e) => setUnitSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <select
+                value={unitFilterStatus}
+                onChange={(e) => setUnitFilterStatus(e.target.value)}
+                className="text-xs py-1.5 px-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none text-slate-700"
+              >
+                <option value="all">Tất cả trạng thái</option>
+                <option value="available">🟢 Còn trống</option>
+                <option value="booking">🟡 Đang giữ chỗ</option>
+                <option value="deposit">🟠 Đã cọc</option>
+                <option value="sold">⚪ Đã bán</option>
+                <option value="locked">🔴 Khóa</option>
+              </select>
+
+              <select
+                value={unitFilterType}
+                onChange={(e) => setUnitFilterType(e.target.value)}
+                className="text-xs py-1.5 px-2.5 bg-white border border-slate-200 rounded-lg focus:outline-none text-slate-700 max-w-[160px] truncate"
+              >
+                <option value="all">Tất cả loại hình</option>
+                {Array.from(new Set(units.map(u => u.property_type))).map(pt => (
+                  <option key={pt} value={pt}>{pt}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* BẢNG GIỎ HÀNG */}
+          <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                <tr>
+                  <th className="p-2.5">Mã Căn/Lô</th>
+                  <th className="p-2.5">Loại Hình</th>
+                  <th className="p-2.5">Tòa / Phân Khu</th>
+                  <th className="p-2.5 text-center">Tầng</th>
+                  <th className="p-2.5 text-right">Diện Tích</th>
+                  <th className="p-2.5 text-right">Giá Niêm Yết</th>
+                  <th className="p-2.5 text-center">Trạng Thái</th>
+                  <th className="p-2.5">Khách / Chuyên Viên</th>
+                  <th className="p-2.5 text-right">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredUnits.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-6 text-center text-slate-400">
+                      Không tìm thấy sản phẩm nào trong giỏ hàng phù hợp bộ lọc.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUnits.map((u) => {
+                    const statusConfig = {
+                      available: { label: 'Còn trống', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+                      booking: { label: 'Giữ chỗ', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+                      deposit: { label: 'Đã cọc', color: 'bg-orange-50 text-orange-700 border-orange-200' },
+                      sold: { label: 'Đã bán', color: 'bg-slate-100 text-slate-700 border-slate-300' },
+                      locked: { label: 'Khóa', color: 'bg-rose-50 text-rose-700 border-rose-200' },
+                    }[u.status] || { label: u.status, color: 'bg-slate-50 text-slate-600 border-slate-200' };
+
+                    return (
+                      <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="p-2.5 font-bold text-indigo-700">
+                          {u.unit_code}
+                          {u.direction && <span className="block text-[10px] font-normal text-slate-400">Hướng: {u.direction}</span>}
+                        </td>
+                        <td className="p-2.5 text-slate-700 font-medium">{u.property_type}</td>
+                        <td className="p-2.5 text-slate-600">{u.block_tower || '---'}</td>
+                        <td className="p-2.5 text-center text-slate-600 font-mono">{u.floor || '---'}</td>
+                        <td className="p-2.5 text-right font-medium text-slate-800">{u.area_sqm ? `${u.area_sqm} m²` : '---'}</td>
+                        <td className="p-2.5 text-right font-black text-slate-900">{formatFullVND(u.price)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusConfig.color}`}>
+                            {statusConfig.label}
+                          </span>
+                        </td>
+                        <td className="p-2.5">
+                          {u.customer_name ? (
+                            <div>
+                              <div className="font-semibold text-slate-800">{u.customer_name}</div>
+                              {u.sale_name && <div className="text-[10px] text-slate-400">Sale: {u.sale_name}</div>}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">Chưa giao dịch</span>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-right space-x-1.5 whitespace-nowrap">
+                          {/* ĐỔI TRẠNG THÁI NHANH */}
+                          <select
+                            value={u.status}
+                            onChange={(e) => handleUpdateUnitStatus(u.id, e.target.value as UnitStatus)}
+                            className="text-[10px] font-semibold py-1 px-1.5 rounded border border-slate-200 bg-white cursor-pointer"
+                          >
+                            <option value="available">Còn trống</option>
+                            <option value="booking">Giữ chỗ</option>
+                            <option value="deposit">Đã cọc</option>
+                            <option value="sold">Đã bán</option>
+                            <option value="locked">Khóa</option>
+                          </select>
+                          <button
+                            onClick={() => handleDeleteUnit(u.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                            title="Xóa khỏi giỏ hàng"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 inline" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </Card>
@@ -1110,6 +1374,117 @@ Chính sách: Vay 70% lãi suất 0% trong 24 tháng
             </div>
           )}
         </div>
+      </Modal>
+
+      {/* MODAL THÊM SẢN PHẨM VÀO GIỎ HÀNG */}
+      <Modal
+        isOpen={unitModalOpen}
+        onClose={() => setUnitModalOpen(false)}
+        title="Thêm Sản Phẩm Mới Vào Giỏ Hàng Dự Án"
+        description={`Bổ sung căn hộ / nhà phố vào bảng hàng của dự án ${project.name}.`}
+        maxWidth="md"
+      >
+        <form onSubmit={handleCreateUnit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Mã Căn / Mã Sản Phẩm *"
+              required
+              value={unitCode}
+              onChange={(e) => setUnitCode(e.target.value)}
+              placeholder="Ví dụ: OG-S7.02-15.08"
+            />
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-700">Loại Hình *</label>
+              <select
+                value={unitPropertyType}
+                onChange={(e) => setUnitPropertyType(e.target.value)}
+                className="w-full text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white"
+              >
+                <option value="Căn hộ 1PN (1WC)">Căn hộ 1PN (1WC)</option>
+                <option value="Căn hộ 1PN+1">Căn hộ 1PN+1</option>
+                <option value="Căn hộ 2PN (1WC)">Căn hộ 2PN (1WC)</option>
+                <option value="Căn hộ 2PN (2WC)">Căn hộ 2PN (2WC)</option>
+                <option value="Căn hộ 3PN">Căn hộ 3PN</option>
+                <option value="Penthouse / Duplex">Penthouse / Duplex</option>
+                <option value="Shophouse Khối Đế">Shophouse Khối Đế</option>
+                <option value="Nhà phố liền kề">Nhà phố liền kề</option>
+                <option value="Biệt thự Song lập">Biệt thự Song lập</option>
+                <option value="Biệt thự Đơn lập">Biệt thự Đơn lập</option>
+                <option value="Đất nền">Đất nền</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <Input
+              label="Tòa / Phân Khu"
+              value={unitBlock}
+              onChange={(e) => setUnitBlock(e.target.value)}
+              placeholder="Tòa S7.02 / Origami"
+            />
+            <Input
+              label="Tầng"
+              type="number"
+              value={unitFloor}
+              onChange={(e) => setUnitFloor(Number(e.target.value))}
+            />
+            <Input
+              label="Diện tích (m²)"
+              type="number"
+              step="0.1"
+              value={unitArea}
+              onChange={(e) => setUnitArea(Number(e.target.value))}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Giá Bán Niêm Yết (VNĐ) *"
+              type="number"
+              required
+              value={unitPrice}
+              onChange={(e) => setUnitPrice(Number(e.target.value))}
+            />
+            <Input
+              label="Hướng Ban Công / Cửa"
+              value={unitDirection}
+              onChange={(e) => setUnitDirection(e.target.value)}
+              placeholder="Đông Nam / Tây Bắc"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-slate-700">Trạng Thái Ban Đầu</label>
+              <select
+                value={unitStatus}
+                onChange={(e) => setUnitStatus(e.target.value as UnitStatus)}
+                className="w-full text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white"
+              >
+                <option value="available">🟢 Còn trống (Bảng hàng)</option>
+                <option value="booking">🟡 Đang giữ chỗ</option>
+                <option value="deposit">🟠 Đã cọc</option>
+                <option value="sold">⚪ Đã bán</option>
+                <option value="locked">🔴 Khóa bảng hàng</option>
+              </select>
+            </div>
+            <Input
+              label="Ghi chú đặc điểm căn"
+              value={unitNotes}
+              onChange={(e) => setUnitNotes(e.target.value)}
+              placeholder="Căn góc view hồ bơi, chiết khấu 3%..."
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button type="button" variant="outline" size="sm" onClick={() => setUnitModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button type="submit" variant="primary" size="sm" isLoading={isSavingUnit} className="bg-indigo-600 hover:bg-indigo-700">
+              Lưu Vào Bảng Hàng
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

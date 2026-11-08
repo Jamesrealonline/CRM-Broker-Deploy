@@ -13,9 +13,11 @@ import {
   SoldProduct,
   ProjectCommissionPolicy,
   CommissionTier,
-  RoleCommissionRate
+  RoleCommissionRate,
+  ProjectUnit,
+  UnitStatus
 } from '@/domain/types';
-import { INITIAL_PROJECTS, INITIAL_KNOWLEDGE, INITIAL_TRANSACTIONS } from '../mockData';
+import { INITIAL_PROJECTS, INITIAL_KNOWLEDGE, INITIAL_TRANSACTIONS, INITIAL_PROJECT_UNITS } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { financialCalculationService, TimeRangeFilter } from '@/domain/services/financialCalculationService';
 import { contractRepository } from './contractRepository';
@@ -25,6 +27,7 @@ const STORAGE_KEY_KNOWLEDGE = 'crm_project_knowledge';
 const STORAGE_KEY_SCRIPTS = 'crm_sales_scripts';
 const STORAGE_KEY_FAQS = 'crm_project_faqs';
 const STORAGE_KEY_POLICIES = 'crm_project_policies';
+const STORAGE_KEY_UNITS = 'crm_project_units';
 
 export class ProjectRepository {
   async getProjects(): Promise<Project[]> {
@@ -650,6 +653,123 @@ export class ProjectRepository {
       },
     ];
     return defaults;
+  }
+
+  // ==========================================
+  // QUẢN LÝ GIỎ HÀNG DỰ ÁN (PROJECT INVENTORY)
+  // ==========================================
+  async getProjectUnits(projectId?: string, status?: UnitStatus): Promise<ProjectUnit[]> {
+    if (isLiveSupabaseConfigured) {
+      let query = supabase.from('project_units').select('*').order('unit_code', { ascending: true });
+      if (projectId) query = query.eq('project_id', projectId);
+      if (status) query = query.eq('status', status);
+      const { data, error } = await query;
+      if (!error && data && data.length > 0) return data as ProjectUnit[];
+    }
+
+    const raw = localStorage.getItem(STORAGE_KEY_UNITS);
+    let all: ProjectUnit[] = raw ? JSON.parse(raw) : INITIAL_PROJECT_UNITS;
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEY_UNITS, JSON.stringify(INITIAL_PROJECT_UNITS));
+    }
+
+    if (projectId) {
+      all = all.filter(u => u.project_id === projectId);
+    }
+    if (status) {
+      all = all.filter(u => u.status === status);
+    }
+    return all;
+  }
+
+  async getUnitById(id: string): Promise<ProjectUnit | null> {
+    const units = await this.getProjectUnits();
+    return units.find(u => u.id === id) || null;
+  }
+
+  async createProjectUnit(unit: Partial<ProjectUnit>): Promise<ProjectUnit> {
+    const projects = await this.getProjects();
+    const proj = projects.find(p => p.id === unit.project_id);
+
+    const newUnit: ProjectUnit = {
+      id: crypto.randomUUID(),
+      project_id: unit.project_id || (projects[0]?.id || ''),
+      project_name: proj?.name || unit.project_name || 'Dự án',
+      unit_code: unit.unit_code || `CAN-${Date.now().toString().slice(-4)}`,
+      property_type: unit.property_type || 'Căn hộ 2PN',
+      block_tower: unit.block_tower || '',
+      floor: unit.floor || 1,
+      area_sqm: unit.area_sqm || 65,
+      price: unit.price || 3000000000,
+      direction: unit.direction || 'Đông Nam',
+      status: unit.status || 'available',
+      customer_name: unit.customer_name,
+      sale_name: unit.sale_name,
+      notes: unit.notes || '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.from('project_units').insert(newUnit).select().maybeSingle();
+      if (!error && data) return data as ProjectUnit;
+    }
+
+    const all = await this.getProjectUnits();
+    all.unshift(newUnit);
+    localStorage.setItem(STORAGE_KEY_UNITS, JSON.stringify(all));
+    return newUnit;
+  }
+
+  async updateProjectUnit(id: string, updates: Partial<ProjectUnit>): Promise<ProjectUnit | null> {
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('project_units')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      if (!error && data) return data as ProjectUnit;
+    }
+
+    const all = await this.getProjectUnits();
+    const index = all.findIndex(u => u.id === id);
+    if (index === -1) return null;
+
+    all[index] = {
+      ...all[index],
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY_UNITS, JSON.stringify(all));
+    return all[index];
+  }
+
+  async updateUnitStatusByCode(
+    projectId: string, 
+    unitCode: string, 
+    status: UnitStatus, 
+    extra?: { customer_name?: string; sale_name?: string }
+  ): Promise<boolean> {
+    const all = await this.getProjectUnits();
+    const target = all.find(u => u.project_id === projectId && u.unit_code.toLowerCase().trim() === unitCode.toLowerCase().trim());
+    if (!target) return false;
+
+    return !!(await this.updateProjectUnit(target.id, {
+      status,
+      customer_name: extra?.customer_name ?? target.customer_name,
+      sale_name: extra?.sale_name ?? target.sale_name,
+    }));
+  }
+
+  async deleteProjectUnit(id: string): Promise<boolean> {
+    if (isLiveSupabaseConfigured) {
+      await supabase.from('project_units').delete().eq('id', id);
+    }
+    const all = await this.getProjectUnits();
+    const filtered = all.filter(u => u.id !== id);
+    localStorage.setItem(STORAGE_KEY_UNITS, JSON.stringify(filtered));
+    return true;
   }
 }
 

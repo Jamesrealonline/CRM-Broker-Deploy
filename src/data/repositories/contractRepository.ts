@@ -182,6 +182,8 @@ export class ContractRepository {
     const newTx: any = {
       id: crypto.randomUUID(),
       lead_id: payload.lead_id,
+      project_id: payload.project_id,
+      project_name: payload.project_name,
       deal_id: payload.deal_id,
       type: payload.type || 'contract',
       code: payload.code || `HD-${Date.now().toString().slice(-6)}`,

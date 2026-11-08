@@ -154,6 +154,27 @@ export interface Project {
   created_at?: string;
 }
 
+export type UnitStatus = 'available' | 'booking' | 'deposit' | 'sold' | 'locked';
+
+export interface ProjectUnit {
+  id: string;
+  project_id: string;
+  project_name?: string;
+  unit_code: string;           // Mã căn / Mã sản phẩm (Ví dụ: OG-S7.02-15.08, L1-08)
+  property_type: string;       // Loại hình (Căn hộ 1PN, 2PN, 3PN, Penthouse, Shophouse, Nhà phố, Biệt thự...)
+  block_tower?: string;        // Tòa / Phân khu (Ví dụ: Tòa S7.02, Phân khu Origami, Zone 1)
+  floor?: number;              // Tầng (Ví dụ: 15)
+  area_sqm?: number;           // Diện tích tim tường / thông thủy (m²)
+  price: number;               // Giá bán niêm yết (VNĐ)
+  direction?: string;          // Hướng ban công / cửa chính (Đông Nam, Tây Bắc...)
+  status: UnitStatus;          // Trạng thái: Còn trống, Giữ chỗ, Đã cọc, Đã bán, Khóa bảng hàng
+  customer_name?: string;      // Khách hàng đang giữ chỗ / cọc / mua
+  sale_name?: string;          // Chuyên viên đang phụ trách giữ chỗ / cọc
+  notes?: string;              // Ghi chú sản phẩm (View hồ bơi, chính sách ưu đãi riêng...)
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Customer {
   id: string;
   organization_id: string;
