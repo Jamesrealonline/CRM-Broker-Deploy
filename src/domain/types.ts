@@ -309,6 +309,14 @@ export interface Transaction {
   recognized_at?: string;
   progressive_bonus_applied?: number;
 
+  // Maker-Checker & Reversal Transaction (P1.2)
+  approved_by?: string;
+  approved_at?: string;
+  approval_status?: 'draft' | 'pending_approval' | 'approved' | 'confirmed' | 'rejected';
+  is_reversal?: boolean;
+  reversal_of_id?: string;
+  reversal_reason?: string;
+
   // Joined fields for display
   customer_name?: string;
   customer_phone?: string;
@@ -477,6 +485,8 @@ export interface AuditLog {
   entity_id?: string;
   details?: Record<string, unknown>;
   ip_address?: string;
+  prev_hash?: string;
+  current_hash?: string;
   created_at: string;
 }
 

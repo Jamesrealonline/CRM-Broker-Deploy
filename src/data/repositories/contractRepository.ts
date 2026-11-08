@@ -10,7 +10,8 @@ import {
   AgencyPerformanceDetail, 
   LeaderboardItem,
   LeadStatus,
-  UserRole
+  UserRole,
+  UserProfile
 } from '@/domain/types';
 import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
@@ -254,11 +255,172 @@ export class ContractRepository {
     const list: any[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
     const idx = list.findIndex(t => t.id === txId);
     if (idx !== -1) {
+      const existing = list[idx];
+      // Nếu hợp đồng đã duyệt và cập nhật thay đổi giá trị tài chính -> Chặn sửa
+      if (existing.approval_status === 'approved' && updates.deal_value !== undefined && updates.deal_value !== existing.deal_value) {
+        throw new Error('Hợp đồng đã được phê duyệt và bị khóa sửa đổi giá trị tài chính. Vui lòng lập giao dịch bù trừ (offsetting/reversal).');
+      }
       list[idx] = { ...list[idx], ...updates };
       localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(list));
       return true;
     }
     return false;
+  }
+
+  // 4. PHÊ DUYỆT HỢP ĐỒNG / HOA HỒNG (CƯỠNG CHẾ MAKER-CHECKER)
+  async approveContractTransaction(txId: string, approverUser: UserProfile): Promise<{ success: boolean; transaction?: Transaction }> {
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('phê duyệt hợp đồng');
+    }
+
+    if (!['admin', 'director', 'sales_manager'].includes(approverUser.role)) {
+      throw new Error(`Từ chối thao tác: Vai trò "${approverUser.role}" không có quyền phê duyệt hợp đồng/hoa hồng.`);
+    }
+
+    if (isLiveSupabaseConfigured) {
+      const { error } = await supabase.rpc('approve_contract_transaction', {
+        p_tx_id: txId,
+        p_approver_id: approverUser.id,
+      });
+      if (error) throw new Error(error.message);
+      return { success: true };
+    }
+
+    this.ensureInitialized();
+    const list: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+    const tx = list.find(t => t.id === txId);
+    if (!tx) throw new Error('Không tìm thấy hợp đồng giao dịch.');
+
+    // NGUYÊN TẮC MAKER-CHECKER: Người tạo không được phép tự duyệt
+    if (tx.created_by && tx.created_by === approverUser.id) {
+      throw new Error('Maker-Checker vi phạm: Người lập hợp đồng/hoa hồng không được phép tự duyệt cho chính mình.');
+    }
+
+    if (tx.approval_status === 'approved') {
+      throw new Error(`Hợp đồng này đã được phê duyệt trước đó vào lúc ${tx.approved_at}.`);
+    }
+
+    tx.approval_status = 'approved';
+    tx.status = 'confirmed';
+    tx.approved_by = approverUser.id;
+    tx.approved_at = new Date().toISOString();
+
+    localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(list));
+
+    // Ghi audit log
+    const auditLogs = JSON.parse(localStorage.getItem('crm_audit_logs') || '[]');
+    auditLogs.unshift({
+      id: crypto.randomUUID(),
+      user_id: approverUser.id,
+      actor_id: approverUser.id,
+      action: 'contract_approved',
+      table_name: 'transactions',
+      record_id: txId,
+      new_data: {
+        approved_by: approverUser.id,
+        approver_role: approverUser.role,
+        created_by: tx.created_by,
+        amount: tx.amount,
+      },
+      ip_address: '127.0.0.1',
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem('crm_audit_logs', JSON.stringify(auditLogs.slice(0, 1000)));
+
+    return { success: true, transaction: tx };
+  }
+
+  // 5. TẠO GIAO DỊCH BÙ TRỪ (REVERSAL / OFFSETTING TRANSACTION)
+  async createReversalTransaction(originalTxId: string, reason: string, currentUser: UserProfile): Promise<Transaction> {
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('tạo giao dịch bù trừ');
+    }
+
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.rpc('create_reversal_transaction', {
+        p_original_tx_id: originalTxId,
+        p_reason: reason,
+        p_user_id: currentUser.id,
+      });
+      if (error) throw new Error(error.message);
+      return data as Transaction;
+    }
+
+    this.ensureInitialized();
+    const list: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+    const orig = list.find(t => t.id === originalTxId);
+    if (!orig) throw new Error('Không tìm thấy giao dịch gốc để lập bù trừ.');
+
+    if (orig.is_reversal) {
+      throw new Error('Không thể tạo giao dịch bù trừ trên một giao dịch đã là bù trừ.');
+    }
+
+    const reversalTx: Transaction = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `rev-${Date.now()}`,
+      lead_id: orig.lead_id,
+      project_id: orig.project_id,
+      project_name: orig.project_name,
+      type: 'reversal' as any,
+      code: `REV-${orig.code}`,
+      amount: -1 * Math.abs(orig.amount),
+      deal_value: -1 * Math.abs(orig.deal_value || orig.amount),
+      commission_amount: -1 * Math.abs(orig.commission_amount || 0),
+      sale_commission_amount: -1 * Math.abs(orig.sale_commission_amount || 0),
+      unit_code: orig.unit_code,
+      status: 'confirmed',
+      approval_status: 'approved',
+      is_reversal: true,
+      reversal_of_id: originalTxId,
+      reversal_reason: reason,
+      created_by: currentUser.id,
+      transaction_date: new Date().toISOString(),
+      notes: `Giao dịch bù trừ cho mã ${orig.code}: ${reason}`,
+      created_at: new Date().toISOString(),
+    };
+
+    list.unshift(reversalTx);
+    localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(list));
+
+    // Ghi audit log
+    const auditLogs = JSON.parse(localStorage.getItem('crm_audit_logs') || '[]');
+    auditLogs.unshift({
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `audit-${Date.now()}`,
+      user_id: currentUser.id,
+      actor_id: currentUser.id,
+      action: 'reversal_transaction_created',
+      table_name: 'transactions',
+      record_id: reversalTx.id,
+      new_data: {
+        original_tx_id: originalTxId,
+        reversal_amount: reversalTx.amount,
+        reason,
+      },
+      ip_address: '127.0.0.1',
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem('crm_audit_logs', JSON.stringify(auditLogs.slice(0, 1000)));
+
+    return reversalTx;
+  }
+
+  // 6. XÓA GIAO DỊCH (CHẶN ĐỨNG NẾU ĐÃ CONFIRMED HOẶC APPROVED)
+  async deleteTransaction(txId: string): Promise<boolean> {
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('xóa giao dịch');
+    }
+
+    this.ensureInitialized();
+    const list: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+    const tx = list.find(t => t.id === txId);
+    if (!tx) return false;
+
+    if (tx.status === 'confirmed' || tx.approval_status === 'approved') {
+      throw new Error('Giao dịch tài chính đã xác nhận/phê duyệt bị khóa xóa. Vui lòng lập giao dịch bù trừ (offsetting/reversal).');
+    }
+
+    const filtered = list.filter(t => t.id !== txId);
+    localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(filtered));
+    return true;
   }
 
   // 4. DOANH SỐ VÀ HOA HỒNG CỦA SALE THEO TỪNG HỢP ĐỒNG
