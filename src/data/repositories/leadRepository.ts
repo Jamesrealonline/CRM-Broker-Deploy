@@ -279,6 +279,13 @@ export class LeadRepository {
       if (lErr) return { success: false, error: lErr.message };
 
       if (assignedToId && payload.currentUser.email) {
+        const isInvest = payload.purpose === 'investment';
+        const mucDich = isInvest ? 'Đầu tư sinh lời (ưu tiên dòng tiền & tiềm năng tăng giá)' : 'Mua để ở / an cư';
+        const budgetMinNum = payload.budgetMin || 2000000000;
+        const budgetMaxNum = payload.budgetMax || 3500000000;
+        const nganSach = `${(budgetMinNum / 1e9).toFixed(1)} - ${(budgetMaxNum / 1e9).toFixed(1)} tỷ`;
+        const aiScript = `Dạ em chào Anh/Chị ${payload.fullName}! Em là chuyên viên tư vấn dự án ${projectName}. Em được biết Anh/Chị đang tìm hiểu sản phẩm phù hợp nhu cầu ${isInvest ? 'đầu tư' : 'an cư'} với tầm tài chính ${nganSach}. Em vừa cập nhật giỏ hàng các căn đẹp nhất phân khu mới có chiết khấu tốt, em xin phép gửi thông tin chi tiết qua Zalo để Anh/Chị tham khảo nhé ạ!`;
+
         notificationService.sendNotification({
           leadId: lead.id,
           recipientId: assignedToId,
@@ -287,12 +294,18 @@ export class LeadRepository {
           eventType: 'new_assign',
           channel: 'both',
           variables: {
+            ten_sale: payload.currentUser.full_name,
             ten_khach_hang: payload.fullName,
             so_dien_thoai: payload.phone,
             du_an: projectName,
-            nguoi_giao: payload.currentUser.full_name,
-            ghi_chu: payload.notes || 'Tự tạo lead mới',
-            han_cham_soc: initialDeadline || '24 giờ',
+            muc_dich: mucDich,
+            ngan_sach: nganSach,
+            loai_bds: 'Căn hộ cao cấp / Nhà phố',
+            ghi_chu: payload.notes || 'Khách quan tâm dự án, cần tư vấn bảng giá chi tiết',
+            buoc_kich_ban: 'Bước 1: Tiếp cận ban đầu & Khai thác nhu cầu cốt lõi',
+            ai_script: aiScript,
+            han_cham_soc: initialDeadline || 'Trong vòng 24 giờ',
+            lead_id: lead.id,
           },
         }).catch(err => console.error('Error dispatching notification:', err));
       }
@@ -350,6 +363,13 @@ export class LeadRepository {
     });
 
     if (assignedToId && payload.currentUser.email) {
+      const isInvest = payload.purpose === 'investment';
+      const mucDich = isInvest ? 'Đầu tư sinh lời (ưu tiên dòng tiền & tiềm năng tăng giá)' : 'Mua để ở / an cư';
+      const budgetMinNum = payload.budgetMin || 2000000000;
+      const budgetMaxNum = payload.budgetMax || 3500000000;
+      const nganSach = `${(budgetMinNum / 1e9).toFixed(1)} - ${(budgetMaxNum / 1e9).toFixed(1)} tỷ`;
+      const aiScript = `Dạ em chào Anh/Chị ${payload.fullName}! Em là chuyên viên tư vấn dự án ${projectName}. Em được biết Anh/Chị đang tìm hiểu sản phẩm phù hợp nhu cầu ${isInvest ? 'đầu tư' : 'an cư'} với tầm tài chính ${nganSach}. Em vừa cập nhật giỏ hàng các căn đẹp nhất phân khu mới có chiết khấu tốt, em xin phép gửi thông tin chi tiết qua Zalo để Anh/Chị tham khảo nhé ạ!`;
+
       notificationService.sendNotification({
         leadId: newLeadId,
         recipientId: assignedToId,
@@ -358,12 +378,18 @@ export class LeadRepository {
         eventType: 'new_assign',
         channel: 'both',
         variables: {
+          ten_sale: payload.currentUser.full_name,
           ten_khach_hang: payload.fullName,
           so_dien_thoai: payload.phone,
           du_an: projectName,
-          nguoi_giao: payload.currentUser.full_name,
-          ghi_chu: payload.notes || 'Tự tạo lead mới',
-          han_cham_soc: initialDeadline || '24 giờ',
+          muc_dich: mucDich,
+          ngan_sach: nganSach,
+          loai_bds: 'Căn hộ cao cấp / Nhà phố',
+          ghi_chu: payload.notes || 'Khách quan tâm dự án, cần tư vấn bảng giá chi tiết',
+          buoc_kich_ban: 'Bước 1: Tiếp cận ban đầu & Khai thác nhu cầu cốt lõi',
+          ai_script: aiScript,
+          han_cham_soc: initialDeadline || 'Trong vòng 24 giờ',
+          lead_id: newLeadId,
         },
       }).catch(err => console.error('Error dispatching notification:', err));
     }

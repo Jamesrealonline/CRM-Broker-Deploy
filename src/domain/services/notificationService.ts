@@ -262,40 +262,84 @@ ${leadListPlain}
         </div>
         ${buttonHtml(`${siteUrl}/leads`, 'Xem Danh Sách Lead Của Bạn')}
       `;
-    } else if (eventType === 'new_assign') {
-      title = `[CRM Broker] Bạn vừa được giao Lead mới: ${variables.ten_khach_hang}`;
+    } else if (eventType === 'new_assign' || eventType === 'lead_transferred' || eventType === 'auto_transferred_new') {
+      title = `[CRM Broker] Bàn giao Lead khách hàng: ${variables.ten_khach_hang || 'Khách hàng'} - ${variables.du_an || 'Dự án'}`;
       bodyContent = `
-        <h3 style="color: #0f172a; font-size: 16px; margin-top: 0;">Xin chào ${variables.ten_sale},</h3>
+        <h3 style="color: #0f172a; font-size: 16px; margin-top: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+          Xin chào ${variables.ten_sale || 'bạn'},
+        </h3>
         <p style="color: #334155; line-height: 1.6; font-size: 13px;">
-          Bạn vừa được bàn giao tiếp nhận chăm sóc khách hàng mới từ <strong>${variables.nguoi_giao || 'Hệ thống'}</strong>:
+          Bạn vừa được bàn giao phụ trách khách hàng tiềm năng <strong>${variables.ten_khach_hang}</strong> quan tâm dự án <strong>${variables.du_an}</strong>. Dưới đây là thông tin liên hệ, chân dung khách hàng, bước kịch bản hiện tại và gợi ý tư vấn từ Trợ lý AI:
         </p>
-        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px;">
-          <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b; width: 140px;">Khách hàng:</td><td style="padding: 8px 0; font-weight: bold; color: #0f172a;">${variables.ten_khach_hang}</td></tr>
-          <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Số điện thoại:</td><td style="padding: 8px 0; font-weight: bold; color: #2563eb;">${variables.so_dien_thoai}</td></tr>
-          <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Dự án quan tâm:</td><td style="padding: 8px 0; font-weight: bold; color: #0f172a;">${variables.du_an}</td></tr>
-          <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Nguồn Lead:</td><td style="padding: 8px 0; color: #334155;">${variables.nguon_lead || 'Website/Hotline'}</td></tr>
-          <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; color: #64748b;">Ghi chú nhu cầu:</td><td style="padding: 8px 0; color: #334155;">${variables.ghi_chu || 'Chưa có ghi chú'}</td></tr>
-          <tr><td style="padding: 8px 0; color: #64748b;">Hạn cập nhật chăm sóc:</td><td style="padding: 8px 0; color: #dc2626; font-weight: bold;">${variables.han_cham_soc || 'Trong vòng 24 giờ'}</td></tr>
+
+        <!-- BẢNG THÔNG TIN KHÁCH HÀNG -->
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden;">
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 10px 14px; color: #64748b; width: 140px; font-weight: 500;">👤 Khách hàng:</td>
+            <td style="padding: 10px 14px; font-weight: bold; color: #0f172a;">${variables.ten_khach_hang}</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 10px 14px; color: #64748b; font-weight: 500;">📞 Số điện thoại:</td>
+            <td style="padding: 10px 14px; font-weight: bold; color: #2563eb; font-size: 14px;">${variables.so_dien_thoai}</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 14px; color: #64748b; font-weight: 500;">🏢 Dự án quan tâm:</td>
+            <td style="padding: 10px 14px; font-weight: bold; color: #0f172a;">${variables.du_an}</td>
+          </tr>
         </table>
+
+        <!-- KHỐI 1: CHÂN DUNG KHÁCH HÀNG (CUSTOMER PERSONA) -->
+        <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+          <div style="font-weight: bold; color: #1e293b; font-size: 13px; margin-bottom: 10px; border-bottom: 1px solid #f1f5f9; padding-bottom: 6px;">
+            🎯 CHÂN DUNG & NHU CẦU KHÁCH HÀNG
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.6;">
+            <tr>
+              <td style="padding: 4px 0; color: #64748b; width: 140px;">Mục đích sở hữu:</td>
+              <td style="padding: 4px 0; font-weight: 600; color: #0f172a;">${variables.muc_dich || 'Đầu tư sinh lời / Mua an cư'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Ngân sách dự kiến:</td>
+              <td style="padding: 4px 0; font-weight: 600; color: #0f172a;">${variables.ngan_sach || 'Theo tầm giá phân khúc dự án'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b;">Loại BĐS ưu tiên:</td>
+              <td style="padding: 4px 0; color: #334155;">${variables.loai_bds || 'Căn hộ cao cấp / Nhà phố liền kề'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b; vertical-align: top;">Ghi chú & Nhu cầu:</td>
+              <td style="padding: 4px 0; color: #334155; font-style: italic;">"${variables.ghi_chu || 'Khách đang tìm hiểu dự án, cần tư vấn giỏ hàng và phương án tài chính.'}"</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- KHỐI 2: BƯỚC TRONG KỊCH BẢN BÁN HÀNG -->
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin: 16px 0;">
+          <div style="font-weight: bold; color: #166534; font-size: 12px; margin-bottom: 4px;">
+            📍 GIAI ĐOẠN TRONG KỊCH BẢN BÁN HÀNG (SALES SCRIPT STAGE)
+          </div>
+          <p style="margin: 0; color: #15803d; font-size: 13px; font-weight: 600;">
+            ${variables.buoc_kich_ban || 'Bước 1: Tiếp cận ban đầu & Khai thác nhu cầu cốt lõi'}
+          </p>
+        </div>
+
+        <!-- KHỐI 3: GỢI Ý KỊCH BẢN TƯ VẤN TỪ TRỢ LÝ AI (AI SALES SCRIPT) -->
+        <div style="background-color: #faf5ff; border: 1px solid #e9d5ff; border-radius: 8px; padding: 16px; margin: 16px 0;">
+          <div style="font-weight: bold; color: #6b21a8; font-size: 12px; margin-bottom: 8px;">
+            ✨ GỢI Ý KỊCH BẢN TƯ VẤN PHÙ HỢP (TRỢ LÝ AI)
+          </div>
+          <div style="background-color: #ffffff; border: 1px dashed #d8b4fe; border-radius: 6px; padding: 12px; font-size: 12px; color: #3b0764; line-height: 1.6; font-style: italic;">
+            "${variables.ai_script || 'Dạ em chào Anh/Chị! Em là chuyên viên tư vấn dự án... Em vừa nhận được thông tin Anh/Chị đang quan tâm căn hộ/nhà phố phù hợp tầm tài chính. Em xin phép chia sẻ 2 phương án căn đẹp nhất đợt này nhé ạ!'}"
+          </div>
+        </div>
+
+        <!-- KHỐI 4: HẠN CHÓT SLA 24 GIỜ -->
         <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; margin: 18px 0; border-radius: 4px; font-size: 12px; color: #991b1b;">
-          ⚠️ <strong>Lưu ý:</strong> Nếu sau 24 giờ liên tục không có bất kỳ cập nhật chăm sóc nào (đổi trạng thái hoặc ghi nhận cuộc gọi/lịch hẹn), Lead sẽ tự động chuyển sang Sale tiếp theo.
+          ⏱ <strong>Hạn chót chăm sóc (SLA 24 giờ):</strong> ${variables.han_cham_soc || 'Trong vòng 24 giờ kể từ thời điểm nhận'}.<br/>
+          <span style="font-size: 11px; color: #7f1d1d;">Lưu ý: Vui lòng liên hệ và cập nhật tình trạng chăm sóc hoặc ghi nhận cuộc gọi/lịch hẹn trước thời hạn để giữ Lead.</span>
         </div>
-        ${buttonHtml(`${siteUrl}/leads/${variables.lead_id}`, 'Xem Chi Tiết Lead Ngay')}
-      `;
-    } else if (eventType === 'lead_transferred' || eventType === 'auto_transferred_new') {
-      title = `[CRM Broker] Tiếp nhận điều chuyển Lead: ${variables.ten_khach_hang}`;
-      bodyContent = `
-        <h3 style="color: #0f172a; font-size: 16px; margin-top: 0;">Xin chào ${variables.ten_sale},</h3>
-        <p style="color: #334155; line-height: 1.6; font-size: 13px;">
-          Bạn vừa được tiếp nhận Lead <strong>${variables.ten_khach_hang}</strong> được điều chuyển từ chuyên viên <strong>${variables.sale_cu || 'Sale trước'}</strong> ${eventType === 'auto_transferred_new' ? '(do quá hạn 24 giờ chưa cập nhật)' : ''}.
-        </p>
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin: 16px 0; font-size: 13px;">
-          <p style="margin: 0 0 6px 0;"><strong>Khách hàng:</strong> ${variables.ten_khach_hang} - ${variables.so_dien_thoai}</p>
-          <p style="margin: 0 0 6px 0;"><strong>Dự án:</strong> ${variables.du_an}</p>
-          <p style="margin: 0 0 6px 0;"><strong>Ghi chú trước đó:</strong> ${variables.ghi_chu || 'Không có'}</p>
-          <p style="margin: 0; color: #2563eb;"><strong>Hạn 24 giờ mới:</strong> Đồng hồ 24 giờ được bắt đầu lại từ thời điểm này (${variables.thoi_gian}).</p>
-        </div>
-        ${buttonHtml(`${siteUrl}/leads/${variables.lead_id}`, 'Truy Cập Hồ Sơ Lead')}
+
+        ${buttonHtml(`${siteUrl}/leads/${variables.lead_id}`, 'Xem Chi Tiết Lead & Trợ Lý AI Tư Vấn')}
       `;
     } else if (eventType === 'lead_revoked' || eventType === 'auto_transferred_old') {
       title = `[CRM Broker] Thông báo thu hồi Lead: ${variables.ten_khach_hang}`;

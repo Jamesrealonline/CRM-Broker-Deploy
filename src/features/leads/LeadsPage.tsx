@@ -31,8 +31,7 @@ import { leadRepository } from '@/data/repositories/leadRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
 import { autoTransferService } from '@/domain/services/autoTransferService';
-import { notificationService, ClientDispatchInfo } from '@/domain/services/notificationService';
-import { LeadDispatchModal } from '@/components/LeadDispatchModal';
+import { notificationService } from '@/domain/services/notificationService';
 import { Lead, Project, LeadStatus, UserProfile } from '@/domain/types';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { Button } from '@/components/ui/Button';
@@ -83,12 +82,6 @@ export const LeadsPage: React.FC = () => {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkFeedback, setBulkFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // 1-Click Client Dispatch Modal (Gmail Web & Zalo)
-  const [dispatchModalOpen, setDispatchModalOpen] = useState(false);
-  const [dispatchInfo, setDispatchInfo] = useState<ClientDispatchInfo | null>(null);
-  const [dispatchedSale, setDispatchedSale] = useState<UserProfile | null>(null);
-  const [dispatchedCount, setDispatchedCount] = useState(1);
-
   useEffect(() => {
     projectRepository.getProjects().then((list) => {
       setProjects(list);
@@ -138,31 +131,16 @@ export const LeadsPage: React.FC = () => {
 
     setBulkSubmitting(false);
     if (res.success) {
-      const chosenLeads = leads.filter(l => selectedLeadIds.includes(l.id));
-      const info = notificationService.buildBulkClientDispatchInfo({
-        leads: chosenLeads.map(l => ({
-          id: l.id,
-          full_name: l.customer_name || 'Khách hàng',
-          phone: l.customer_phone || 'Chưa có SĐT',
-          project_name: l.project_name,
-        })),
-        saleName: targetSale.full_name,
-        saleEmail: targetSale.email,
-        salePhone: targetSale.phone,
-        managerName: currentUser.full_name,
-        reason: bulkReason,
+      setBulkFeedback({
+        type: 'success',
+        text: `Đã phân bổ thành công ${res.updatedCount} lead cho chuyên viên ${targetSale.full_name}! Hệ thống đã tự động gửi email tổng hợp qua Webhook.`,
       });
-
       setSelectedLeadIds([]);
-      setBulkModalOpen(false);
-      setBulkFeedback(null);
-      fetchLeads();
-
-      // Mở modal gửi thông báo 1-Click
-      setDispatchInfo(info);
-      setDispatchedSale(targetSale);
-      setDispatchedCount(res.updatedCount);
-      setDispatchModalOpen(true);
+      setTimeout(() => {
+        setBulkModalOpen(false);
+        setBulkFeedback(null);
+        fetchLeads();
+      }, 1500);
     } else {
       setBulkFeedback({
         type: 'error',
@@ -755,17 +733,6 @@ export const LeadsPage: React.FC = () => {
           </div>
         </form>
       </Modal>
-
-      {/* MODAL GỬI THÔNG BÁO TỨC THÌ 1-CLICK (GMAIL WEB & ZALO) */}
-      <LeadDispatchModal
-        isOpen={dispatchModalOpen}
-        onClose={() => setDispatchModalOpen(false)}
-        dispatchInfo={dispatchInfo}
-        saleName={dispatchedSale?.full_name || ''}
-        saleEmail={dispatchedSale?.email || ''}
-        salePhone={dispatchedSale?.phone}
-        leadCount={dispatchedCount}
-      />
     </div>
   );
 };

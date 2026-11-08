@@ -1189,74 +1189,56 @@ export const AdminPage: React.FC = () => {
                   {/* Provider selection */}
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
-                      Chọn Phương Thức Gửi Thông Báo Ưu Tiên:
+                      Phương Thức Gửi Email & Webhook Tự Động (Chạy Ngầm 24/7):
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => setEmailConfig({ ...emailConfig, dispatch_mode: 'client_direct' })}
-                        className={`p-3 rounded-xl border text-left transition-all ${
-                          (emailConfig.dispatch_mode || 'client_direct') === 'client_direct'
-                            ? 'border-emerald-600 bg-emerald-50/70 font-semibold text-emerald-950 shadow-sm ring-1 ring-emerald-500'
-                            : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5 text-xs text-emerald-800 font-bold mb-1">
-                          <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-                          1-Click Gmail & Zalo
-                        </div>
-                        <div className="text-[10px] text-slate-600 leading-tight">
-                          Khuyên dùng khi có người thao tác! Mở sẵn Gmail/Zalo, không cần cài đặt mật khẩu.
-                        </div>
-                      </button>
-
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
                       <button
                         type="button"
                         onClick={() => setEmailConfig({ ...emailConfig, dispatch_mode: 'google_apps_script', provider: 'google_apps_script' })}
-                        className={`p-3 rounded-xl border text-left transition-all ${
-                          emailConfig.dispatch_mode === 'google_apps_script'
-                            ? 'border-indigo-600 bg-indigo-50/70 font-semibold text-indigo-950 shadow-sm ring-1 ring-indigo-500'
+                        className={`p-3.5 rounded-xl border text-left transition-all ${
+                          (emailConfig.dispatch_mode || 'google_apps_script') === 'google_apps_script'
+                            ? 'border-indigo-600 bg-indigo-50/80 font-semibold text-indigo-950 shadow-sm ring-1 ring-indigo-500'
                             : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
                         }`}
                       >
                         <div className="flex items-center gap-1.5 text-xs text-indigo-800 font-bold mb-1">
-                          <Send className="h-3.5 w-3.5 text-indigo-600" />
-                          Google Apps Script (Tự Động)
+                          <Sparkles className="h-4 w-4 text-indigo-600" />
+                          Google Apps Script (Khuyên Dùng)
                         </div>
                         <div className="text-[10px] text-slate-600 leading-tight">
-                          Tự động đảo lead 24/7 bằng chính Gmail miễn phí. Không cần App Password, không bao giờ bị chặn!
+                          Tự động gửi email 24/7 qua chính Gmail của bạn. Miễn phí 100%, không cần App Password, không bao giờ bị chặn!
                         </div>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setEmailConfig({ ...emailConfig, dispatch_mode: 'resend_api', provider: 'resend' })}
-                        className={`p-3 rounded-xl border text-left transition-all ${
+                        className={`p-3.5 rounded-xl border text-left transition-all ${
                           emailConfig.dispatch_mode === 'resend_api'
-                            ? 'border-purple-600 bg-purple-50/70 font-semibold text-purple-950 shadow-sm ring-1 ring-purple-500'
+                            ? 'border-purple-600 bg-purple-50/80 font-semibold text-purple-950 shadow-sm ring-1 ring-purple-500'
                             : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
                         }`}
                       >
                         <div className="flex items-center gap-1.5 text-xs text-purple-800 font-bold mb-1">
-                          <Send className="h-3.5 w-3.5 text-purple-600" />
+                          <Send className="h-4 w-4 text-purple-600" />
                           Resend API (Tự Động)
                         </div>
                         <div className="text-[10px] text-slate-600 leading-tight">
-                          Miễn phí 3.000 email/tháng, chỉ cần 1 API key, chạy ngầm tự động 100%.
+                          Miễn phí 3.000 email/tháng, chỉ cần 1 API key, chạy ngầm tự động độc lập với Google.
                         </div>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setEmailConfig({ ...emailConfig, dispatch_mode: 'server_smtp', provider: 'gmail_smtp', smtp_host: 'smtp.gmail.com', smtp_port: 465 })}
-                        className={`p-3 rounded-xl border text-left transition-all ${
+                        className={`p-3.5 rounded-xl border text-left transition-all ${
                           emailConfig.dispatch_mode === 'server_smtp'
-                            ? 'border-blue-600 bg-blue-50/70 font-semibold text-blue-950 shadow-sm ring-1 ring-blue-500'
+                            ? 'border-blue-600 bg-blue-50/80 font-semibold text-blue-950 shadow-sm ring-1 ring-blue-500'
                             : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
                         }`}
                       >
                         <div className="flex items-center gap-1.5 text-xs text-blue-800 font-bold mb-1">
-                          <Mail className="h-3.5 w-3.5 text-blue-600" />
+                          <Mail className="h-4 w-4 text-blue-600" />
                           Gmail SMTP Server
                         </div>
                         <div className="text-[10px] text-slate-600 leading-tight">
@@ -1267,16 +1249,13 @@ export const AdminPage: React.FC = () => {
                   </div>
 
                   {/* Giải thích khi Google báo lỗi App Password */}
-                  <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1.5">
+                  <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-lg text-[11px] text-amber-900 space-y-1">
                     <div className="font-bold flex items-center gap-1.5 text-amber-800">
                       <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                      Tại sao Google báo lỗi "The setting you are looking for is not available for your account"?
+                      Lưu ý về tài khoản Google:
                     </div>
                     <p className="leading-relaxed">
-                      Lỗi này xuất hiện khi tài khoản Google của bạn là <strong>Google Workspace (email công ty có đuôi @tenmien.com)</strong> hoặc quản trị viên IT của tổ chức đã tắt tính năng tự tạo App Password theo chính sách bảo mật.
-                    </p>
-                    <p className="leading-relaxed font-semibold text-emerald-800">
-                      👉 <strong>Giải pháp tức thì:</strong> Hãy sử dụng chế độ <strong>"1-Click Gmail & Zalo"</strong> bên trên! Mỗi khi bạn phân bổ hoặc điều chuyển lead, CRM sẽ mở sẵn tab Gmail hoặc Zalo với nội dung điền sẵn 100%, bạn chỉ cần bấm "Gửi" ngay từ máy của mình.
+                      Nếu tài khoản của bạn là email công ty (Google Workspace) và bị khóa tính năng tạo App Password, hãy chọn chế độ <strong>"Google Apps Script"</strong> bên trên để hệ thống tự động gửi email hoàn toàn miễn phí mà không cần mật khẩu ứng dụng.
                     </p>
                   </div>
 
@@ -1482,52 +1461,6 @@ function doGet(e) {
                           </ol>
                         </div>
                       )}
-                    </div>
-                  )}
-
-                  {/* Fields for Client Direct (1-Click Gmail & Zalo) */}
-                  {(emailConfig.dispatch_mode || 'client_direct') === 'client_direct' && (
-                    <div className="p-3.5 bg-emerald-50/50 border border-emerald-200 rounded-lg space-y-2.5 text-[11px] text-emerald-950">
-                      <div className="font-bold flex items-center gap-1.5 text-emerald-800">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                        Chế Độ Gửi Trực Tiếp 1-Click Đang Hoạt Động (Tối Ưu Nhất):
-                      </div>
-                      <p className="leading-relaxed text-slate-700">
-                        Khi Quản lý thực hiện <strong>Bàn giao Lead</strong> hoặc <strong>Phân bổ hàng loạt</strong>, CRM sẽ tự động hiển thị Hộp thoại Gửi Thông Báo Tức Thì với 2 tùy chọn 1-Click:
-                      </p>
-                      <ul className="list-disc pl-4 space-y-1 text-slate-700">
-                        <li>
-                          <strong>Mở Gmail Soạn Thư (Gmail Web):</strong> Mở ngay tab Gmail của chính bạn với người nhận ({`email của Sale`}), tiêu đề và nội dung chi tiết (SĐT khách, nhu cầu, thời hạn SLA 24h, link CRM) đã điền sẵn 100%. Bạn chỉ việc nhấn nút "Gửi" trên Gmail của mình!
-                        </li>
-                        <li>
-                          <strong>Mở Zalo Gửi Cho Sale:</strong> Tự động sao chép mẫu tin nhắn khách hàng vào clipboard và mở khung chat Zalo của Sale. Bạn chỉ cần nhấn <code>Ctrl+V</code> (hoặc Cmd+V) là gửi xong.
-                        </li>
-                      </ul>
-                      <div className="pt-2 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const testUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(currentUser?.email || 'sale@gmail.com')}&su=${encodeURIComponent('[CRM Broker] Thử Nghiệm Bàn Giao Lead')}&body=${encodeURIComponent('Xin chào Sale,\n\nĐây là tin nhắn thử nghiệm gửi từ trình duyệt qua Gmail Web.\n\nTrân trọng,\nCRM Broker')}`;
-                            window.open(testUrl, '_blank');
-                          }}
-                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold flex items-center gap-1 text-[11px] shadow-sm transition-colors"
-                        >
-                          <Mail className="h-3 w-3" />
-                          Thử Mở Soạn Thư Gmail Web Ngay
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText('🏢 [CRM BROKER] TIN NHẮN THỬ NGHIỆM GỬI QUA ZALO CHO SALE');
-                            alert('Đã copy mẫu tin nhắn Zalo vào bộ nhớ tạm! Bạn có thể dán (Ctrl+V) vào Zalo.');
-                            window.open('https://chat.zalo.me', '_blank');
-                          }}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold flex items-center gap-1 text-[11px] shadow-sm transition-colors"
-                        >
-                          <MessageSquare className="h-3 w-3" />
-                          Thử Mở Zalo Web Ngay
-                        </button>
-                      </div>
                     </div>
                   )}
 
