@@ -142,6 +142,11 @@ export class LeadRepository {
     this.ensureInitialized();
     let allLeads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
 
+    // 0. CÔ LẬP ĐA ĐỐI TÁC (MULTI-TENANT ISOLATION)
+    if (currentUser.organization_id) {
+      allLeads = allLeads.filter(l => !l.organization_id || l.organization_id === currentUser.organization_id);
+    }
+
     // Áp dụng quyền theo vai trò
     if (currentUser.role === 'sale_agent') {
       allLeads = allLeads.filter(l => l.assigned_to === currentUser.id);
@@ -583,6 +588,7 @@ export class LeadRepository {
 
     const newLead: Lead = {
       id: newLeadId,
+      organization_id: payload.currentUser.organization_id || '11111111-1111-1111-1111-111111111111',
       customer_id: newCustomerId,
       customer_name: payload.fullName,
       customer_phone: payload.phone,

@@ -213,6 +213,7 @@ export interface CustomerConsent {
 
 export interface Lead {
   id: string;
+  organization_id?: string;
   customer_id: string;
   project_id: string;
   agency_id?: string;
