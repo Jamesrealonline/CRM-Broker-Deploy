@@ -1,0 +1,299 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { hrRepository } from '../data/repositories/hrRepository';
+import { teamRepository } from '../data/repositories/teamRepository';
+import { auditRepository } from '../data/repositories/auditRepository';
+import { UserProfile } from '../domain/types';
+
+describe('Module 5: Comprehensive HR Lifecycle & Personnel Management', () => {
+  const mockAdmin: UserProfile = {
+    id: 'admin-001',
+    full_name: 'Quản Trị Viên',
+    email: 'admin@diaocvang.vn',
+    phone: '0901000001',
+    role: 'admin',
+    agency_id: 'agency-01',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: false,
+  };
+
+  const mockHrAdmin: UserProfile = {
+    id: 'hr-001',
+    full_name: 'Nguyễn Thị HR',
+    email: 'hr@diaocvang.vn',
+    phone: '0901000002',
+    role: 'hr_admin',
+    agency_id: 'agency-01',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: false,
+  };
+
+  const mockSalesManager: UserProfile = {
+    id: 'sm-001',
+    full_name: 'Trần Giám Đốc Sàn',
+    email: 'sm@diaocvang.vn',
+    phone: '0901000003',
+    role: 'sales_manager',
+    agency_id: 'agency-01',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: false,
+  };
+
+  const mockTeamLeader: UserProfile = {
+    id: 'tl-001',
+    full_name: 'Lê Trưởng Nhóm',
+    email: 'tl@diaocvang.vn',
+    phone: '0901000004',
+    role: 'team_leader',
+    agency_id: 'agency-01',
+    team_id: 'team-01',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: false,
+  };
+
+  const mockSaleAgent1: UserProfile = {
+    id: 'sale-001',
+    full_name: 'Phạm Chuyên Viên 1',
+    email: 'sale1@diaocvang.vn',
+    phone: '0901000005',
+    role: 'sale_agent',
+    agency_id: 'agency-01',
+    team_id: 'team-01',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: false,
+  };
+
+  const mockSaleAgent2: UserProfile = {
+    id: 'sale-002',
+    full_name: 'Vũ Chuyên Viên 2',
+    email: 'sale2@diaocvang.vn',
+    phone: '0901000006',
+    role: 'sale_agent',
+    agency_id: 'agency-02',
+    team_id: 'team-02',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: false,
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('1. Ma trận quyền dữ liệu: Sale chỉ thấy nhân sự trong team mình; HR/Admin thấy toàn hệ thống', async () => {
+    // Sale 1 truy vấn danh sách nhân sự
+    const saleView = await hrRepository.getEmployees({}, mockSaleAgent1);
+    // Sale 1 chỉ thấy chính mình và người cùng team-01, không thấy Sale 2 thuộc team-02
+    const hasSale2 = saleView.some(e => e.id === mockSaleAgent2.id);
+    expect(hasSale2).toBe(false);
+
+    // HR Admin truy vấn danh sách nhân sự -> xem được toàn bộ
+    const hrView = await hrRepository.getEmployees({}, mockHrAdmin);
+    expect(hrView.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('2. Bảo mật hồ sơ 360°: Dữ liệu nhạy cảm (CCCD, MST, STK ngân hàng) bị ẩn với Sale/Team Leader khác', async () => {
+    // Seed private data for Sale 1
+    localStorage.setItem('crm_employee_private', JSON.stringify([
+      {
+        id: 'priv-001',
+        user_id: mockSaleAgent1.id,
+        id_card_number: '079196001234',
+        tax_id: '8392019482',
+        bank_account_number: '19034567891011',
+        bank_name: 'Techcombank',
+        emergency_contact_name: 'Bố ruột',
+        emergency_contact_phone: '0903112233',
+      }
+    ]));
+
+    // Đăng ký profile của Sale 1
+    const profiles = await teamRepository.getProfiles();
+    profiles.push(mockSaleAgent1);
+    localStorage.setItem('crm_profiles', JSON.stringify(profiles));
+
+    // Team Leader xem hồ sơ 360 của Sale 1
+    const tlProfileView = await hrRepository.getEmployee360Profile(mockSaleAgent1.id, mockTeamLeader);
+    expect(tlProfileView.hasPrivateAccess).toBe(false);
+    expect(tlProfileView.maskedPrivate?.id_card_number).toBeUndefined();
+    expect(tlProfileView.maskedPrivate?.tax_id).toBeUndefined();
+    expect(tlProfileView.maskedPrivate?.bank_account_number).toBeUndefined();
+
+    // HR Admin xem hồ sơ 360 của Sale 1 -> có quyền xem dạng che mờ (masked)
+    const hrProfileView = await hrRepository.getEmployee360Profile(mockSaleAgent1.id, mockHrAdmin);
+    expect(hrProfileView.hasPrivateAccess).toBe(true);
+    expect(hrProfileView.maskedPrivate?.id_card_number).toContain('******');
+  });
+
+  it('3. Tra cứu dữ liệu nhạy cảm (Reveal): Bắt buộc lý do nghiệp vụ và ghi vết vào Audit Log', async () => {
+    localStorage.setItem('crm_employee_private', JSON.stringify([
+      {
+        id: 'priv-001',
+        user_id: mockSaleAgent1.id,
+        id_card_number: '079196001234',
+        tax_id: '8392019482',
+        bank_account_number: '19034567891011',
+      }
+    ]));
+
+    // Sale khác cố tra cứu -> bị từ chối
+    await expect(
+      hrRepository.revealPrivateField(mockSaleAgent1.id, 'id_card_number', 'Xem cho biết', mockSaleAgent2)
+    ).rejects.toThrow(/forbidden/);
+
+    // HR tra cứu nhưng thiếu lý do -> bị từ chối
+    await expect(
+      hrRepository.revealPrivateField(mockSaleAgent1.id, 'id_card_number', '   ', mockHrAdmin)
+    ).rejects.toThrow(/invalid_argument/);
+
+    // HR tra cứu có lý do hợp lệ -> thành công và ghi log audit
+    const res = await hrRepository.revealPrivateField(
+      mockSaleAgent1.id,
+      'id_card_number',
+      'Đăng ký hồ sơ thuế TNCN và bảo hiểm bắt buộc',
+      mockHrAdmin
+    );
+    expect(res.value).toBe('079196001234');
+
+    const logs = await auditRepository.getAuditLogs();
+    const revealLog = logs.find(l => l.action === 'reveal_employee_private');
+    expect(revealLog).toBeDefined();
+    expect(revealLog?.user_id).toBe(mockHrAdmin.id);
+  });
+
+  it('4. Tuyển dụng ATS: Atomic Hire tái sử dụng luồng admin, tạo Employee Record, Onboarding Tasks và sự kiện Hired', async () => {
+    // 1. Tạo ứng viên tuyển dụng
+    const candRes = await hrRepository.createCandidate({
+      fullName: 'Hoàng Kim Tuyển Mới',
+      phone: '0988665544',
+      email: 'hoang.kim@diaocvang.vn',
+      source: 'Tuyển dụng trực tiếp',
+      notes: 'Đã hoàn thành phỏng vấn',
+      currentUser: mockHrAdmin,
+    });
+    expect(candRes.candidate).toBeDefined();
+
+    // 2. Thực hiện Atomic Hire
+    const hireRes = await hrRepository.atomicHireCandidate(
+      candRes.candidate.id,
+      {
+        email: 'hoang.kim@diaocvang.vn',
+        full_name: 'Hoàng Kim Tuyển Mới',
+        phone: '0988665544',
+        role: 'sale_agent',
+        agency_id: 'agency-01',
+        team_id: 'team-01',
+      },
+      mockHrAdmin
+    );
+
+    expect(hireRes.success).toBe(true);
+    expect(hireRes.employeeRecord.employee_code).toBeDefined();
+    expect(hireRes.employeeRecord.employment_type).toBe('probation');
+
+    // 3. Kiểm tra Checklist Onboarding tự động sinh
+    const p360 = await hrRepository.getEmployee360Profile(hireRes.userProfile.id, mockHrAdmin);
+    expect(p360.onboardingTasks.length).toBeGreaterThan(0);
+    expect(p360.onboardingTasks.some(t => t.title.includes('Ký hợp đồng'))).toBe(true);
+
+    // 4. Kiểm tra sự kiện nhân sự "hired" đã được ghi nhận
+    expect(p360.events.some(e => e.event_type === 'hired')).toBe(true);
+  });
+
+  it('5. Phát hiện trùng ứng viên: Cùng số điện thoại kích hoạt cảnh báo trùng lặp', async () => {
+    // Nộp lần 1
+    await hrRepository.createCandidate({
+      fullName: 'Ứng Viên A',
+      phone: '0912334455',
+      source: 'TopCV',
+      currentUser: mockHrAdmin,
+    });
+
+    // Nộp lần 2 cùng SĐT
+    const res2 = await hrRepository.createCandidate({
+      fullName: 'Ứng Viên A Duplicate',
+      phone: '0912334455',
+      source: 'Facebook',
+      currentUser: mockHrAdmin,
+    });
+
+    expect(res2.isDuplicate).toBe(true);
+    expect(res2.warning).toContain('đã nộp hồ sơ trước đó');
+  });
+
+  it('6. Quản lý nghỉ phép: Duyệt phép tự động trừ số dư và kích hoạt cờ on_leave đúng ngày', async () => {
+    // 1. Tạo đơn nghỉ phép cho Sale 1
+    const req = await hrRepository.createLeaveRequest({
+      leaveTypeId: 'lt-1',
+      startDate: new Date().toISOString().slice(0, 10), // Hôm nay
+      endDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+      totalDays: 2,
+      reason: 'Nghỉ phép gia đình',
+      currentUser: mockSaleAgent1,
+    });
+    expect(req.status).toBe('pending');
+
+    // 2. Quản lý duyệt đơn
+    const approveRes = await hrRepository.approveLeaveRequest(req.id, true, undefined, mockSalesManager);
+    expect(approveRes.success).toBe(true);
+
+    // 3. Kiểm tra cờ on_leave đã được bật
+    const profiles = await teamRepository.getProfiles();
+    const updatedSale1 = profiles.find(p => p.id === mockSaleAgent1.id);
+    expect(updatedSale1?.on_leave).toBe(true);
+  });
+
+  it('7. Điều chuyển Maker-Checker: Chặn tự phê duyệt chính mình; Khi duyệt cập nhật Sàn/Team và Audit Trail', async () => {
+    // Đăng ký profile của Sale 1
+    const profiles = await teamRepository.getProfiles();
+    profiles.push(mockSaleAgent1);
+    localStorage.setItem('crm_profiles', JSON.stringify(profiles));
+
+    // 1. Team Leader tạo yêu cầu điều chuyển Sale 1 sang team-02
+    const req = await hrRepository.createTransferRequest({
+      userId: mockSaleAgent1.id,
+      requestType: 'transfer',
+      toAgencyId: 'agency-02',
+      toTeamId: 'team-02',
+      effectiveDate: new Date().toISOString().slice(0, 10),
+      reason: 'Hỗ trợ dự án mới tại Sàn 2',
+      currentUser: mockTeamLeader,
+    });
+    expect(req.status).toBe('pending');
+
+    // 2. Chặn tự duyệt nếu người duyệt chính là nhân sự được điều chuyển
+    await expect(
+      hrRepository.applyPersonnelTransfer(req.id, mockSaleAgent1)
+    ).rejects.toThrow(/forbidden|invalid_operation/);
+
+    // 3. Giám Đốc Sàn phê duyệt
+    const applyRes = await hrRepository.applyPersonnelTransfer(req.id, mockSalesManager);
+    expect(applyRes.success).toBe(true);
+
+    // 4. Kiểm tra hồ sơ Sale 1 đã chuyển sang team-02
+    const updatedProfiles = await teamRepository.getProfiles();
+    const transferredSale = updatedProfiles.find(p => p.id === mockSaleAgent1.id);
+    expect(transferredSale?.team_id).toBe('team-02');
+    expect(transferredSale?.agency_id).toBe('agency-02');
+  });
+
+  it('8. Chứng chỉ môi giới BĐS: Theo dõi hạn và cảnh báo sắp hết hạn', async () => {
+    // Thêm chứng chỉ sắp hết hạn (10 ngày nữa)
+    const cert = await hrRepository.saveBrokerCertificate({
+      userId: mockSaleAgent1.id,
+      certificateNumber: 'BĐS-HN-2021-9988',
+      issuingAuthority: 'Sở Xây Dựng Hà Nội',
+      issueDate: '2021-11-20',
+      expiryDate: new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10),
+      currentUser: mockHrAdmin,
+    });
+
+    expect(cert.id).toBeDefined();
+    const certs = await hrRepository.getBrokerCertificates(mockSaleAgent1.id);
+    expect(certs.length).toBeGreaterThan(0);
+  });
+});

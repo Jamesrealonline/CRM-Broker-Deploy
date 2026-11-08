@@ -66,10 +66,19 @@ export const AppLayout: React.FC = () => {
     { to: '/journey', label: 'Customer Journey', icon: GitCommit },
     { to: '/transactions', label: 'Giao dịch & Hợp đồng', icon: FileCheck },
     { to: '/leaderboard', label: 'Bảng Thi Đua & Hiệu Suất', icon: Trophy },
+  ];
+
+  // Quyền truy cập phân hệ Cơ cấu & Quản trị Nhân sự Vòng đời
+  const canAccessHR = currentUser && ['admin', 'director', 'hr_admin', 'sales_manager', 'team_leader'].includes(currentUser.role);
+  if (canAccessHR) {
+    navItems.push({ to: '/hr', label: 'Cơ Cấu & Nhân Sự', icon: UserCheck });
+  }
+
+  navItems.push(
     { to: '/projects', label: 'Dự án & Tri thức AI', icon: Building2 },
     { to: '/scripts', label: 'Sales Scripts', icon: FileText },
-    { to: '/notifications', label: 'Thông báo Follow-up', icon: Bell },
-  ];
+    { to: '/notifications', label: 'Thông báo Follow-up', icon: Bell }
+  );
 
   // Chỉ tài khoản có quyền Admin thực tế mới được vào Trung tâm quản trị
   if (isRealAdmin) {

@@ -6,6 +6,7 @@
 export type UserRole = 
   | 'admin' 
   | 'director' 
+  | 'hr_admin'
   | 'marketing_manager' 
   | 'sales_manager' 
   | 'team_leader' 
@@ -619,4 +620,293 @@ export interface AutoTransferScanResult {
     remainingHours?: number;
     reason?: string;
   }>;
+}
+
+// ========================================================
+// HR LIFECYCLE MANAGEMENT TYPES (MODULE 5)
+// ========================================================
+
+export type EmploymentType = 'official' | 'probation' | 'collaborator';
+export type EmployeeStatus = 'candidate' | 'onboarding' | 'probation' | 'official' | 'on_leave' | 'terminated';
+
+export interface EmployeeRecord {
+  id: string;
+  user_id: string;
+  organization_id?: string;
+  employee_code: string;
+  employment_type: EmploymentType;
+  title: string;
+  level: number;
+  direct_manager_id?: string;
+  direct_manager_name?: string;
+  join_date: string;
+  probation_end_date?: string;
+  termination_date?: string;
+  recruited_by?: string;
+  recruitment_source?: string;
+  status: EmployeeStatus;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface EmployeePrivate {
+  id: string;
+  user_id: string;
+  date_of_birth?: string;
+  id_card_number?: string;
+  id_card_issue_date?: string;
+  id_card_issue_place?: string;
+  permanent_address?: string;
+  current_address?: string;
+  tax_id?: string;
+  bank_account_number?: string;
+  bank_name?: string;
+  bank_branch?: string;
+  emergency_contact_name?: string;
+  emergency_contact_phone?: string;
+  emergency_contact_relationship?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type PersonnelEventType = 
+  | 'hired' 
+  | 'activated' 
+  | 'probation_passed' 
+  | 'contract_signed' 
+  | 'contract_renewed' 
+  | 'contract_ended' 
+  | 'promoted' 
+  | 'demoted' 
+  | 'transferred' 
+  | 'leave_started' 
+  | 'leave_ended' 
+  | 'locked' 
+  | 'unlocked' 
+  | 'warned' 
+  | 'terminated' 
+  | 'rehired';
+
+export interface PersonnelEvent {
+  id: string;
+  user_id: string;
+  organization_id?: string;
+  event_type: PersonnelEventType;
+  effective_date: string;
+  actor_id?: string;
+  actor_name?: string;
+  old_values?: Record<string, any>;
+  new_values?: Record<string, any>;
+  reason?: string;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
+export type TransferRequestType = 'transfer' | 'promotion' | 'demotion' | 'title_change';
+export type TransferRequestStatus = 'pending' | 'approved' | 'rejected' | 'applied' | 'cancelled';
+
+export interface PersonnelTransferRequest {
+  id: string;
+  user_id: string;
+  user_name?: string;
+  request_type: TransferRequestType;
+  from_agency_id?: string;
+  from_agency_name?: string;
+  to_agency_id?: string;
+  to_agency_name?: string;
+  from_team_id?: string;
+  from_team_name?: string;
+  to_team_id?: string;
+  to_team_name?: string;
+  from_role?: string;
+  to_role?: string;
+  from_direct_manager_id?: string;
+  to_direct_manager_id?: string;
+  effective_date: string;
+  reason: string;
+  status: TransferRequestStatus;
+  requested_by: string;
+  requested_by_name?: string;
+  approved_by?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+  rejection_reason?: string;
+  created_at: string;
+}
+
+export interface EmploymentContract {
+  id: string;
+  user_id: string;
+  contract_number: string;
+  contract_type: 'probation' | 'labor' | 'collaborator' | 'service';
+  start_date: string;
+  end_date?: string;
+  status: 'draft' | 'active' | 'expired' | 'terminated';
+  file_url?: string;
+  created_at?: string;
+}
+
+export interface BrokerCertificate {
+  id: string;
+  user_id: string;
+  certificate_number: string;
+  issuing_authority: string;
+  issue_date: string;
+  expiry_date: string;
+  status: 'active' | 'expiring_soon' | 'expired' | 'revoked';
+  document_url?: string;
+  created_at?: string;
+}
+
+export interface EmployeeDocument {
+  id: string;
+  user_id: string;
+  document_type: 'id_card' | 'degree' | 'broker_cert' | 'resume' | 'health_cert' | 'other';
+  file_name: string;
+  file_path: string;
+  expiry_date?: string;
+  is_verified: boolean;
+  verified_by?: string;
+  verified_at?: string;
+  created_at?: string;
+}
+
+export interface LeaveType {
+  id: string;
+  code: string;
+  name: string;
+  default_days_per_year: number;
+  is_paid: boolean;
+  requires_approval: boolean;
+}
+
+export interface LeaveBalance {
+  id: string;
+  user_id: string;
+  year: number;
+  leave_type_id: string;
+  leave_type_name?: string;
+  total_entitlement: number;
+  used_days: number;
+  remaining_days: number;
+}
+
+export interface LeaveRequest {
+  id: string;
+  user_id: string;
+  user_name?: string;
+  leave_type_id: string;
+  leave_type_name?: string;
+  start_date: string;
+  end_date: string;
+  total_days: number;
+  reason: string;
+  substitute_user_id?: string;
+  substitute_user_name?: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  approved_by?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+  rejection_reason?: string;
+  created_at: string;
+}
+
+export interface JobRequisition {
+  id: string;
+  title: string;
+  agency_id?: string;
+  agency_name?: string;
+  team_id?: string;
+  team_name?: string;
+  target_count: number;
+  hired_count: number;
+  status: 'draft' | 'open' | 'filled' | 'cancelled';
+  created_by: string;
+  created_at: string;
+}
+
+export type CandidateStage = 'applied' | 'screening' | 'interview' | 'offer' | 'hired' | 'rejected';
+
+export interface Candidate {
+  id: string;
+  requisition_id?: string;
+  full_name: string;
+  phone: string;
+  phone_normalized: string;
+  phone_hash: string;
+  email?: string;
+  source: string;
+  referrer_id?: string;
+  referrer_name?: string;
+  stage: CandidateStage;
+  is_rehire: boolean;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PerformanceTarget {
+  id: string;
+  period: string; // '2026-11', '2026-Q4'
+  agency_id?: string;
+  team_id?: string;
+  user_id?: string;
+  revenue_target: number;
+  contracts_target: number;
+  leads_target: number;
+  recruits_target: number;
+  created_by: string;
+  created_at: string;
+}
+
+export interface CoachingNote {
+  id: string;
+  user_id: string;
+  mentor_id: string;
+  mentor_name?: string;
+  note_date: string;
+  content: string;
+  action_items?: string;
+  is_private: boolean;
+  shared_with_employee: boolean;
+  created_at: string;
+}
+
+export interface PerformanceReview {
+  id: string;
+  user_id: string;
+  reviewer_id: string;
+  reviewer_name?: string;
+  period: string;
+  score: number;
+  summary: string;
+  employee_acknowledged: boolean;
+  employee_comments?: string;
+  acknowledged_at?: string;
+  created_at: string;
+}
+
+export interface DisciplinaryRecord {
+  id: string;
+  user_id: string;
+  record_type: 'reminder' | 'warning' | 'reprimand' | 'dismissal' | 'award';
+  title: string;
+  reason: string;
+  basis?: string;
+  issued_by: string;
+  issued_by_name?: string;
+  status: 'active' | 'appealed' | 'cancelled';
+  created_at: string;
+}
+
+export interface OnboardingTask {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string;
+  is_mandatory: boolean;
+  due_date?: string;
+  is_completed: boolean;
+  completed_at?: string;
+  created_at: string;
 }

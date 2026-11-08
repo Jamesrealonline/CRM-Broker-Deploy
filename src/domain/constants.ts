@@ -8,6 +8,7 @@ import { LeadStatus, UserRole } from './types';
 export const USER_ROLES: { value: UserRole; label: string; description: string }[] = [
   { value: 'admin', label: 'Quản Trị Viên (Admin)', description: 'Toàn quyền quản trị hệ thống, phân quyền, cấu hình' },
   { value: 'director', label: 'Ban Giám Đốc (Director)', description: 'Xem toàn bộ báo cáo, KPI doanh số và điều phối toàn hệ thống' },
+  { value: 'hr_admin', label: 'Quản Trị Nhân Sự (HR Admin)', description: 'Quản lý vòng đời nhân sự, tuyển dụng, hợp đồng, chứng chỉ, nghỉ phép' },
   { value: 'marketing_manager', label: 'Marketing Manager', description: 'Quản lý chiến dịch, nguồn lead, chi phí & tỷ lệ chuyển đổi' },
   { value: 'sales_manager', label: 'Giám Đốc Sàn (Sales Manager)', description: 'Quản lý toàn bộ Team và doanh số thuộc Sàn phân phối' },
   { value: 'team_leader', label: 'Trưởng Nhóm (Team Leader)', description: 'Quản lý giỏ Lead và hỗ trợ chốt deal của Team' },

@@ -21,6 +21,7 @@ import { SalesScriptsPage } from '@/features/scripts/SalesScriptsPage';
 import { NotificationsPage } from '@/features/notifications/NotificationsPage';
 import { TransactionsPage } from '@/features/transactions/TransactionsPage';
 import { LeaderboardPage } from '@/features/leaderboard/LeaderboardPage';
+import { HRManagementPage } from '@/features/hr/HRManagementPage';
 import { AdminPage } from '@/features/admin/AdminPage';
 
 export const router = createBrowserRouter([
@@ -71,6 +72,14 @@ export const router = createBrowserRouter([
       {
         path: 'leaderboard',
         element: <LeaderboardPage />,
+      },
+      {
+        path: 'hr',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'director', 'hr_admin', 'sales_manager', 'team_leader']}>
+            <HRManagementPage />
+          </RoleGuard>
+        ),
       },
       {
         path: 'distribution',
