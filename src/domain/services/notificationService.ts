@@ -23,13 +23,15 @@ export const DEFAULT_EMAIL_CONFIG: EmailNotificationConfig = {
   enable_revoke: true,
   enable_overdue_warning: true,
   cc_manager: true,
-  provider: 'gmail_smtp',
+  dispatch_mode: 'google_apps_script',
+  provider: 'google_apps_script',
   smtp_host: 'smtp.gmail.com',
   smtp_port: 465,
   smtp_from_name: 'CRM Bất Động Sản',
   smtp_from_email: '',
   smtp_user: '',
   smtp_pass: '',
+  google_apps_script_url: 'https://script.google.com/macros/s/AKfycby8wtscDERlWoZaN8t_qTynz23GFYsrf-r5tIeKMD93tjc6By68ufik5TLuVu0zK7M/exec',
 };
 
 export interface ClientDispatchInfo {
