@@ -13,12 +13,13 @@ import {
   UserProfile,
   LeadAssignmentHistory,
   AssignmentReason,
-  CustomerConsent
+  CustomerConsent,
+  LeadSource
 } from '@/domain/types';
 import { normalizePhone } from '@/lib/utils';
 import { maskPhone, maskName, computePhoneHash } from '@/lib/masking';
 import { assertNoMockPIIInProduction } from '@/lib/storageGuard';
-import { INITIAL_PROJECTS, INITIAL_AGENCIES, INITIAL_TEAMS } from '../mockData';
+import { INITIAL_PROJECTS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_LEAD_SOURCES } from '../mockData';
 import { notificationService } from '@/domain/services/notificationService';
 import { autoTransferService } from '@/domain/services/autoTransferService';
 import { findTransitionRule, STOP_CLOCK_STATUSES } from '@/domain/leadTransitions';
@@ -34,6 +35,7 @@ const STORAGE_KEY_STATUS_HISTORY = 'crm_status_history';
 const STORAGE_KEY_ASSIGNMENTS = 'crm_assignments';
 const STORAGE_KEY_ASSIGNMENT_HISTORY = 'crm_lead_assignment_history';
 const STORAGE_KEY_CONSENTS = 'crm_customer_consents';
+const STORAGE_KEY_SOURCES = 'crm_lead_sources';
 
 export interface LeadFilters {
   search?: string;
@@ -47,6 +49,76 @@ export interface LeadFilters {
 }
 
 export class LeadRepository {
+  // 0. NGUỒN KHÁCH HÀNG (LEAD SOURCES)
+  async getLeadSources(): Promise<LeadSource[]> {
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('lead_sources')
+        .select('*')
+        .order('name');
+      if (!error && data && data.length > 0) {
+        return data as LeadSource[];
+      }
+    }
+    const raw = localStorage.getItem(STORAGE_KEY_SOURCES);
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEY_SOURCES, JSON.stringify(INITIAL_LEAD_SOURCES));
+      return INITIAL_LEAD_SOURCES;
+    }
+    try {
+      const parsed = JSON.parse(raw) as LeadSource[];
+      return parsed.length > 0 ? parsed : INITIAL_LEAD_SOURCES;
+    } catch {
+      return INITIAL_LEAD_SOURCES;
+    }
+  }
+
+  async createLeadSource(name: string, code?: string): Promise<LeadSource> {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new Error('Tên nguồn lead không được để trống.');
+    }
+    const generatedCode = code?.trim() || trimmed
+      .toLowerCase()
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'd')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_');
+
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('lead_sources')
+        .insert({
+          name: trimmed,
+          code: generatedCode,
+          is_active: true,
+        })
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return data as LeadSource;
+    }
+
+    const sources = await this.getLeadSources();
+    const existing = sources.find(s => s.code === generatedCode || s.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      return existing;
+    }
+
+    const newSource: LeadSource = {
+      id: `src-${Date.now()}`,
+      code: generatedCode,
+      name: trimmed,
+      is_active: true,
+      created_at: new Date().toISOString(),
+    };
+    sources.push(newSource);
+    localStorage.setItem(STORAGE_KEY_SOURCES, JSON.stringify(sources));
+    return newSource;
+  }
+
   // 1. LẤY DANH SÁCH LEADS (ÁP DỤNG RLS PHÂN QUYỀN VAI TRÒ & CHE PII CHO MARKETING)
   async getLeads(filters: LeadFilters, currentUser: UserProfile): Promise<{ leads: Lead[]; total: number }> {
     if (isLiveSupabaseConfigured) {
@@ -451,6 +523,8 @@ export class LeadRepository {
     email?: string;
     projectId: string;
     sourceCode?: string;
+    sourceId?: string;
+    sourceName?: string;
     budgetMin?: number;
     budgetMax?: number;
     purpose?: 'residence' | 'investment' | 'both' | 'undecided';
@@ -522,6 +596,7 @@ export class LeadRepository {
           agency_id: payload.currentUser.agency_id,
           team_id: payload.currentUser.team_id,
           assigned_to: assignedToId,
+          source_id: payload.sourceId || null,
           status: 'new',
           budget_min: payload.budgetMin,
           budget_max: payload.budgetMax,
@@ -586,6 +661,14 @@ export class LeadRepository {
     const initialDeadline = assignedToId ? autoTransferService.computeCareDeadline(new Date().toISOString(), 24) : undefined;
     const initialPreviousSales = assignedToId ? [assignedToId] : [];
 
+    const sources = await this.getLeadSources();
+    const matchedSource = payload.sourceId
+      ? sources.find(s => s.id === payload.sourceId)
+      : (payload.sourceCode ? sources.find(s => s.code === payload.sourceCode) : undefined);
+
+    const resolvedSourceName = payload.sourceName || matchedSource?.name || 'Hotline';
+    const resolvedSourceId = payload.sourceId || matchedSource?.id || 'src-hotline';
+
     const newLead: Lead = {
       id: newLeadId,
       organization_id: payload.currentUser.organization_id || '11111111-1111-1111-1111-111111111111',
@@ -601,6 +684,8 @@ export class LeadRepository {
       team_name: INITIAL_TEAMS[0].name,
       assigned_to: assignedToId,
       assigned_name: isSale ? payload.currentUser.full_name : 'Chưa phân bổ',
+      source_id: resolvedSourceId,
+      source_name: resolvedSourceName,
       status: 'new',
       lead_score: 60,
       budget_min: payload.budgetMin || 2000000000,
@@ -1361,6 +1446,7 @@ export class LeadRepository {
         const status = statuses[(i - 1) % 15];
         const proj = INITIAL_PROJECTS[i % INITIAL_PROJECTS.length];
         const rawPhone = `098${String(i).padStart(7, '0')}`;
+        const src = INITIAL_LEAD_SOURCES[(i - 1) % INITIAL_LEAD_SOURCES.length];
         const lead: Lead = {
           id: leadId,
           customer_id: custId,
@@ -1369,6 +1455,8 @@ export class LeadRepository {
           customer_phone_hash: computePhoneHash(normalizePhone(rawPhone)),
           customer_email: `khachhang${i}@gmail.com`,
           do_not_contact: false,
+          source_id: src.id,
+          source_name: src.name,
           project_id: proj.id,
           project_name: proj.name,
           agency_id: INITIAL_AGENCIES[0].id,

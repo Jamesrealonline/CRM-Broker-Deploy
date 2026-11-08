@@ -211,6 +211,14 @@ export interface CustomerConsent {
   created_at?: string;
 }
 
+export interface LeadSource {
+  id: string;
+  code: string;
+  name: string;
+  is_active: boolean;
+  created_at?: string;
+}
+
 export interface Lead {
   id: string;
   organization_id?: string;

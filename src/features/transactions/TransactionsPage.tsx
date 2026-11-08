@@ -27,7 +27,7 @@ import {
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { leadRepository } from '@/data/repositories/leadRepository';
-import { Transaction, Project, Lead, ProjectUnit } from '@/domain/types';
+import { Transaction, Project, Lead, ProjectUnit, LeadSource } from '@/domain/types';
 import { useAuthStore } from '@/app/useAuthStore';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -71,6 +71,20 @@ export const TransactionsPage: React.FC = () => {
   const [saleCommissionRate, setSaleCommissionRate] = useState<number>(1.5);
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Chế độ khách hàng: Chọn lead có sẵn hoặc Điền mới trực tiếp
+  const [customerMode, setCustomerMode] = useState<'existing' | 'new'>('existing');
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustEmail, setNewCustEmail] = useState('');
+  const [newCustIdCard, setNewCustIdCard] = useState('');
+  const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
+  const [newCustSourceId, setNewCustSourceId] = useState('');
+  const [isAddingNewSource, setIsAddingNewSource] = useState(false);
+  const [newSourceName, setNewSourceName] = useState('');
+  const [isCreatingSource, setIsCreatingSource] = useState(false);
+  const [phoneWarning, setPhoneWarning] = useState<string | null>(null);
+  const [contractError, setContractError] = useState<string | null>(null);
 
   // Modal cập nhật tiến độ
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
@@ -137,8 +151,15 @@ export const TransactionsPage: React.FC = () => {
     }
 
     if (currentUser) {
-      const res = await leadRepository.getLeads({ page: 1, pageSize: 50 }, currentUser);
+      const [res, sources] = await Promise.all([
+        leadRepository.getLeads({ page: 1, pageSize: 50 }, currentUser),
+        leadRepository.getLeadSources(),
+      ]);
       setCandidateLeads(res.leads);
+      setLeadSources(sources);
+      if (sources.length > 0 && !newCustSourceId) {
+        setNewCustSourceId(sources[0].id);
+      }
       // Ưu tiên chọn lead thuộc dự án
       const matchingLead = res.leads.find(l => l.project_id === defaultProjId) || res.leads[0];
       if (matchingLead) {
@@ -147,6 +168,34 @@ export const TransactionsPage: React.FC = () => {
     }
 
     setCreateModalOpen(true);
+  };
+
+  const handleNewCustPhoneChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setNewCustPhone(val);
+    setPhoneWarning(null);
+    if (val.length >= 9) {
+      const check = await leadRepository.checkDuplicatePhone(val);
+      if (check.isDuplicate) {
+        setPhoneWarning(`Cảnh báo: SĐT này đã tồn tại trong hồ sơ "${check.existingLead?.customer_name}".`);
+      }
+    }
+  };
+
+  const handleAddNewSource = async () => {
+    if (!newSourceName.trim()) return;
+    setIsCreatingSource(true);
+    try {
+      const created = await leadRepository.createLeadSource(newSourceName.trim());
+      setLeadSources(prev => [...prev.filter(s => s.id !== created.id), created]);
+      setNewCustSourceId(created.id);
+      setNewSourceName('');
+      setIsAddingNewSource(false);
+    } catch (err: any) {
+      alert(err.message || 'Không thể tạo nguồn lead mới');
+    } finally {
+      setIsCreatingSource(false);
+    }
   };
 
   // Khi thay đổi Dự án trong modal tạo hợp đồng
@@ -198,14 +247,61 @@ export const TransactionsPage: React.FC = () => {
 
   const handleCreateContract = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedLeadId) return;
+    setContractError(null);
+    let targetLeadId = selectedLeadId;
+    let targetCustomerName = '';
+
+    if (customerMode === 'new') {
+      if (!newCustName.trim() || !newCustPhone.trim()) {
+        setContractError('Vui lòng nhập họ tên và số điện thoại của khách hàng.');
+        return;
+      }
+      if (!currentUser) return;
+      setIsSubmitting(true);
+      try {
+        const chosenSource = leadSources.find(s => s.id === newCustSourceId);
+        const createLeadRes = await leadRepository.createLead({
+          fullName: newCustName.trim(),
+          phone: newCustPhone.trim(),
+          email: newCustEmail.trim() || undefined,
+          projectId: createProjectId,
+          sourceId: newCustSourceId,
+          sourceName: chosenSource?.name,
+          budgetMin: Math.round(dealValue * 0.9),
+          budgetMax: Math.round(dealValue * 1.1),
+          purpose: 'investment',
+          notes: `HĐMB căn ${unitCode}. ${notes ? `Ghi chú: ${notes}` : ''} CCCD: ${newCustIdCard || 'Chưa cung cấp'}`,
+          currentUser,
+        });
+
+        if (!createLeadRes.success || !createLeadRes.lead) {
+          setContractError(createLeadRes.error || 'Không thể tạo hồ sơ khách hàng mới.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        targetLeadId = createLeadRes.lead.id;
+        targetCustomerName = newCustName.trim();
+      } catch (err: any) {
+        setContractError(err.message || 'Lỗi khi tạo hồ sơ khách hàng');
+        setIsSubmitting(false);
+        return;
+      }
+    } else {
+      if (!targetLeadId) {
+        setContractError('Vui lòng chọn khách hàng từ danh sách.');
+        return;
+      }
+      const selectedLead = candidateLeads.find(l => l.id === targetLeadId);
+      targetCustomerName = selectedLead?.customer_name || 'Khách hàng';
+    }
+
     setIsSubmitting(true);
     try {
       const selectedProj = projects.find(p => p.id === createProjectId);
-      const selectedLead = candidateLeads.find(l => l.id === selectedLeadId);
 
       await contractRepository.createContractTransaction({
-        lead_id: selectedLeadId,
+        lead_id: targetLeadId,
         project_id: createProjectId,
         project_name: selectedProj?.name,
         type: 'contract',
@@ -229,15 +325,19 @@ export const TransactionsPage: React.FC = () => {
       // Đồng thời cập nhật trạng thái của Căn trong giỏ hàng thành 'deposit'
       if (createProjectId && unitCode) {
         await projectRepository.updateUnitStatusByCode(createProjectId, unitCode, 'deposit', {
-          customer_name: selectedLead?.customer_name,
+          customer_name: targetCustomerName,
           sale_name: currentUser?.full_name,
         });
       }
 
       setCreateModalOpen(false);
+      setNewCustName('');
+      setNewCustPhone('');
+      setNewCustEmail('');
+      setNewCustIdCard('');
       await loadData();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      setContractError(err.message || 'Lỗi khi tạo hợp đồng giao dịch');
     } finally {
       setIsSubmitting(false);
     }
@@ -602,6 +702,13 @@ export const TransactionsPage: React.FC = () => {
         maxWidth="lg"
       >
         <form onSubmit={handleCreateContract} className="space-y-4">
+          {contractError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{contractError}</span>
+            </div>
+          )}
+
           {/* 1. CHỌN DỰ ÁN */}
           <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-200/80">
             <label className="block text-xs font-bold text-blue-900 mb-1.5 flex items-center gap-1.5">
@@ -670,21 +777,156 @@ export const TransactionsPage: React.FC = () => {
               )}
             </div>
 
-            {/* KHÁCH HÀNG (LEAD) */}
+            {/* KHÁCH HÀNG (LEAD / KHÁCH HÀNG MỚI) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Khách Hàng (Lead) *</label>
-              <select
-                required
-                value={selectedLeadId}
-                onChange={(e) => setSelectedLeadId(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {candidateLeads.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.customer_name} ({l.customer_phone}) - {l.project_name || 'Dự án'}
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700 flex items-center gap-1">
+                  <User className="h-3.5 w-3.5 text-blue-600" /> Khách Hàng *
+                </label>
+                <div className="flex items-center gap-1 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setCustomerMode('existing')}
+                    className={`px-2 py-0.5 rounded transition-colors ${
+                      customerMode === 'existing'
+                        ? 'bg-blue-600 text-white font-medium'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Chọn Lead có sẵn
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomerMode('new')}
+                    className={`px-2 py-0.5 rounded transition-colors ${
+                      customerMode === 'new'
+                        ? 'bg-blue-600 text-white font-medium'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    + Điền mới khách
+                  </button>
+                </div>
+              </div>
+
+              {customerMode === 'existing' ? (
+                <div>
+                  <select
+                    required={customerMode === 'existing'}
+                    value={selectedLeadId}
+                    onChange={(e) => setSelectedLeadId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {candidateLeads.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.customer_name} ({l.customer_phone}) - {l.project_name || 'Dự án'}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Chọn khách hàng tiềm năng đã có trong hệ thống để tạo hợp đồng.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-200/80 space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      label="Họ và tên khách hàng *"
+                      required={customerMode === 'new'}
+                      value={newCustName}
+                      onChange={(e) => setNewCustName(e.target.value)}
+                      placeholder="Nguyễn Văn A"
+                    />
+                    <div>
+                      <Input
+                        label="Số điện thoại *"
+                        required={customerMode === 'new'}
+                        value={newCustPhone}
+                        onChange={handleNewCustPhoneChange}
+                        placeholder="0912345678"
+                      />
+                      {phoneWarning && (
+                        <p className="text-[10px] text-amber-700 mt-1">{phoneWarning}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      label="Email"
+                      type="email"
+                      value={newCustEmail}
+                      onChange={(e) => setNewCustEmail(e.target.value)}
+                      placeholder="email@example.com"
+                    />
+                    <Input
+                      label="CCCD / CMND"
+                      value={newCustIdCard}
+                      onChange={(e) => setNewCustIdCard(e.target.value)}
+                      placeholder="001200000000"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[11px] font-semibold text-slate-700">Nguồn Lead *</label>
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingNewSource(!isAddingNewSource)}
+                        className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        {isAddingNewSource ? 'Chọn nguồn có sẵn' : '+ Thêm nguồn mới'}
+                      </button>
+                    </div>
+
+                    {!isAddingNewSource ? (
+                      <select
+                        required={customerMode === 'new'}
+                        value={newCustSourceId}
+                        onChange={(e) => {
+                          if (e.target.value === '__add_new__') {
+                            setIsAddingNewSource(true);
+                          } else {
+                            setNewCustSourceId(e.target.value);
+                          }
+                        }}
+                        className="w-full text-xs h-8 px-2.5 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-blue-500"
+                      >
+                        {leadSources.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                        <option value="__add_new__">+ Thêm nguồn mới...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={newSourceName}
+                          onChange={(e) => setNewSourceName(e.target.value)}
+                          placeholder="Tên nguồn mới (ví dụ: Sự kiện, Cafe...)"
+                          className="flex-1 text-xs h-8 px-2 rounded-lg border border-slate-300 focus:outline-none focus:border-blue-500"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddNewSource();
+                            }
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleAddNewSource}
+                          isLoading={isCreatingSource}
+                          className="text-xs px-2 h-8"
+                        >
+                          Thêm
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

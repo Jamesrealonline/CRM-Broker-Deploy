@@ -17,8 +17,21 @@ import {
   CustomerPersona, 
   AuditLog,
   LeadActivity,
-  LeadStatusHistory
+  LeadStatusHistory,
+  LeadSource
 } from '../domain/types';
+
+export const INITIAL_LEAD_SOURCES: LeadSource[] = [
+  { id: 'src-hotline', code: 'hotline', name: 'Hotline', is_active: true },
+  { id: 'src-facebook', code: 'facebook', name: 'Facebook', is_active: true },
+  { id: 'src-truc-nha-mau', code: 'truc_nha_mau', name: 'Trực nhà mẫu', is_active: true },
+  { id: 'src-to-roi', code: 'to_roi', name: 'Tờ rơi', is_active: true },
+  { id: 'src-email', code: 'email', name: 'Email', is_active: true },
+  { id: 'src-zalo', code: 'zalo', name: 'Zalo', is_active: true },
+  { id: 'src-tiktok', code: 'tiktok', name: 'TikTok', is_active: true },
+  { id: 'src-truc-quan-cafe', code: 'truc_quan_cafe', name: 'Trực quán cafe', is_active: true },
+  { id: 'src-nguon-cua-sale', code: 'nguon_cua_sale', name: 'Nguồn của sale', is_active: true },
+];
 
 export const INITIAL_ORGS: Organization[] = [
   {
