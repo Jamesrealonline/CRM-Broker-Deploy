@@ -1372,6 +1372,22 @@ function doGet(e) {
                           * Tự động gửi email qua chính Gmail của bạn kể cả lúc nửa đêm khi lead quá hạn 24h mà không cần mở máy!
                         </p>
                       </div>
+
+                      <div className="pt-2 border-t border-indigo-100">
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          URL Webhook Mở Rộng (Tùy chọn - Bắn thông báo đến Nhóm Zalo / Telegram / Make / Zapier):
+                        </label>
+                        <input
+                          type="url"
+                          value={emailConfig.custom_webhook_url || ''}
+                          onChange={(e) => setEmailConfig({ ...emailConfig, custom_webhook_url: e.target.value })}
+                          placeholder="https://webhook.site/... hoặc https://api.telegram.org/bot.../sendMessage"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none bg-white font-mono"
+                        />
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          Tự động gửi payload JSON (sự kiện, tên lead, SĐT, sale nhận, hạn 24h) tới bot chat hoặc hệ thống bên thứ ba mỗi khi đảo lead.
+                        </p>
+                      </div>
                     </div>
                   )}
 

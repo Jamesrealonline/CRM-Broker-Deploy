@@ -512,6 +512,7 @@ export interface EmailNotificationConfig {
   smtp_from_email?: string;
   resend_api_key?: string;      // API Key Resend (nếu dùng)
   google_apps_script_url?: string; // Webhook URL từ script.google.com (miễn phí, không cần App Password)
+  custom_webhook_url?: string;     // Webhook mở rộng gửi sự kiện đến Zalo, Telegram, Make, Zapier
 }
 
 export interface AutoTransferScanResult {

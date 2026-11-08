@@ -382,9 +382,29 @@ ${leadListPlain}
 
     // Kiểm tra cấu hình theo loại sự kiện
     if (options.eventType === 'new_assign' && !config.enable_new_assign) return { success: true };
-    if (options.eventType === 'lead_transferred' && !config.enable_transfer) return { success: true };
-    if (options.eventType === 'lead_revoked' && !config.enable_revoke) return { success: true };
+    if ((options.eventType === 'lead_transferred' || options.eventType === 'auto_transferred_new') && !config.enable_transfer) return { success: true };
+    if ((options.eventType === 'lead_revoked' || options.eventType === 'auto_transferred_old') && !config.enable_revoke) return { success: true };
     if (options.eventType === 'overdue_warning' && !config.enable_overdue_warning) return { success: true };
+
+    // Gửi tín hiệu bổ sung tới Custom Webhook (Zalo / Telegram / Make / Zapier) nếu cấu hình
+    if (config.custom_webhook_url && typeof window !== 'undefined') {
+      try {
+        fetch(config.custom_webhook_url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: options.eventType,
+            lead_id: options.leadId,
+            recipient_email: options.recipientEmail,
+            recipient_name: options.recipientName,
+            timestamp: new Date().toISOString(),
+            ...options.variables,
+          }),
+        }).catch(e => console.warn('[Custom Webhook Dispatch Error]:', e));
+      } catch (err) {
+        console.warn('[Custom Webhook Exception]:', err);
+      }
+    }
 
     // Kiểm tra email người nhận hợp lệ
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
