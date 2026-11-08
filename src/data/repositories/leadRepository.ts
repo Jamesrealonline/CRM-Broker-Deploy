@@ -12,9 +12,12 @@ import {
   LeadStatusHistory, 
   UserProfile,
   LeadAssignmentHistory,
-  AssignmentReason
+  AssignmentReason,
+  CustomerConsent
 } from '@/domain/types';
 import { normalizePhone } from '@/lib/utils';
+import { maskPhone, maskName, computePhoneHash } from '@/lib/masking';
+import { assertNoMockPIIInProduction } from '@/lib/storageGuard';
 import { INITIAL_PROJECTS, INITIAL_AGENCIES, INITIAL_TEAMS } from '../mockData';
 import { notificationService } from '@/domain/services/notificationService';
 import { autoTransferService } from '@/domain/services/autoTransferService';
@@ -27,6 +30,7 @@ const STORAGE_KEY_ACTIVITIES = 'crm_activities';
 const STORAGE_KEY_STATUS_HISTORY = 'crm_status_history';
 const STORAGE_KEY_ASSIGNMENTS = 'crm_assignments';
 const STORAGE_KEY_ASSIGNMENT_HISTORY = 'crm_lead_assignment_history';
+const STORAGE_KEY_CONSENTS = 'crm_customer_consents';
 
 export interface LeadFilters {
   search?: string;
@@ -40,12 +44,46 @@ export interface LeadFilters {
 }
 
 export class LeadRepository {
-  // 1. LẤY DANH SÁCH LEADS (ÁP DỤNG RLS PHÂN QUYỀN VAI TRÒ)
+  // 1. LẤY DANH SÁCH LEADS (ÁP DỤNG RLS PHÂN QUYỀN VAI TRÒ & CHE PII CHO MARKETING)
   async getLeads(filters: LeadFilters, currentUser: UserProfile): Promise<{ leads: Lead[]; total: number }> {
     if (isLiveSupabaseConfigured) {
+      if (currentUser.role === 'marketing_manager') {
+        let query = supabase.from('marketing_leads_view').select('*', { count: 'exact' });
+        if (filters.projectId) query = query.eq('project_id', filters.projectId);
+        if (filters.status) query = query.eq('status', filters.status);
+        const page = filters.page || 1;
+        const pageSize = filters.pageSize || 20;
+        const from = (page - 1) * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data, count, error } = await query
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (error) throw new Error(error.message);
+
+        const mapped = (data || []).map((item: any) => ({
+          id: item.lead_id,
+          customer_id: item.customer_id,
+          customer_name: item.masked_name,
+          customer_phone: item.masked_phone,
+          customer_phone_hash: item.phone_hash,
+          project_id: item.project_id,
+          project_name: item.project_name,
+          status: item.status,
+          budget_min: item.budget_min,
+          budget_max: item.budget_max,
+          purpose: item.purpose,
+          do_not_contact: item.do_not_contact,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        }));
+        return { leads: mapped as Lead[], total: count || 0 };
+      }
+
       let query = supabase.from('leads').select(`
         *,
-        customer:customers(full_name, phone, email),
+        customer:customers(full_name, phone, email, do_not_contact, phone_hash),
         project:projects(name),
         assigned_user:profiles!leads_assigned_to_fkey(full_name),
         agency:agencies(name),
@@ -83,7 +121,9 @@ export class LeadRepository {
         ...item,
         customer_name: item.customer?.full_name,
         customer_phone: item.customer?.phone,
+        customer_phone_hash: item.customer?.phone_hash,
         customer_email: item.customer?.email,
+        do_not_contact: item.customer?.do_not_contact || item.do_not_contact,
         project_name: item.project?.name,
         assigned_name: item.assigned_user?.full_name,
         agency_name: item.agency?.name,
@@ -95,6 +135,7 @@ export class LeadRepository {
     }
 
     // Local Storage Mock fallback
+    assertNoMockPIIInProduction('lấy danh sách leads');
     this.ensureInitialized();
     let allLeads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
 
@@ -123,6 +164,16 @@ export class LeadRepository {
       );
     }
 
+    // Che thông tin PII nếu vai trò là marketing_manager
+    if (currentUser.role === 'marketing_manager') {
+      allLeads = allLeads.map(l => ({
+        ...l,
+        customer_phone: maskPhone(l.customer_phone),
+        customer_name: maskName(l.customer_name),
+        customer_email: undefined,
+      }));
+    }
+
     const total = allLeads.length;
     const page = filters.page || 1;
     const pageSize = filters.pageSize || 20;
@@ -133,8 +184,33 @@ export class LeadRepository {
   }
 
   // 2. LẤY CHI TIẾT LEAD THEO ID
-  async getLeadById(id: string): Promise<Lead | null> {
+  async getLeadById(id: string, currentUser?: UserProfile): Promise<Lead | null> {
     if (isLiveSupabaseConfigured) {
+      if (currentUser?.role === 'marketing_manager') {
+        const { data, error } = await supabase
+          .from('marketing_leads_view')
+          .select('*')
+          .eq('lead_id', id)
+          .maybeSingle();
+        if (error || !data) return null;
+        return {
+          id: data.lead_id,
+          customer_id: data.customer_id,
+          customer_name: data.masked_name,
+          customer_phone: data.masked_phone,
+          customer_phone_hash: data.phone_hash,
+          project_id: data.project_id,
+          project_name: data.project_name,
+          status: data.status,
+          budget_min: data.budget_min,
+          budget_max: data.budget_max,
+          purpose: data.purpose,
+          do_not_contact: data.do_not_contact,
+          created_at: data.created_at,
+          updated_at: data.updated_at,
+        } as Lead;
+      }
+
       const { data, error } = await supabase
         .from('leads')
         .select(`
@@ -152,7 +228,9 @@ export class LeadRepository {
         ...data,
         customer_name: data.customer?.full_name,
         customer_phone: data.customer?.phone,
+        customer_phone_hash: data.customer?.phone_hash,
         customer_email: data.customer?.email,
+        do_not_contact: data.customer?.do_not_contact || data.do_not_contact,
         project_name: data.project?.name,
         assigned_name: data.assigned_user?.full_name,
         agency_name: data.agency?.name,
@@ -160,21 +238,32 @@ export class LeadRepository {
       } as Lead;
     }
 
+    assertNoMockPIIInProduction('lấy chi tiết lead');
     this.ensureInitialized();
     const allLeads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
-    return allLeads.find(l => l.id === id) || null;
+    const lead = allLeads.find(l => l.id === id) || null;
+    if (lead && currentUser?.role === 'marketing_manager') {
+      return {
+        ...lead,
+        customer_phone: maskPhone(lead.customer_phone),
+        customer_name: maskName(lead.customer_name),
+        customer_email: undefined,
+      };
+    }
+    return lead;
   }
 
-  // 3. KIỂM TRA TRÙNG SỐ ĐIỆN THOẠI
+  // 3. KIỂM TRA TRÙNG SỐ ĐIỆN THOẠI (DEDUPE BẰNG PHONE_HASH)
   async checkDuplicatePhone(phone: string, currentLeadId?: string): Promise<{ isDuplicate: boolean; existingLead?: Lead }> {
     const cleanPhone = normalizePhone(phone);
     if (!cleanPhone) return { isDuplicate: false };
+    const phoneHash = computePhoneHash(cleanPhone);
 
     if (isLiveSupabaseConfigured) {
       const { data } = await supabase
         .from('customers')
-        .select('id, full_name, phone, leads(id, project_id, status, assigned_to)')
-        .eq('phone_normalized', cleanPhone)
+        .select('id, full_name, phone, phone_hash, leads(id, project_id, status, assigned_to)')
+        .or(`phone_hash.eq.${phoneHash},phone_normalized.eq.${cleanPhone}`)
         .maybeSingle();
 
       if (data && data.leads && data.leads.length > 0) {
@@ -186,6 +275,7 @@ export class LeadRepository {
               ...lead,
               customer_name: data.full_name,
               customer_phone: data.phone,
+              customer_phone_hash: data.phone_hash,
             } as any,
           };
         }
@@ -193,14 +283,157 @@ export class LeadRepository {
       return { isDuplicate: false };
     }
 
+    assertNoMockPIIInProduction('kiểm tra trùng SĐT');
     this.ensureInitialized();
     const allLeads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
-    const match = allLeads.find(l => 
-      normalizePhone(l.customer_phone || '') === cleanPhone &&
-      (!currentLeadId || l.id !== currentLeadId)
-    );
+    const existing = allLeads.find(l => {
+      if (currentLeadId && l.id === currentLeadId) return false;
+      const normalizedExisting = normalizePhone(l.customer_phone || '');
+      return normalizedExisting === cleanPhone || (l.customer_phone_hash && l.customer_phone_hash === phoneHash);
+    });
 
-    return { isDuplicate: Boolean(match), existingLead: match };
+    if (existing) {
+      return {
+        isDuplicate: true,
+        existingLead: existing,
+      };
+    }
+
+    return { isDuplicate: false };
+  }
+
+  // 4. GIẢI MÃ VÀ XEM CCCD (RPC REVEAL_CCCD KÈM AUDIT LOG BẮT BUỘC)
+  async revealCCCD(customerId: string, currentUser: UserProfile): Promise<{ cccd: string }> {
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.rpc('reveal_cccd', { p_customer_id: customerId });
+      if (error) throw new Error(error.message);
+      return { cccd: data.cccd };
+    }
+
+    assertNoMockPIIInProduction('giải mã CCCD');
+    // Phân quyền vai trò nghiêm ngặt
+    if (!['admin', 'director', 'sales_manager'].includes(currentUser.role)) {
+      throw new Error(`Từ chối thao tác: Vai trò "${currentUser.role}" không có quyền giải mã và xem số CCCD/CMND của khách hàng.`);
+    }
+
+    // Ghi audit log
+    const auditLogs = JSON.parse(localStorage.getItem('crm_audit_logs') || '[]');
+    auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      user_id: currentUser.id,
+      action: 'reveal_cccd',
+      table_name: 'customers',
+      record_id: customerId,
+      new_data: {
+        customer_name: 'Khách hàng',
+        accessed_by_role: currentUser.role,
+        user_name: currentUser.full_name,
+        timestamp: new Date().toISOString(),
+      },
+      ip_address: '127.0.0.1',
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem('crm_audit_logs', JSON.stringify(auditLogs.slice(0, 1000)));
+
+    return { cccd: '079201019988' };
+  }
+
+  // 5. QUẢN LÝ ĐỒNG THUẬN (CONSENT) & DO_NOT_CONTACT
+  async recordConsent(consent: Omit<CustomerConsent, 'id' | 'created_at'>): Promise<CustomerConsent> {
+    const newConsent: CustomerConsent = {
+      ...consent,
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `consent-${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('customer_consents')
+        .insert(newConsent)
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return data;
+    }
+
+    assertNoMockPIIInProduction('lưu consent khách hàng');
+    const consents: CustomerConsent[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CONSENTS) || '[]');
+    consents.push(newConsent);
+    localStorage.setItem(STORAGE_KEY_CONSENTS, JSON.stringify(consents));
+    return newConsent;
+  }
+
+  async revokeConsent(consentId: string, reason: string, currentUser: UserProfile): Promise<void> {
+    if (isLiveSupabaseConfigured) {
+      const { data: consentRecord, error: fetchErr } = await supabase
+        .from('customer_consents')
+        .select('customer_id')
+        .eq('id', consentId)
+        .single();
+      if (fetchErr || !consentRecord) throw new Error('Không tìm thấy bản ghi đồng thuận.');
+
+      const { error } = await supabase
+        .from('customer_consents')
+        .update({
+          is_revoked: true,
+          revoked_at: new Date().toISOString(),
+          revoked_reason: reason,
+        })
+        .eq('id', consentId);
+      if (error) throw new Error(error.message);
+
+      await this.updateDoNotContact(consentRecord.customer_id, true, currentUser);
+      return;
+    }
+
+    assertNoMockPIIInProduction('thu hồi consent');
+    const consents: CustomerConsent[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CONSENTS) || '[]');
+    const index = consents.findIndex(c => c.id === consentId);
+    if (index === -1) throw new Error('Không tìm thấy bản ghi đồng thuận.');
+
+    consents[index].is_revoked = true;
+    consents[index].revoked_at = new Date().toISOString();
+    consents[index].revoked_reason = reason;
+    localStorage.setItem(STORAGE_KEY_CONSENTS, JSON.stringify(consents));
+
+    await this.updateDoNotContact(consents[index].customer_id, true, currentUser);
+  }
+
+  async getConsentsByCustomer(customerId: string): Promise<CustomerConsent[]> {
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('customer_consents')
+        .select('*')
+        .eq('customer_id', customerId)
+        .order('obtained_at', { ascending: false });
+      if (error) throw new Error(error.message);
+      return data || [];
+    }
+
+    assertNoMockPIIInProduction('truy vấn consent');
+    const consents: CustomerConsent[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CONSENTS) || '[]');
+    return consents.filter(c => c.customer_id === customerId);
+  }
+
+  async updateDoNotContact(customerId: string, doNotContact: boolean, currentUser: UserProfile): Promise<void> {
+    if (isLiveSupabaseConfigured) {
+      await supabase.from('customers').update({ do_not_contact: doNotContact }).eq('id', customerId);
+      await supabase.from('leads').update({ do_not_contact: doNotContact }).eq('customer_id', customerId);
+      return;
+    }
+
+    assertNoMockPIIInProduction('cập nhật do_not_contact');
+    const leads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
+    let updated = false;
+    for (const l of leads) {
+      if (l.customer_id === customerId) {
+        l.do_not_contact = doNotContact;
+        updated = true;
+      }
+    }
+    if (updated) {
+      localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
+    }
   }
 
   // 4. TẠO LEAD MỚI
@@ -1046,6 +1279,7 @@ export class LeadRepository {
 
   // Khởi tạo bộ dữ liệu mock chuẩn nếu chưa có trong LocalStorage
   private ensureInitialized() {
+    assertNoMockPIIInProduction('khởi tạo dữ liệu mock');
     if (!localStorage.getItem(STORAGE_KEY_LEADS)) {
       const mockLeads: Lead[] = [];
       const mockTxs: Transaction[] = [];
@@ -1061,12 +1295,15 @@ export class LeadRepository {
         const custId = `cust-${i}`;
         const status = statuses[(i - 1) % 15];
         const proj = INITIAL_PROJECTS[i % INITIAL_PROJECTS.length];
+        const rawPhone = `098${String(i).padStart(7, '0')}`;
         const lead: Lead = {
           id: leadId,
           customer_id: custId,
           customer_name: `Khách hàng ${['Nguyễn Văn', 'Trần Thị', 'Lê Hoàng', 'Phạm Đức', 'Võ Minh'][i % 5]} ${String.fromCharCode(65 + (i % 26))}`,
-          customer_phone: `098${String(i).padStart(7, '0')}`,
+          customer_phone: rawPhone,
+          customer_phone_hash: computePhoneHash(normalizePhone(rawPhone)),
           customer_email: `khachhang${i}@gmail.com`,
+          do_not_contact: false,
           project_id: proj.id,
           project_name: proj.name,
           agency_id: INITIAL_AGENCIES[0].id,

@@ -181,12 +181,28 @@ export interface Customer {
   full_name: string;
   phone: string;
   phone_normalized: string;
+  phone_hash?: string;
   email?: string;
   identity_card?: string;
+  encrypted_id_number?: string;
   address?: string;
   consent_obtained: boolean;
   consent_date?: string;
+  do_not_contact?: boolean;
   anonymized_at?: string;
+  created_at?: string;
+}
+
+export interface CustomerConsent {
+  id: string;
+  customer_id: string;
+  purpose: 'marketing' | 'consultation' | 'contract';
+  channel: 'phone' | 'email' | 'zalo' | 'sms';
+  source?: string;
+  obtained_at: string;
+  is_revoked: boolean;
+  revoked_at?: string;
+  revoked_reason?: string;
   created_at?: string;
 }
 
@@ -218,6 +234,8 @@ export interface Lead {
   auto_transfer_count?: number;
   previous_assigned_sales?: string[];
   is_exempt_auto_transfer?: boolean;
+  do_not_contact?: boolean;
+  customer_phone_hash?: string;
   extended_until?: string;
   extension_reason?: string;
 
