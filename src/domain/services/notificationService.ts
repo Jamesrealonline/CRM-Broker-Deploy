@@ -32,7 +32,137 @@ export const DEFAULT_EMAIL_CONFIG: EmailNotificationConfig = {
   smtp_pass: '',
 };
 
+export interface ClientDispatchInfo {
+  subject: string;
+  plainBody: string;
+  zaloText: string;
+  gmailUrl: string;
+  mailtoUrl: string;
+  zaloUrl?: string;
+  leadUrl: string;
+}
+
 export class NotificationService {
+  /**
+   * 0.1 KHỞI TẠO NỘI DUNG VÀ LIÊN KẾT GỬI NHANH 1-CLICK TỪ TRÌNH DUYỆT (GMAIL WEB, ZALO, MAILTO)
+   * Giúp gửi trực tiếp từ máy người dùng mà không cần Google App Password hay cấu hình SMTP.
+   */
+  buildClientDispatchInfo(params: {
+    leadTitle: string;
+    leadPhone: string;
+    projectName: string;
+    notes?: string;
+    saleName: string;
+    saleEmail: string;
+    salePhone?: string;
+    managerName?: string;
+    leadId: string;
+    reason?: string;
+  }): ClientDispatchInfo {
+    const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://crm-broker-platform.vercel.app';
+    const leadUrl = `${siteUrl}/leads/${params.leadId}`;
+    const subject = `[CRM Broker] Bàn giao Lead khách hàng: ${params.leadTitle} - ${params.projectName}`;
+
+    const plainBody = `Xin chào ${params.saleName},
+
+Bạn vừa được ${params.managerName || 'Hệ thống'} bàn giao tiếp nhận Lead khách hàng mới:
+- Khách hàng: ${params.leadTitle}
+- Số điện thoại: ${params.leadPhone}
+- Dự án quan tâm: ${params.projectName}
+- Nhu cầu / Ghi chú: ${params.notes || 'Khách quan tâm dự án, cần tư vấn thêm'}
+- Lý do điều chuyển: ${params.reason || 'Bàn giao phụ trách chăm sóc'}
+- Hạn cập nhật SLA: Trong vòng 24 giờ kể từ thời điểm bàn giao.
+
+👉 Bấm vào liên kết này để mở hồ sơ Lead trên hệ thống CRM:
+${leadUrl}
+
+Trân trọng,
+${params.managerName || 'Phòng Kinh Doanh'}`;
+
+    const zaloText = `🏢 [CRM BROKER] THÔNG BÁO BÀN GIAO LEAD MỚI
+Xin chào ${params.saleName},
+Bạn vừa được bàn giao chăm sóc khách hàng:
+👤 Khách hàng: ${params.leadTitle}
+📞 SĐT: ${params.leadPhone}
+🏢 Dự án: ${params.projectName}
+📝 Nhu cầu: ${params.notes || 'Cần liên hệ tư vấn'}
+⏱ Hạn cập nhật (SLA 24h): Trong vòng 24 giờ
+👉 Link hồ sơ CRM: ${leadUrl}`;
+
+    const cleanPhone = (params.salePhone || '').replace(/[^0-9]/g, '');
+    const zaloUrl = cleanPhone ? `https://zalo.me/${cleanPhone}` : undefined;
+
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(params.saleEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(plainBody)}`;
+    const mailtoUrl = `mailto:${encodeURIComponent(params.saleEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(plainBody)}`;
+
+    return {
+      subject,
+      plainBody,
+      zaloText,
+      gmailUrl,
+      mailtoUrl,
+      zaloUrl,
+      leadUrl,
+    };
+  }
+
+  /**
+   * 0.2 TỔNG HỢP DANH SÁCH BULK LEADS GỬI NHANH QUA GMAIL WEB / ZALO
+   */
+  buildBulkClientDispatchInfo(params: {
+    leads: Array<{ id: string; full_name: string; phone: string; project_name?: string }>;
+    saleName: string;
+    saleEmail: string;
+    salePhone?: string;
+    managerName?: string;
+    reason?: string;
+  }): ClientDispatchInfo {
+    const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://crm-broker-platform.vercel.app';
+    const leadUrl = `${siteUrl}/leads`;
+    const subject = `[CRM Broker] Tổng hợp bàn giao ${params.leads.length} Lead mới cho bạn`;
+
+    const leadListPlain = params.leads
+      .map((l, idx) => `${idx + 1}. ${l.full_name} | SĐT: ${l.phone} | Dự án: ${l.project_name || 'Chung'}`)
+      .join('\n');
+
+    const plainBody = `Xin chào ${params.saleName},
+
+Quản lý ${params.managerName || 'Hệ thống'} vừa phân bổ ${params.leads.length} khách hàng tiềm năng mới cho bạn:
+
+${leadListPlain}
+
+⏱ Lưu ý quy tắc SLA 24h: Vui lòng liên hệ và cập nhật tình trạng chăm sóc trước hạn để tránh bị tự động thu hồi.
+Lý do: ${params.reason || 'Phân bổ hàng loạt theo kế hoạch kinh doanh'}
+
+👉 Xem toàn bộ danh sách lead của bạn tại:
+${leadUrl}
+
+Trân trọng,
+${params.managerName || 'Phòng Kinh Doanh'}`;
+
+    const zaloText = `🏢 [CRM BROKER] BÀN GIAO ${params.leads.length} LEAD MỚI
+Xin chào ${params.saleName},
+Quản lý ${params.managerName || 'Hệ thống'} vừa giao cho bạn ${params.leads.length} khách hàng mới:
+${leadListPlain}
+⏱ Hạn SLA 24h: Vui lòng liên hệ và cập nhật trạng thái chăm sóc.
+👉 Link CRM: ${leadUrl}`;
+
+    const cleanPhone = (params.salePhone || '').replace(/[^0-9]/g, '');
+    const zaloUrl = cleanPhone ? `https://zalo.me/${cleanPhone}` : undefined;
+
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(params.saleEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(plainBody)}`;
+    const mailtoUrl = `mailto:${encodeURIComponent(params.saleEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(plainBody)}`;
+
+    return {
+      subject,
+      plainBody,
+      zaloText,
+      gmailUrl,
+      mailtoUrl,
+      zaloUrl,
+      leadUrl,
+    };
+  }
   /**
    * 1. LẤY CẤU HÌNH THÔNG BÁO EMAIL
    */

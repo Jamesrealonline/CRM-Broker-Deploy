@@ -502,6 +502,7 @@ export interface EmailNotificationConfig {
   enable_revoke: boolean;
   enable_overdue_warning: boolean;
   cc_manager: boolean;
+  dispatch_mode?: 'client_direct' | 'server_smtp' | 'resend_api'; // Chế độ: trực tiếp 1-click từ máy hoặc chạy ngầm server
   provider?: 'gmail_smtp' | 'resend' | 'custom_smtp';
   smtp_host?: string;
   smtp_port?: number;

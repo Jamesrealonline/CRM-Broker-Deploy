@@ -40,6 +40,8 @@ import { teamRepository } from '@/data/repositories/teamRepository';
 import { autoTransferService } from '@/domain/services/autoTransferService';
 import { financialCalculationService } from '@/domain/services/financialCalculationService';
 import { aiRepository, AILeadInsightResult } from '@/data/repositories/aiRepository';
+import { notificationService, ClientDispatchInfo } from '@/domain/services/notificationService';
+import { LeadDispatchModal } from '@/components/LeadDispatchModal';
 import { 
   Lead, 
   LeadActivity, 
@@ -96,6 +98,11 @@ export const LeadDetailPage: React.FC = () => {
   const [isExemptVal, setIsExemptVal] = useState(true);
   const [exemptReason, setExemptReason] = useState('Khách hàng VIP ngoại giao, miễn chuyển tự động');
   const [exemptLoading, setExemptLoading] = useState(false);
+
+  // 1-Click Client Dispatch Modal (Gmail Web & Zalo)
+  const [dispatchModalOpen, setDispatchModalOpen] = useState(false);
+  const [dispatchInfo, setDispatchInfo] = useState<ClientDispatchInfo | null>(null);
+  const [dispatchedSale, setDispatchedSale] = useState<UserProfile | null>(null);
 
   // Modal chuyển trạng thái giao dịch
   const [statusModalOpen, setStatusModalOpen] = useState(false);
@@ -297,6 +304,23 @@ export const LeadDetailPage: React.FC = () => {
       ]);
       if (updatedLead) setLead(updatedLead);
       setAssignmentHistory(updatedHist);
+
+      // Kích hoạt Modal gửi thông báo 1-Click (Gmail Web & Zalo)
+      const info = notificationService.buildClientDispatchInfo({
+        leadTitle: updatedLead?.customer_name || lead.customer_name || 'Khách hàng',
+        leadPhone: updatedLead?.customer_phone || lead.customer_phone || 'Chưa có SĐT',
+        projectName: updatedLead?.project_name || lead.project_name || 'Dự án',
+        notes: updatedLead?.notes || lead.notes,
+        saleName: targetSale.full_name,
+        saleEmail: targetSale.email,
+        salePhone: targetSale.phone,
+        managerName: currentUser.full_name,
+        leadId: lead.id,
+        reason: reassignReason,
+      });
+      setDispatchInfo(info);
+      setDispatchedSale(targetSale);
+      setDispatchModalOpen(true);
     } else {
       alert(res.error || 'Điều chuyển thất bại');
     }
@@ -1440,6 +1464,17 @@ export const LeadDetailPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* 8. MODAL GỬI THÔNG BÁO TỨC THÌ 1-CLICK (GMAIL WEB & ZALO) */}
+      <LeadDispatchModal
+        isOpen={dispatchModalOpen}
+        onClose={() => setDispatchModalOpen(false)}
+        dispatchInfo={dispatchInfo}
+        saleName={dispatchedSale?.full_name || ''}
+        saleEmail={dispatchedSale?.email || ''}
+        salePhone={dispatchedSale?.phone}
+        leadCount={1}
+      />
     </div>
   );
 };
