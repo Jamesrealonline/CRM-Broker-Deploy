@@ -32,10 +32,14 @@ import {
   UserCheck,
   TrendingUp,
   Eye,
+  EyeOff,
   Clock,
   Send,
   RefreshCw,
-  Archive
+  Archive,
+  HelpCircle,
+  Key,
+  ExternalLink
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
@@ -88,6 +92,13 @@ export const AdminPage: React.FC = () => {
   const [emailConfigSaved, setEmailConfigSaved] = useState(false);
   const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
   const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'pending' | 'failed'>('all');
+
+  // Test email states
+  const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showAppPassGuide, setShowAppPassGuide] = useState(false);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -182,6 +193,35 @@ export const AdminPage: React.FC = () => {
     setIsSavingEmailConfig(false);
     setEmailConfigSaved(true);
     setTimeout(() => setEmailConfigSaved(false), 3000);
+  };
+
+  const handleSendTestEmail = async () => {
+    const target = testEmailAddress.trim() || currentUser?.email || '';
+    if (!target) {
+      setTestEmailResult({ success: false, message: 'Vui lòng nhập địa chỉ email nhận thư thử nghiệm.' });
+      return;
+    }
+    setIsSendingTestEmail(true);
+    setTestEmailResult(null);
+
+    // Tự động lưu cấu hình email hiện tại trước khi test
+    await notificationService.saveEmailConfig(emailConfig);
+
+    const res = await notificationService.sendTestEmail(target);
+    setIsSendingTestEmail(false);
+    if (res.success) {
+      setTestEmailResult({ 
+        success: true, 
+        message: `Đã gửi thành công email thử nghiệm đến ${target}! Hãy kiểm tra hộp thư đến (Inbox) hoặc Thư rác (Spam).` 
+      });
+      const logs = await notificationService.getNotificationLogs(50);
+      setNotificationLogs(logs);
+    } else {
+      setTestEmailResult({ 
+        success: false, 
+        message: res.error || 'Gửi email thất bại. Vui lòng kiểm tra lại cấu hình tài khoản và Mật khẩu ứng dụng.' 
+      });
+    }
   };
 
   const handleRetryNotification = async (logId: string) => {
@@ -1107,11 +1147,11 @@ export const AdminPage: React.FC = () => {
                   </label>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Gửi email tiếng Việt responsive kèm nút CTA mở nhanh hồ sơ lead. Tự động thử lại 3 lần nếu lỗi mạng.
+                  Gửi email tiếng Việt responsive kèm nút CTA mở nhanh hồ sơ lead. Hỗ trợ gửi trực tiếp qua Gmail SMTP hoặc Resend API.
                 </p>
               </CardHeader>
 
-              <div className="p-5 space-y-4 text-xs">
+              <div className="p-5 space-y-5 text-xs">
                 {emailConfigSaved && (
                   <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
@@ -1119,8 +1159,235 @@ export const AdminPage: React.FC = () => {
                   </div>
                 )}
 
-                <div className="space-y-3">
-                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                {/* 1. CỔNG GỬI EMAIL (GATEWAY CONFIG) */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-800 flex items-center gap-1.5 text-xs">
+                      <Key className="h-4 w-4 text-purple-600" />
+                      Cổng Gửi Email Ra Ngoài (SMTP Gateway)
+                    </span>
+                    <span className="text-[11px] font-medium px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">
+                      Bắt buộc để gửi đến Gmail thực
+                    </span>
+                  </div>
+
+                  {/* Provider selection */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Phương thức kết nối:</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEmailConfig({ ...emailConfig, provider: 'gmail_smtp', smtp_host: 'smtp.gmail.com', smtp_port: 465 })}
+                        className={`p-2.5 rounded-lg border text-left transition-all ${
+                          (emailConfig.provider || 'gmail_smtp') === 'gmail_smtp'
+                            ? 'border-purple-600 bg-purple-50/60 font-semibold text-purple-900 shadow-sm'
+                            : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <div className="text-xs">Tài Khoản Gmail (SMTP)</div>
+                        <div className="text-[10px] text-slate-500">Dễ dùng, hỗ trợ App Password</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEmailConfig({ ...emailConfig, provider: 'resend' })}
+                        className={`p-2.5 rounded-lg border text-left transition-all ${
+                          emailConfig.provider === 'resend'
+                            ? 'border-purple-600 bg-purple-50/60 font-semibold text-purple-900 shadow-sm'
+                            : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <div className="text-xs">Resend API Key</div>
+                        <div className="text-[10px] text-slate-500">Chuyên nghiệp, tốc độ cao</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Fields for Gmail SMTP */}
+                  {(emailConfig.provider || 'gmail_smtp') === 'gmail_smtp' && (
+                    <div className="space-y-3 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          Tên hiển thị người gửi (Sender Name):
+                        </label>
+                        <input
+                          type="text"
+                          value={emailConfig.smtp_from_name || ''}
+                          onChange={(e) => setEmailConfig({ ...emailConfig, smtp_from_name: e.target.value })}
+                          placeholder="Ví dụ: CRM Bất Động Sản - Quản Lý Bán Hàng"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          Tài khoản Gmail gửi (Email Address):
+                        </label>
+                        <input
+                          type="email"
+                          value={emailConfig.smtp_user || ''}
+                          onChange={(e) => setEmailConfig({ ...emailConfig, smtp_user: e.target.value })}
+                          placeholder="your-company@gmail.com"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-medium text-slate-700">
+                            Mật khẩu ứng dụng Google (16 ký tự App Password):
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setShowAppPassGuide(!showAppPassGuide)}
+                            className="text-[11px] text-purple-600 hover:text-purple-700 flex items-center gap-1 font-medium"
+                          >
+                            <HelpCircle className="h-3 w-3" />
+                            {showAppPassGuide ? 'Ẩn hướng dẫn' : 'Cách tạo mật khẩu 16 ký tự'}
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            value={emailConfig.smtp_pass || ''}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, smtp_pass: e.target.value })}
+                            placeholder="abcd efgh ijkl mnop"
+                            className="w-full px-3 py-2 pr-10 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white font-mono tracking-wider"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                            title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          * Lưu ý: Google yêu cầu dùng <strong>Mật khẩu ứng dụng 16 ký tự</strong>, không dùng mật khẩu đăng nhập Gmail thông thường.
+                        </p>
+                      </div>
+
+                      {/* Expandable Guide */}
+                      {showAppPassGuide && (
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-[11px] space-y-1.5">
+                          <div className="font-semibold flex items-center gap-1 text-amber-800">
+                            <HelpCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                            4 Bước Tạo Mật Khẩu Ứng Dụng (Google App Password):
+                          </div>
+                          <ol className="list-decimal pl-4 space-y-1 text-amber-800/90 leading-relaxed">
+                            <li>Bật <strong>Xác minh 2 bước (2-Step Verification)</strong> trong tài khoản Google của bạn.</li>
+                            <li>
+                              Truy cập đường dẫn{' '}
+                              <a
+                                href="https://myaccount.google.com/apppasswords"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline font-semibold text-purple-700 hover:text-purple-800 inline-flex items-center gap-0.5"
+                              >
+                                myaccount.google.com/apppasswords
+                                <ExternalLink className="h-3 w-3 inline" />
+                              </a>
+                            </li>
+                            <li>Nhập tên ứng dụng là <strong>CRM Broker</strong> rồi bấm <strong>Tạo (Create)</strong>.</li>
+                            <li>Google sẽ hiển thị một chuỗi 16 chữ cái (ví dụ: <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-900 font-mono">abcd efgh ijkl mnop</code>). Sao chép và dán vào ô bên trên.</li>
+                          </ol>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Fields for Resend API */}
+                  {emailConfig.provider === 'resend' && (
+                    <div className="space-y-3 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          Resend API Key:
+                        </label>
+                        <input
+                          type="password"
+                          value={emailConfig.resend_api_key || ''}
+                          onChange={(e) => setEmailConfig({ ...emailConfig, resend_api_key: e.target.value })}
+                          placeholder="re_123456789_abcdef..."
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                          Email người gửi đã xác thực trên Resend:
+                        </label>
+                        <input
+                          type="email"
+                          value={emailConfig.smtp_from_email || ''}
+                          onChange={(e) => setEmailConfig({ ...emailConfig, smtp_from_email: e.target.value })}
+                          placeholder="notifications@yourdomain.com"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. CÔNG CỤ GỬI THỬ EMAIL (TEST CONNECTION) */}
+                <div className="p-4 bg-purple-50/40 border border-purple-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-purple-900 flex items-center gap-1.5 text-xs">
+                      <Send className="h-4 w-4 text-purple-600" />
+                      Kiểm Tra Kết Nối & Gửi Thử Email (Test Email)
+                    </span>
+                    <span className="text-[10px] text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full font-medium">
+                      Gửi thư thật
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    Nhập một địa chỉ email Gmail bất kỳ (ví dụ email của bạn) để kiểm tra xem hệ thống đã gửi thư ra ngoài thành công chưa.
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="email"
+                      value={testEmailAddress}
+                      onChange={(e) => setTestEmailAddress(e.target.value)}
+                      placeholder={currentUser?.email || 'nhap-email-nhan@gmail.com'}
+                      className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white font-mono"
+                    />
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSendTestEmail}
+                      isLoading={isSendingTestEmail}
+                      className="bg-purple-600 hover:bg-purple-700 shrink-0 flex items-center gap-1.5"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      Gửi Thử Email Ngay
+                    </Button>
+                  </div>
+
+                  {testEmailResult && (
+                    <div
+                      className={`p-3 rounded-lg border text-[11px] flex items-start gap-2 ${
+                        testEmailResult.success
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                      }`}
+                    >
+                      {testEmailResult.success ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1 leading-relaxed">{testEmailResult.message}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. QUY TẮC SỰ KIỆN GỬI THÔNG BÁO */}
+                <div className="space-y-2.5">
+                  <span className="font-semibold text-slate-800 block text-xs">
+                    Kích Hoạt Gửi Email Cho Các Sự Kiện:
+                  </span>
+
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer hover:bg-slate-100/60 transition-colors">
                     <div>
                       <span className="font-semibold text-slate-800 block">Khi được giao lead mới</span>
                       <span className="text-[11px] text-slate-500">Gửi email cho Sale nhận lead kèm nút CTA chi tiết</span>
@@ -1133,7 +1400,7 @@ export const AdminPage: React.FC = () => {
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer hover:bg-slate-100/60 transition-colors">
                     <div>
                       <span className="font-semibold text-slate-800 block">Khi nhận lead được điều chuyển</span>
                       <span className="text-[11px] text-slate-500">Gửi email cho Sale mới kèm lịch sử chăm sóc cũ</span>
@@ -1146,7 +1413,7 @@ export const AdminPage: React.FC = () => {
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer hover:bg-slate-100/60 transition-colors">
                     <div>
                       <span className="font-semibold text-slate-800 block">Khi lead bị thu hồi do quá hạn</span>
                       <span className="text-[11px] text-slate-500">Gửi thông báo cho Sale cũ lý do thu hồi</span>
@@ -1159,7 +1426,7 @@ export const AdminPage: React.FC = () => {
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer hover:bg-slate-100/60 transition-colors">
                     <div>
                       <span className="font-semibold text-slate-800 block">Cảnh báo sắp hết hạn (Mốc 20h)</span>
                       <span className="text-[11px] text-slate-500">Nhắc nhở Sale còn 4h để liên hệ khách hàng</span>
@@ -1172,7 +1439,7 @@ export const AdminPage: React.FC = () => {
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer">
+                  <label className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-lg cursor-pointer hover:bg-slate-100/60 transition-colors">
                     <div>
                       <span className="font-semibold text-slate-800 block">Gửi bản sao (CC) cho Trưởng phòng / Team Leader</span>
                       <span className="text-[11px] text-slate-500">Cho phép quản lý nắm bắt tiến độ phân bổ lead</span>

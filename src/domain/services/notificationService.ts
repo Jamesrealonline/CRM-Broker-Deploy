@@ -23,10 +23,13 @@ export const DEFAULT_EMAIL_CONFIG: EmailNotificationConfig = {
   enable_revoke: true,
   enable_overdue_warning: true,
   cc_manager: true,
+  provider: 'gmail_smtp',
   smtp_host: 'smtp.gmail.com',
-  smtp_port: 587,
+  smtp_port: 465,
   smtp_from_name: 'CRM Bất Động Sản',
-  smtp_from_email: 'no-reply@crm-broker.vn',
+  smtp_from_email: '',
+  smtp_user: '',
+  smtp_pass: '',
 };
 
 export class NotificationService {
@@ -357,18 +360,47 @@ export class NotificationService {
   private async dispatchEmailWithRetry(log: NotificationLog): Promise<{ success: boolean; logId: string; error?: string }> {
     let attempts = 0;
     const maxRetries = 3;
+    const config = await this.getEmailConfig();
+    const hasLiveCredentials = (config.smtp_user && config.smtp_pass) || config.resend_api_key;
 
     while (attempts < maxRetries) {
       try {
         attempts++;
-        // Mô phỏng / Gửi thực tế qua Email Service (Resend / SendGrid / Supabase / Mock)
-        // Trong môi trường dev/staging, log chi tiết email gửi thành công
         console.log(`[NotificationService] Đang gửi email "${log.title}" tới ${log.recipient_email} (Lần thử ${attempts}/${maxRetries})...`);
+
+        // Nếu đã cấu hình tài khoản Gmail hoặc Resend, gọi API serverless thực để gửi ra ngoài
+        if (hasLiveCredentials && typeof window !== 'undefined') {
+          const res = await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: log.recipient_email,
+              subject: log.title,
+              html: log.content,
+              fromName: config.smtp_from_name || 'CRM Bất Động Sản',
+              fromEmail: config.smtp_from_email || config.smtp_user,
+              config: {
+                provider: config.provider || 'gmail_smtp',
+                smtp_host: config.smtp_host || 'smtp.gmail.com',
+                smtp_port: config.smtp_port || 465,
+                smtp_user: config.smtp_user,
+                smtp_pass: config.smtp_pass,
+                resend_api_key: config.resend_api_key,
+              },
+            }),
+          });
+
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Lỗi khi gửi email qua SMTP Gateway');
+          }
+        }
 
         // Đánh dấu gửi thành công
         log.status = 'sent';
         log.sent_at = new Date().toISOString();
         log.retry_count = attempts;
+        log.error_message = undefined;
         await this.updateNotificationLog(log);
 
         return { success: true, logId: log.id };
@@ -387,6 +419,67 @@ export class NotificationService {
     }
 
     return { success: false, logId: log.id, error: 'Vượt quá số lần thử lại tối đa' };
+  }
+
+  /**
+   * 6.1 GỬI THỬ EMAIL (TEST CONNECTION)
+   */
+  async sendTestEmail(targetEmail: string): Promise<{ success: boolean; error?: string }> {
+    const config = await this.getEmailConfig();
+    if (!config.smtp_user || !config.smtp_pass) {
+      if (!config.resend_api_key) {
+        return { 
+          success: false, 
+          error: 'Vui lòng điền Email Gmail và Mật khẩu ứng dụng 16 ký tự (App Password) trước khi gửi thử.' 
+        };
+      }
+    }
+
+    try {
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: targetEmail,
+          subject: '[CRM Broker] Xác Nhận Kết Nối Email Thành Công 🎉',
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 28px; border: 1px solid #e2e8f0; border-radius: 12px; max-width: 520px; margin: 20px auto; background-color: #ffffff;">
+              <div style="text-align: center; margin-bottom: 20px;">
+                <h1 style="color: #16a34a; font-size: 22px; margin: 0;">🎉 Kết Nối Email Thành Công!</h1>
+                <p style="color: #64748b; font-size: 13px; margin: 6px 0 0 0;">Hệ thống CRM Quản Lý Bất Động Sản</p>
+              </div>
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; font-size: 13px; line-height: 1.6; color: #334155;">
+                <p style="margin: 0 0 8px 0;">Xin chào,</p>
+                <p style="margin: 0 0 8px 0;">Email này được gửi thử từ hệ thống CRM Broker qua tài khoản gửi: <strong>${config.smtp_user || 'Hệ thống'}</strong>.</p>
+                <p style="margin: 0;">Cấu hình Gmail SMTP đã hoạt động chính xác. Từ bây giờ các Sale sẽ nhận được email ngay khi được phân bổ hoặc điều chuyển lead mới!</p>
+              </div>
+              <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center;">
+                Thời gian gửi: ${new Date().toLocaleString('vi-VN')}
+              </div>
+            </div>
+          `,
+          fromName: config.smtp_from_name || 'CRM Bất Động Sản',
+          fromEmail: config.smtp_from_email || config.smtp_user,
+          config: {
+            provider: config.provider || 'gmail_smtp',
+            smtp_host: config.smtp_host || 'smtp.gmail.com',
+            smtp_port: config.smtp_port || 465,
+            smtp_user: config.smtp_user,
+            smtp_pass: config.smtp_pass,
+            resend_api_key: config.resend_api_key,
+          },
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return { success: false, error: data.error || 'Gửi thử thất bại' };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Không thể kết nối đến API Gateway gửi mail' };
+    }
   }
 
   /**

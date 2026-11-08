@@ -502,11 +502,14 @@ export interface EmailNotificationConfig {
   enable_revoke: boolean;
   enable_overdue_warning: boolean;
   cc_manager: boolean;
+  provider?: 'gmail_smtp' | 'resend' | 'custom_smtp';
   smtp_host?: string;
   smtp_port?: number;
   smtp_user?: string;
+  smtp_pass?: string;           // Mật khẩu ứng dụng 16 ký tự Gmail App Password
   smtp_from_name?: string;
   smtp_from_email?: string;
+  resend_api_key?: string;      // API Key Resend (nếu dùng)
 }
 
 export interface AutoTransferScanResult {
