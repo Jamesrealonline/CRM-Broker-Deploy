@@ -23,6 +23,8 @@ import { notificationService } from '@/domain/services/notificationService';
 import { autoTransferService } from '@/domain/services/autoTransferService';
 import { findTransitionRule, STOP_CLOCK_STATUSES } from '@/domain/leadTransitions';
 import { authRepository } from './authRepository';
+import { assertRateLimit } from '@/lib/rateLimiter';
+import { checkOrStartIdempotency, completeIdempotency } from '@/lib/idempotency';
 
 const STORAGE_KEY_LEADS = 'crm_leads';
 const STORAGE_KEY_CUSTOMERS = 'crm_customers';
@@ -437,7 +439,7 @@ export class LeadRepository {
     }
   }
 
-  // 4. TẠO LEAD MỚI
+  // 4. TẠO LEAD MỚI (ÁP DỤNG RATE LIMIT & IDEMPOTENCY)
   async createLead(payload: {
     fullName: string;
     phone: string;
@@ -449,7 +451,24 @@ export class LeadRepository {
     purpose?: 'residence' | 'investment' | 'both' | 'undecided';
     notes?: string;
     currentUser: UserProfile;
+    idempotencyKey?: string;
   }): Promise<{ success: boolean; lead?: Lead; error?: string }> {
+    // 1. CƯỠNG CHẾ RATE LIMIT (30 req / phút trên endpoint leads/create)
+    assertRateLimit(payload.currentUser.id || 'anonymous', 'leads/create', 30);
+
+    // 2. KIỂM TRA IDEMPOTENCY KEY (Chống tạo trùng lặp request khi bấm nhiều lần)
+    if (payload.idempotencyKey) {
+      const check = await checkOrStartIdempotency(
+        payload.idempotencyKey,
+        'leads/create',
+        { phone: payload.phone, projectId: payload.projectId, fullName: payload.fullName },
+        payload.currentUser.id
+      );
+      if (check.isCached) {
+        return check.response;
+      }
+    }
+
     const cleanPhone = normalizePhone(payload.phone);
     if (!cleanPhone || cleanPhone.length < 9) {
       return { success: false, error: 'Số điện thoại không hợp lệ.' };
@@ -545,7 +564,11 @@ export class LeadRepository {
         }).catch(err => console.error('Error dispatching notification:', err));
       }
 
-      return { success: true, lead };
+      const res = { success: true, lead };
+      if (payload.idempotencyKey) {
+        await completeIdempotency(payload.idempotencyKey, 'leads/create', res);
+      }
+      return res;
     }
 
     // Local Storage Mock
@@ -629,7 +652,11 @@ export class LeadRepository {
       }).catch(err => console.error('Error dispatching notification:', err));
     }
 
-    return { success: true, lead: newLead };
+    const res = { success: true, lead: newLead };
+    if (payload.idempotencyKey) {
+      await completeIdempotency(payload.idempotencyKey, 'leads/create', res);
+    }
+    return res;
   }
 
   // 4.1 CẬP NHẬT THÔNG TIN LEAD (Ghi chú, Chân dung, Điểm số, Hành động tiếp theo)
@@ -718,10 +745,27 @@ export class LeadRepository {
     unitCode?: string;
     dealValue?: number;
     contractCode?: string;
+    idempotencyKey?: string;
   }): Promise<{ success: boolean; error?: string }> {
     // CHẶN KHI ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN (CHẾ ĐỘ CHỈ ĐỌC)
     if (authRepository.isImpersonating()) {
       authRepository.assertNotImpersonating('đổi trạng thái lead');
+    }
+
+    // 1. CƯỠNG CHẾ RATE LIMIT (60 req / phút trên endpoint đổi trạng thái lead)
+    assertRateLimit(payload.currentUser.id || 'anonymous', 'leads/change-status', 60);
+
+    // 2. KIỂM TRA IDEMPOTENCY KEY
+    if (payload.idempotencyKey) {
+      const check = await checkOrStartIdempotency(
+        payload.idempotencyKey,
+        'leads/change-status',
+        { leadId: payload.leadId, newStatus: payload.newStatus, amount: payload.txAmount, unitCode: payload.unitCode },
+        payload.currentUser.id
+      );
+      if (check.isCached) {
+        return check.response;
+      }
     }
 
     const nowIso = new Date().toISOString();
@@ -745,6 +789,9 @@ export class LeadRepository {
       if (error) return { success: false, error: error.message };
       if (data && !data.success) return { success: false, error: data.message || 'Cập nhật trạng thái thất bại.' };
 
+      if (payload.idempotencyKey) {
+        await completeIdempotency(payload.idempotencyKey, 'leads/change-status', { success: true });
+      }
       return { success: true };
     }
 
@@ -759,6 +806,9 @@ export class LeadRepository {
 
     // 1. Trạng thái không thay đổi -> Thành công
     if (oldStatus === payload.newStatus) {
+      if (payload.idempotencyKey) {
+        await completeIdempotency(payload.idempotencyKey, 'leads/change-status', { success: true });
+      }
       return { success: true };
     }
 
@@ -899,6 +949,9 @@ export class LeadRepository {
       content: payload.notes || 'Cập nhật qua RPC change_lead_status.',
     });
 
+    if (payload.idempotencyKey) {
+      await completeIdempotency(payload.idempotencyKey, 'leads/change-status', { success: true });
+    }
     return { success: true };
   }
 

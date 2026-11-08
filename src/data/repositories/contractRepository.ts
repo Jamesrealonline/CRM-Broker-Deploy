@@ -17,6 +17,8 @@ import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { financialCalculationService, TimeRangeFilter } from '@/domain/services/financialCalculationService';
 import { authRepository } from './authRepository';
+import { assertRateLimit } from '@/lib/rateLimiter';
+import { checkOrStartIdempotency, completeIdempotency } from '@/lib/idempotency';
 
 const STORAGE_KEY_TRANSACTIONS = 'crm_transactions';
 
@@ -175,10 +177,28 @@ export class ContractRepository {
   }
 
   // 2. TẠO HỢP ĐỒNG GIAO DỊCH MỚI
-  async createContractTransaction(payload: Partial<Transaction>): Promise<Transaction> {
+  async createContractTransaction(payload: Partial<Transaction> & { idempotencyKey?: string }): Promise<Transaction> {
     // CHẶN KHI ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN (CHẾ ĐỘ CHỈ ĐỌC)
     if (authRepository.isImpersonating()) {
       authRepository.assertNotImpersonating('tạo hợp đồng / giao dịch tài chính');
+    }
+
+    // 1. CƯỠNG CHẾ RATE LIMIT (20 req / phút trên endpoint transactions/create)
+    const userIdentifier = payload.created_by || 'anonymous';
+    assertRateLimit(userIdentifier, 'transactions/create', 20);
+
+    // 2. KIỂM TRA IDEMPOTENCY KEY
+    const idempotencyKey = payload.idempotencyKey || (payload as any).idempotency_key;
+    if (idempotencyKey) {
+      const check = await checkOrStartIdempotency(
+        idempotencyKey,
+        'transactions/create',
+        { lead_id: payload.lead_id, amount: payload.amount, unit_code: payload.unit_code },
+        payload.created_by
+      );
+      if (check.isCached) {
+        return check.response;
+      }
     }
 
     const dealVal = Number(payload.deal_value || payload.amount || 3000000000);
@@ -216,13 +236,22 @@ export class ContractRepository {
 
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase.from('transactions').insert(newTx).select().single();
-      if (!error && data) return data;
+      if (!error && data) {
+        if (idempotencyKey) {
+          await completeIdempotency(idempotencyKey, 'transactions/create', data);
+        }
+        return data;
+      }
     }
 
     this.ensureInitialized();
     const list: any[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
     list.unshift(newTx);
     localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(list));
+
+    if (idempotencyKey) {
+      await completeIdempotency(idempotencyKey, 'transactions/create', newTx);
+    }
     return newTx;
   }
 
