@@ -22,6 +22,7 @@ import { INITIAL_PROJECTS, INITIAL_AGENCIES, INITIAL_TEAMS } from '../mockData';
 import { notificationService } from '@/domain/services/notificationService';
 import { autoTransferService } from '@/domain/services/autoTransferService';
 import { findTransitionRule, STOP_CLOCK_STATUSES } from '@/domain/leadTransitions';
+import { authRepository } from './authRepository';
 
 const STORAGE_KEY_LEADS = 'crm_leads';
 const STORAGE_KEY_CUSTOMERS = 'crm_customers';
@@ -718,6 +719,11 @@ export class LeadRepository {
     dealValue?: number;
     contractCode?: string;
   }): Promise<{ success: boolean; error?: string }> {
+    // CHẶN KHI ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN (CHẾ ĐỘ CHỈ ĐỌC)
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('đổi trạng thái lead');
+    }
+
     const nowIso = new Date().toISOString();
 
     if (isLiveSupabaseConfigured) {

@@ -15,6 +15,7 @@ import {
 import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { financialCalculationService, TimeRangeFilter } from '@/domain/services/financialCalculationService';
+import { authRepository } from './authRepository';
 
 const STORAGE_KEY_TRANSACTIONS = 'crm_transactions';
 
@@ -174,6 +175,11 @@ export class ContractRepository {
 
   // 2. TẠO HỢP ĐỒNG GIAO DỊCH MỚI
   async createContractTransaction(payload: Partial<Transaction>): Promise<Transaction> {
+    // CHẶN KHI ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN (CHẾ ĐỘ CHỈ ĐỌC)
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('tạo hợp đồng / giao dịch tài chính');
+    }
+
     const dealVal = Number(payload.deal_value || payload.amount || 3000000000);
     const saleRate = Number(payload.sale_commission_rate || 1.8);
     const commAmt = payload.commission_amount ?? Math.round(dealVal * 0.035);
@@ -231,6 +237,11 @@ export class ContractRepository {
     status?: any;
     notes?: string;
   }): Promise<boolean> {
+    // CHẶN KHI ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN (CHẾ ĐỘ CHỈ ĐỌC)
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('cập nhật tiến độ giao dịch');
+    }
+
     if (isLiveSupabaseConfigured) {
       const { error } = await supabase
         .from('transactions')

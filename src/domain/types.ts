@@ -26,6 +26,11 @@ export interface UserProfile {
   status: UserStatus;
   must_change_password: boolean;
   totp_enabled: boolean;
+  two_factor_required?: boolean;
+  encrypted_totp_secret?: string;
+  backup_codes?: string[];
+  two_factor_verified_at?: string;
+  session_expires_at?: string;
   last_login_at?: string;
   created_at?: string;
   accepts_leads?: boolean;
@@ -461,13 +466,33 @@ export interface SystemSetting {
 export interface AuditLog {
   id: string;
   user_id?: string;
+  actor_id?: string;
   user_name?: string;
+  effective_role?: string;
   action: string;
+  table_name?: string;
+  record_id?: string;
+  new_data?: Record<string, unknown>;
   entity_name?: string;
   entity_id?: string;
   details?: Record<string, unknown>;
   ip_address?: string;
   created_at: string;
+}
+
+export interface ImpersonationSession {
+  id: string;
+  actor_id: string;
+  actor_name?: string;
+  effective_role: UserRole;
+  effective_user_id?: string;
+  effective_user_name?: string;
+  is_read_only: boolean;
+  started_at: string;
+  expires_at: string;
+  ended_at?: string;
+  reason?: string;
+  created_at?: string;
 }
 
 // Module 6 & 7: Lead Assignment History, Notifications & Auto-transfer

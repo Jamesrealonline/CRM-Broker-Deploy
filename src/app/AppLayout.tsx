@@ -313,21 +313,23 @@ export const AppLayout: React.FC = () => {
           </div>
         </header>
 
-        {/* CẢNH BÁO KHI ADMIN ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN */}
+        {/* CẢNH BÁO KHI ADMIN ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN (CHẾ ĐỘ CHỈ ĐỌC - READ ONLY) */}
         {isRealAdmin && impersonatingRole && (
-          <div className="bg-amber-500/15 border-b border-amber-300 px-4 md:px-6 py-2 flex items-center justify-between text-xs text-amber-950 shrink-0">
+          <div className="bg-amber-500/20 border-b border-amber-400 px-4 md:px-6 py-2.5 flex items-center justify-between text-xs text-amber-950 shrink-0 shadow-inner">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+              <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0 animate-pulse" />
               <span>
-                <strong>Chế độ giả lập góc nhìn:</strong> Bạn đang quan sát giao diện và quyền thao tác như một{' '}
-                <strong className="text-amber-900 underline">{currentRoleInfo?.label}</strong>.
+                <strong className="text-amber-900 font-bold uppercase tracking-wide mr-1.5">[CHẾ ĐỘ CHỈ ĐỌC / READ-ONLY]:</strong> 
+                Bạn đang quan sát giao diện như một{' '}
+                <strong className="text-amber-950 underline font-bold">{currentRoleInfo?.label}</strong>.
+                Hệ thống cưỡng chế bảo mật: <strong className="text-red-700">Cấm mọi thao tác tiền, duyệt giao dịch hoặc đổi mật khẩu</strong>.
               </span>
             </div>
             <button
               onClick={handleResetRole}
-              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] font-bold shadow-sm transition-colors flex items-center gap-1"
+              className="px-3 py-1 bg-amber-700 hover:bg-amber-800 text-white rounded text-[11px] font-bold shadow-sm transition-colors flex items-center gap-1.5 shrink-0"
             >
-              <RotateCcw className="h-3 w-3" /> Quay lại Admin
+              <RotateCcw className="h-3.5 w-3.5" /> Thoát góc nhìn (Về Admin)
             </button>
           </div>
         )}
