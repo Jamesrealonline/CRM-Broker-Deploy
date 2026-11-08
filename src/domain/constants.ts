@@ -41,12 +41,17 @@ export const JOURNEY_STAGES: {
 ];
 
 export const LEAD_SOURCES_DEFAULT = [
-  { code: 'website_form', name: 'Website Form' },
-  { code: 'facebook_ads', name: 'Facebook Ads' },
-  { code: 'google_search', name: 'Google Search' },
-  { code: 'zalo_oa', name: 'Zalo OA' },
-  { code: 'referral', name: 'Giới thiệu' },
-  { code: 'hotline', name: 'Hotline trực tiếp' },
+  { code: 'facebook_ads', name: 'Facebook Ads', requires_detail: false },
+  { code: 'tiktok_ads', name: 'TikTok Ads', requires_detail: false },
+  { code: 'google_ads', name: 'Google Ads', requires_detail: false },
+  { code: 'zalo', name: 'Zalo', requires_detail: false },
+  { code: 'website_landing', name: 'Website / Landing page', requires_detail: false },
+  { code: 'gioi_thieu', name: 'Giới thiệu', requires_detail: true },
+  { code: 'su_kien_roadshow', name: 'Sự kiện / Roadshow', requires_detail: false },
+  { code: 'khach_cu_data_cu', name: 'Khách cũ / Data cũ', requires_detail: false },
+  { code: 'hotline', name: 'Hotline', requires_detail: false },
+  { code: 'walk_in', name: 'Khách tại sàn (walk-in)', requires_detail: false },
+  { code: 'khac', name: 'Khác', requires_detail: true },
 ];
 
 export const STAGE_CONFIG_MAP = new Map(JOURNEY_STAGES.map(s => [s.id, s]));

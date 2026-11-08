@@ -55,7 +55,8 @@ export class LeadRepository {
       const { data, error } = await supabase
         .from('lead_sources')
         .select('*')
-        .order('name');
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true });
       if (!error && data && data.length > 0) {
         return data as LeadSource[];
       }
@@ -67,13 +68,15 @@ export class LeadRepository {
     }
     try {
       const parsed = JSON.parse(raw) as LeadSource[];
-      return parsed.length > 0 ? parsed : INITIAL_LEAD_SOURCES;
+      return parsed.length > 0 
+        ? parsed.sort((a, b) => (a.sort_order || 99) - (b.sort_order || 99) || a.name.localeCompare(b.name))
+        : INITIAL_LEAD_SOURCES;
     } catch {
       return INITIAL_LEAD_SOURCES;
     }
   }
 
-  async createLeadSource(name: string, code?: string): Promise<LeadSource> {
+  async createLeadSource(name: string, code?: string, requiresDetail: boolean = false): Promise<LeadSource> {
     const trimmed = name.trim();
     if (!trimmed) {
       throw new Error('Tên nguồn lead không được để trống.');
@@ -94,6 +97,8 @@ export class LeadRepository {
           name: trimmed,
           code: generatedCode,
           is_active: true,
+          requires_detail: requiresDetail,
+          sort_order: 99,
         })
         .select()
         .single();
@@ -112,6 +117,8 @@ export class LeadRepository {
       code: generatedCode,
       name: trimmed,
       is_active: true,
+      requires_detail: requiresDetail,
+      sort_order: sources.length + 1,
       created_at: new Date().toISOString(),
     };
     sources.push(newSource);
@@ -380,6 +387,71 @@ export class LeadRepository {
     }
 
     return { isDuplicate: false };
+  }
+
+  // 3.1. KIỂM TRA BẢO HỘ LEAD THEO VAI TRÒ VÀ QUYỀN SỞ HỮU
+  async checkCustomerPhoneProtection(
+    phone: string, 
+    currentUser?: UserProfile,
+    projectId?: string
+  ): Promise<{ 
+    isDuplicate: boolean; 
+    canUse: boolean; 
+    isProtected: boolean; 
+    message?: string; 
+    existingLead?: Lead;
+    existingCustomer?: { id: string; name: string; phone: string; email?: string; idCard?: string; address?: string };
+  }> {
+    const cleanPhone = normalizePhone(phone);
+    if (!cleanPhone || cleanPhone.length < 9) {
+      return { isDuplicate: false, canUse: true, isProtected: false };
+    }
+
+    const dup = await this.checkDuplicatePhone(cleanPhone);
+    if (!dup.isDuplicate || !dup.existingLead) {
+      return { isDuplicate: false, canUse: true, isProtected: false };
+    }
+
+    const lead = dup.existingLead;
+    const isAssignedToCurrentUser = currentUser && lead.assigned_to === currentUser.id;
+    const isPrivilegedRole = currentUser && ['admin', 'director', 'sales_manager'].includes(currentUser.role);
+    const isSameTeam = currentUser && currentUser.role === 'team_leader' && lead.team_id === currentUser.team_id;
+
+    const canUse = Boolean(isAssignedToCurrentUser || isPrivilegedRole || isSameTeam || !lead.assigned_to);
+
+    if (canUse) {
+      return {
+        isDuplicate: true,
+        canUse: true,
+        isProtected: false,
+        existingLead: lead,
+        existingCustomer: {
+          id: lead.customer_id,
+          name: lead.customer_name || 'Khách hàng',
+          phone: lead.customer_phone || cleanPhone,
+          email: lead.customer_email,
+        },
+      };
+    }
+
+    // Nếu không có quyền: Không lộ PII chi tiết, kích hoạt quy tắc bảo hộ Lead
+    return {
+      isDuplicate: true,
+      canUse: false,
+      isProtected: true,
+      message: 'Khách hàng đang được chăm sóc bởi chuyên viên khác. Vui lòng liên hệ Quản lý sàn.',
+      existingLead: {
+        id: lead.id,
+        project_id: lead.project_id,
+        customer_name: maskName(lead.customer_name),
+        customer_phone: maskPhone(lead.customer_phone),
+      } as any,
+      existingCustomer: {
+        id: lead.customer_id,
+        name: maskName(lead.customer_name),
+        phone: maskPhone(lead.customer_phone),
+      },
+    };
   }
 
   // 4. GIẢI MÃ VÀ XEM CCCD (RPC REVEAL_CCCD KÈM AUDIT LOG BẮT BUỘC)

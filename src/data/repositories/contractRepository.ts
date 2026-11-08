@@ -11,16 +11,20 @@ import {
   LeaderboardItem,
   LeadStatus,
   UserRole,
-  UserProfile
+  UserProfile,
+  Lead
 } from '@/domain/types';
-import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES } from '../mockData';
+import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES, INITIAL_LEAD_SOURCES } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { financialCalculationService, TimeRangeFilter } from '@/domain/services/financialCalculationService';
 import { authRepository } from './authRepository';
 import { assertRateLimit } from '@/lib/rateLimiter';
 import { checkOrStartIdempotency, completeIdempotency } from '@/lib/idempotency';
+import { normalizePhone } from '@/lib/utils';
+import { assertNoMockPIIInProduction } from '@/lib/storageGuard';
 
 const STORAGE_KEY_TRANSACTIONS = 'crm_transactions';
+const STORAGE_KEY_LEADS = 'crm_leads';
 
 export interface ContractFilters {
   projectId?: string;
@@ -31,6 +35,44 @@ export interface ContractFilters {
   type?: string;
   status?: string;
   search?: string;
+}
+
+export interface CreateContractWithCustomerPayload {
+  projectId: string;
+  projectName?: string;
+  unitCode: string;
+  propertyType?: string;
+
+  leadId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  identityCard?: string;
+  address?: string;
+  consentObtained?: boolean;
+  purpose?: 'residence' | 'investment' | 'both' | 'undecided';
+  budgetMin?: number;
+  budgetMax?: number;
+
+  sourceId?: string;
+  sourceDetail?: string;
+  assignedTo?: string;
+
+  dealValue: number;
+  contractCode?: string;
+  depositDate?: string;
+  contractDate?: string;
+  firstInstallmentAmount?: number;
+  firstInstallmentDate?: string;
+  firstInstallmentPaid?: boolean;
+  receiptCode?: string;
+  paymentMethod?: string;
+  commissionRate?: number;
+  saleCommissionRate?: number;
+  notes?: string;
+
+  currentUser: UserProfile;
+  requestId?: string;
 }
 
 export class ContractRepository {
@@ -174,6 +216,265 @@ export class ContractRepository {
     }
 
     return list;
+  }
+
+  // 1.1. ATOMIC RPC: TẠO HỢP ĐỒNG KÈM KHÁCH HÀNG MỚI HOẶC CÓ SẴN (CHỐNG ORPHAN DATA)
+  async createContractWithCustomer(payload: CreateContractWithCustomerPayload): Promise<{
+    success: boolean;
+    transaction_id: string;
+    contract_code: string;
+    lead_id: string;
+    customer_id: string;
+    unit_code: string;
+    deal_value: number;
+    commission_amount: number;
+    sale_commission_amount: number;
+    status: string;
+  }> {
+    // CHẶN KHI ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN (CHẾ ĐỘ CHỈ ĐỌC)
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('tạo hợp đồng giao dịch');
+    }
+
+    // CƯỠNG CHẾ RATE LIMIT (20 req / phút)
+    assertRateLimit(payload.currentUser.id || 'anonymous', 'transactions/create_with_customer', 20);
+
+    const requestId = payload.requestId || crypto.randomUUID();
+    const idempotencyCheck = await checkOrStartIdempotency(
+      requestId,
+      'contracts/create_with_customer',
+      { unitCode: payload.unitCode, dealValue: payload.dealValue },
+      payload.currentUser.id
+    );
+    if (idempotencyCheck.isCached) {
+      return idempotencyCheck.response;
+    }
+
+    if (isLiveSupabaseConfigured) {
+      const rpcPayload = {
+        user_id: payload.currentUser.id,
+        project_id: payload.projectId,
+        unit_code: payload.unitCode,
+        property_type: payload.propertyType,
+        lead_id: payload.leadId,
+        customer_name: payload.customerName,
+        customer_phone: payload.customerPhone,
+        customer_email: payload.customerEmail,
+        identity_card: payload.identityCard,
+        address: payload.address,
+        consent_obtained: payload.consentObtained !== false,
+        source_id: payload.sourceId,
+        source_detail: payload.sourceDetail,
+        assigned_to: payload.assignedTo || (payload.currentUser.role === 'sale_agent' ? payload.currentUser.id : undefined),
+        deal_value: payload.dealValue,
+        contract_code: payload.contractCode,
+        deposit_date: payload.depositDate,
+        contract_date: payload.contractDate,
+        first_installment_amount: payload.firstInstallmentAmount,
+        first_installment_date: payload.firstInstallmentDate,
+        first_installment_paid: payload.firstInstallmentPaid,
+        receipt_code: payload.receiptCode,
+        payment_method: payload.paymentMethod || 'bank_transfer',
+        commission_rate: payload.commissionRate,
+        sale_commission_rate: payload.saleCommissionRate,
+        notes: payload.notes,
+        request_id: requestId,
+      };
+
+      const { data, error } = await supabase.rpc('create_contract_with_customer', {
+        p_payload: rpcPayload,
+        p_request_id: requestId,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      await completeIdempotency(requestId, 'contracts/create_with_customer', data);
+      return data;
+    }
+
+    // ==========================================
+    // MOCK SIMULATION ATOMIC LOGIC
+    // ==========================================
+    assertNoMockPIIInProduction('tạo hợp đồng kèm khách hàng');
+    this.ensureInitialized();
+
+    // 1. Kiểm tra phân quyền
+    const role = payload.currentUser.role;
+    if (role === 'marketing_manager') {
+      throw new Error('forbidden: Marketing Manager không có quyền tạo hợp đồng giao dịch.');
+    }
+    if (role === 'sale_agent' && payload.assignedTo && payload.assignedTo !== payload.currentUser.id) {
+      throw new Error('forbidden: Chuyên viên tư vấn chỉ được tạo hợp đồng cho chính mình.');
+    }
+
+    // 2. Kiểm tra căn hộ chống trùng
+    const txs: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+    const conflict = txs.some(t => 
+      t.project_id === payload.projectId && 
+      t.unit_code?.toLowerCase().trim() === payload.unitCode.toLowerCase().trim() &&
+      ['confirmed', 'pending'].includes(t.status) &&
+      ['contract', 'deposit', 'booking'].includes(t.type)
+    );
+    if (conflict) {
+      throw new Error(`duplicate_unit: Căn "${payload.unitCode}" đã có hợp đồng/giao dịch hiệu lực trong dự án!`);
+    }
+
+    // 3. Tính toán hoa hồng và đợt 1 tại server
+    const dealVal = Number(payload.dealValue || 0);
+    if (dealVal <= 0) {
+      throw new Error('invalid_deal_value: Giá trị giao dịch phải lớn hơn 0.');
+    }
+
+    const commRate = Number(payload.commissionRate ?? 3.5);
+    const saleRate = Number(payload.saleCommissionRate ?? 1.5);
+    if (saleRate > commRate) {
+      throw new Error('invalid_commission_rate: Tỷ lệ hoa hồng cho Sale (%) không được vượt quá % hoa hồng của Sàn (%).');
+    }
+
+    const commAmount = Math.round(dealVal * (commRate / 100));
+    const saleCommAmount = Math.round(dealVal * (saleRate / 100));
+    const firstInstallment = payload.firstInstallmentAmount ?? Math.round(dealVal * 0.1);
+    if (firstInstallment > dealVal) {
+      throw new Error('invalid_installment_amount: Số tiền đợt 1 không được lớn hơn tổng giá trị giao dịch.');
+    }
+
+    // 4. Xử lý Khách hàng & Lead
+    const leads: Lead[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEADS) || '[]');
+    let targetLead: Lead | undefined;
+    let customerId = '';
+    let customerName = '';
+    let customerPhone = '';
+
+    if (payload.leadId) {
+      targetLead = leads.find(l => l.id === payload.leadId);
+      if (!targetLead) throw new Error('lead_not_found: Lead chỉ định không tồn tại.');
+      customerId = targetLead.customer_id;
+      customerName = targetLead.customer_name || '';
+      customerPhone = targetLead.customer_phone || '';
+    } else {
+      customerName = (payload.customerName || '').trim();
+      if (!customerName) throw new Error('invalid_customer_name: Họ tên khách hàng không được để trống.');
+
+      const cleanPhone = normalizePhone(payload.customerPhone || '');
+      if (cleanPhone.length < 9) throw new Error('invalid_phone: Số điện thoại không hợp lệ.');
+      customerPhone = payload.customerPhone || cleanPhone;
+
+      // Tìm lead trùng SĐT trong dự án
+      const existingLeadWithPhone = leads.find(l => 
+        normalizePhone(l.customer_phone || '') === cleanPhone
+      );
+
+      if (existingLeadWithPhone) {
+        customerId = existingLeadWithPhone.customer_id;
+        // Kiểm tra xem khách đã có lead trong dự án này chưa
+        const leadInSameProj = leads.find(l => l.customer_id === customerId && l.project_id === payload.projectId);
+        if (leadInSameProj) {
+          targetLead = leadInSameProj;
+          // First-touch attribution: chỉ gán nguồn nếu chưa có
+          if (!targetLead.source_id && payload.sourceId) {
+            targetLead.source_id = payload.sourceId;
+            targetLead.source_detail = payload.sourceDetail;
+          }
+        }
+      }
+
+      if (!customerId) {
+        customerId = crypto.randomUUID();
+      }
+
+      if (!targetLead) {
+        // Tạo lead mới
+        const sources = INITIAL_LEAD_SOURCES;
+        const matchedSource = sources.find(s => s.id === payload.sourceId || s.code === payload.sourceId);
+        const resolvedSourceName = matchedSource?.name || 'Hotline';
+
+        targetLead = {
+          id: crypto.randomUUID(),
+          customer_id: customerId,
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          customer_email: payload.customerEmail,
+          project_id: payload.projectId,
+          project_name: payload.projectName || 'Dự án',
+          assigned_to: payload.assignedTo || payload.currentUser.id,
+          assigned_name: payload.currentUser.full_name,
+          source_id: payload.sourceId || 'src-hotline',
+          source_name: resolvedSourceName,
+          source_detail: payload.sourceDetail,
+          created_via: 'contract_form',
+          status: 'contract',
+          lead_score: 100,
+          budget_min: Math.round(dealVal * 0.9),
+          budget_max: Math.round(dealVal * 1.1),
+          purpose: payload.purpose || 'investment',
+          notes: payload.notes || `Ký HĐMB căn ${payload.unitCode}`,
+          created_at: new Date().toISOString(),
+          last_care_updated_at: new Date().toISOString(),
+        };
+        leads.unshift(targetLead);
+      } else {
+        targetLead.status = 'contract';
+        targetLead.last_care_updated_at = new Date().toISOString();
+      }
+    }
+
+    targetLead.status = 'contract';
+    targetLead.care_deadline_at = undefined; // Dừng SLA clock
+    localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
+
+    // 5. Tạo Hợp đồng giao dịch
+    const newTxId = crypto.randomUUID();
+    const contractCode = payload.contractCode || `HĐMB-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
+
+    const newTx: Transaction = {
+      id: newTxId,
+      lead_id: targetLead.id,
+      project_id: payload.projectId,
+      project_name: payload.projectName || targetLead.project_name,
+      customer_name: customerName || targetLead.customer_name,
+      customer_phone: customerPhone || targetLead.customer_phone,
+      type: 'contract',
+      code: payload.receiptCode || `HD-${Date.now().toString().slice(-6)}`,
+      amount: dealVal,
+      deal_value: dealVal,
+      transaction_date: payload.contractDate || new Date().toISOString(),
+      unit_code: payload.unitCode,
+      contract_code: contractCode,
+      commission_amount: commAmount,
+      sale_commission_rate: saleRate,
+      sale_commission_amount: saleCommAmount,
+      deposit_date: payload.depositDate || new Date().toISOString(),
+      contract_date: payload.contractDate || new Date().toISOString(),
+      first_installment_amount: firstInstallment,
+      first_installment_date: payload.firstInstallmentDate || new Date(Date.now() + 14 * 86400000).toISOString(),
+      first_installment_paid: Boolean(payload.firstInstallmentPaid),
+      payment_method: (payload.paymentMethod as any) || 'bank_transfer',
+      status: 'pending', // Chờ duyệt theo Maker-Checker
+      notes: payload.notes || `Hợp đồng dự án ${payload.projectName || ''} - Căn ${payload.unitCode}`,
+      created_by: payload.currentUser.id,
+      created_at: new Date().toISOString(),
+    };
+
+    txs.unshift(newTx);
+    localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(txs));
+
+    const result = {
+      success: true,
+      transaction_id: newTxId,
+      contract_code: contractCode,
+      lead_id: targetLead.id,
+      customer_id: customerId,
+      unit_code: payload.unitCode,
+      deal_value: dealVal,
+      commission_amount: commAmount,
+      sale_commission_amount: saleCommAmount,
+      status: 'pending',
+    };
+
+    await completeIdempotency(requestId, 'contracts/create_with_customer', result);
+    return result;
   }
 
   // 2. TẠO HỢP ĐỒNG GIAO DỊCH MỚI

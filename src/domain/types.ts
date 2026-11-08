@@ -216,6 +216,8 @@ export interface LeadSource {
   code: string;
   name: string;
   is_active: boolean;
+  sort_order?: number;
+  requires_detail?: boolean;
   created_at?: string;
 }
 
@@ -228,6 +230,8 @@ export interface Lead {
   team_id?: string;
   assigned_to?: string;
   source_id?: string;
+  source_detail?: string;
+  created_via?: 'manual' | 'contract_form' | 'facebook' | 'landing_page' | 'api' | string;
   campaign_id?: string;
   status: LeadStatus;
   lead_score: number;

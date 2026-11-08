@@ -22,15 +22,25 @@ import {
 } from '../domain/types';
 
 export const INITIAL_LEAD_SOURCES: LeadSource[] = [
-  { id: 'src-hotline', code: 'hotline', name: 'Hotline', is_active: true },
-  { id: 'src-facebook', code: 'facebook', name: 'Facebook', is_active: true },
-  { id: 'src-truc-nha-mau', code: 'truc_nha_mau', name: 'Trực nhà mẫu', is_active: true },
-  { id: 'src-to-roi', code: 'to_roi', name: 'Tờ rơi', is_active: true },
-  { id: 'src-email', code: 'email', name: 'Email', is_active: true },
-  { id: 'src-zalo', code: 'zalo', name: 'Zalo', is_active: true },
-  { id: 'src-tiktok', code: 'tiktok', name: 'TikTok', is_active: true },
-  { id: 'src-truc-quan-cafe', code: 'truc_quan_cafe', name: 'Trực quán cafe', is_active: true },
-  { id: 'src-nguon-cua-sale', code: 'nguon_cua_sale', name: 'Nguồn của sale', is_active: true },
+  { id: 'src-facebook-ads', code: 'facebook_ads', name: 'Facebook Ads', is_active: true, sort_order: 1, requires_detail: false },
+  { id: 'src-tiktok-ads', code: 'tiktok_ads', name: 'TikTok Ads', is_active: true, sort_order: 2, requires_detail: false },
+  { id: 'src-google-ads', code: 'google_ads', name: 'Google Ads', is_active: true, sort_order: 3, requires_detail: false },
+  { id: 'src-zalo', code: 'zalo', name: 'Zalo', is_active: true, sort_order: 4, requires_detail: false },
+  { id: 'src-website-landing', code: 'website_landing', name: 'Website / Landing page', is_active: true, sort_order: 5, requires_detail: false },
+  { id: 'src-gioi-thieu', code: 'gioi_thieu', name: 'Giới thiệu', is_active: true, sort_order: 6, requires_detail: true },
+  { id: 'src-su-kien-roadshow', code: 'su_kien_roadshow', name: 'Sự kiện / Roadshow', is_active: true, sort_order: 7, requires_detail: false },
+  { id: 'src-khach-cu-data-cu', code: 'khach_cu_data_cu', name: 'Khách cũ / Data cũ', is_active: true, sort_order: 8, requires_detail: false },
+  { id: 'src-hotline', code: 'hotline', name: 'Hotline', is_active: true, sort_order: 9, requires_detail: false },
+  { id: 'src-walk-in', code: 'walk_in', name: 'Khách tại sàn (walk-in)', is_active: true, sort_order: 10, requires_detail: false },
+  { id: 'src-khac', code: 'khac', name: 'Khác', is_active: true, sort_order: 11, requires_detail: true },
+  // Nguồn tương thích ngược
+  { id: 'src-facebook', code: 'facebook', name: 'Facebook', is_active: true, sort_order: 12, requires_detail: false },
+  { id: 'src-truc-nha-mau', code: 'truc_nha_mau', name: 'Trực nhà mẫu', is_active: true, sort_order: 13, requires_detail: false },
+  { id: 'src-to-roi', code: 'to_roi', name: 'Tờ rơi', is_active: true, sort_order: 14, requires_detail: false },
+  { id: 'src-email', code: 'email', name: 'Email', is_active: true, sort_order: 15, requires_detail: false },
+  { id: 'src-tiktok', code: 'tiktok', name: 'TikTok', is_active: true, sort_order: 16, requires_detail: false },
+  { id: 'src-truc-quan-cafe', code: 'truc_quan_cafe', name: 'Trực quán cafe', is_active: true, sort_order: 17, requires_detail: false },
+  { id: 'src-nguon-cua-sale', code: 'nguon_cua_sale', name: 'Nguồn của sale', is_active: true, sort_order: 18, requires_detail: false },
 ];
 
 export const INITIAL_ORGS: Organization[] = [
