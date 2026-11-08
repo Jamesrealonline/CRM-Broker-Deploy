@@ -19,6 +19,7 @@ import { notificationService } from './notificationService';
 const STORAGE_KEY_CONFIG = 'crm_lead_auto_transfer_config';
 const STORAGE_KEY_LEADS = 'crm_leads';
 const STORAGE_KEY_HISTORY = 'crm_lead_assignment_history';
+const STORAGE_KEY_OUTBOX = 'crm_outbox';
 
 export const DEFAULT_AUTO_TRANSFER_CONFIG: AutoTransferConfig = {
   enabled: true,
@@ -43,6 +44,59 @@ export const DEFAULT_AUTO_TRANSFER_CONFIG: AutoTransferConfig = {
 };
 
 export class AutoTransferService {
+  // Concurrency lock simulation (mô phỏng SELECT FOR UPDATE SKIP LOCKED phía DB)
+  private static lockedLeadIds: Set<string> = new Set();
+
+  /**
+   * Lấy danh sách thông báo outbox (Transactional Outbox)
+   */
+  async getOutboxMessages(): Promise<any[]> {
+    if (isLiveSupabaseConfigured) {
+      const { data } = await supabase.from('outbox').select('*').order('created_at', { ascending: false });
+      return data || [];
+    }
+    return JSON.parse(localStorage.getItem(STORAGE_KEY_OUTBOX) || '[]');
+  }
+
+  /**
+   * Lưu tin nhắn outbox trong cùng transaction điều chuyển
+   */
+  async saveOutboxMessage(message: {
+    eventType: string;
+    leadId?: string;
+    recipientId?: string;
+    recipientEmail?: string;
+    recipientName?: string;
+    payload: any;
+  }): Promise<void> {
+    if (isLiveSupabaseConfigured) {
+      await supabase.from('outbox').insert({
+        event_type: message.eventType,
+        lead_id: message.leadId,
+        recipient_id: message.recipientId,
+        recipient_email: message.recipientEmail,
+        recipient_name: message.recipientName,
+        payload: message.payload,
+        status: 'pending',
+      });
+      return;
+    }
+
+    const all = JSON.parse(localStorage.getItem(STORAGE_KEY_OUTBOX) || '[]');
+    all.unshift({
+      id: crypto.randomUUID(),
+      event_type: message.eventType,
+      lead_id: message.leadId,
+      recipient_id: message.recipientId,
+      recipient_email: message.recipientEmail,
+      recipient_name: message.recipientName,
+      payload: message.payload,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem(STORAGE_KEY_OUTBOX, JSON.stringify(all));
+  }
+
   /**
    * 1. LẤY CẤU HÌNH AUTO-TRANSFER
    */
@@ -325,6 +379,18 @@ export class AutoTransferService {
           transfer_count: String(transferCount - 1),
         },
       });
+
+      await this.saveOutboxMessage({
+        eventType: 'pool_alert',
+        leadId: lead.id,
+        recipientEmail: 'manager@crm-broker.vn',
+        recipientName: 'Trưởng Phòng Kinh Doanh',
+        payload: {
+          ten_khach_hang: lead.customer_name,
+          du_an: lead.project_name,
+          transfer_count: transferCount,
+        },
+      });
     } else {
       // CHUYỂN CHO SALE TIẾP THEO
       const newDeadline = this.computeCareDeadline(new Date().toISOString(), config.deadline_hours);
@@ -370,6 +436,21 @@ export class AutoTransferService {
             lead_id: lead.id,
           },
         });
+
+        await this.saveOutboxMessage({
+          eventType: reason === 'auto_overdue' ? 'auto_transferred_new' : 'lead_transferred',
+          leadId: lead.id,
+          recipientId: nextSale.id,
+          recipientEmail: nextSale.email,
+          recipientName: nextSale.full_name,
+          payload: {
+            ten_sale: nextSale.full_name,
+            ten_khach_hang: lead.customer_name,
+            so_dien_thoai: lead.customer_phone,
+            du_an: lead.project_name,
+            han_cham_soc: newDeadline,
+          },
+        });
       }
 
       // 2. Gửi thông báo cho Sale cũ (bị thu hồi)
@@ -389,6 +470,18 @@ export class AutoTransferService {
               du_an: lead.project_name || '',
               thoi_gian: new Date().toLocaleString('vi-VN'),
               lead_id: lead.id,
+            },
+          });
+
+          await this.saveOutboxMessage({
+            eventType: reason === 'auto_overdue' ? 'auto_transferred_old' : 'lead_revoked',
+            leadId: lead.id,
+            recipientId: oldSale.id,
+            recipientEmail: oldSale.email,
+            recipientName: oldSale.full_name,
+            payload: {
+              ten_khach_hang: lead.customer_name,
+              du_an: lead.project_name,
             },
           });
         }
@@ -430,6 +523,29 @@ export class AutoTransferService {
     allSales: UserProfile[];
     performedBy?: string;
   }): Promise<AutoTransferScanResult> {
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.rpc('scan_and_transfer_overdue_leads', {
+        p_is_dry_run: options.isDryRun ?? false,
+      });
+      if (error) throw new Error(error.message);
+      return {
+        scannedCount: data.scanned_count || 0,
+        transferredCount: data.transferred_count || 0,
+        warnedCount: data.warned_count || 0,
+        poolReclaimedCount: data.pool_reclaimed_count || 0,
+        exemptSkippedCount: 0,
+        stopClockSkippedCount: 0,
+        details: (data.details || []).map((d: any) => ({
+          leadId: d.lead_id,
+          customerName: d.customer_name,
+          action: d.action,
+          fromSale: d.from_sale,
+          toSale: d.to_sale,
+          reason: d.reason,
+        })),
+      };
+    }
+
     const config = await this.getConfig();
     if (!config.enabled && !options.isDryRun) {
       return {
@@ -453,97 +569,107 @@ export class AutoTransferService {
     const leadsWithAssignee = options.allLeads.filter(l => l.assigned_to && l.assigned_name !== 'Kho lead chung');
 
     for (const lead of leadsWithAssignee) {
-      const remaining = this.getCareRemainingHours(lead, config);
-
-      if (remaining.isPaused) {
-        if (lead.is_exempt_auto_transfer) {
-          exemptSkippedCount++;
-          details.push({
-            leadId: lead.id,
-            customerName: lead.customer_name || 'Khách hàng',
-            action: 'exempt_skipped',
-            reason: remaining.pauseReason,
-          });
-        } else {
-          stopClockSkippedCount++;
-          details.push({
-            leadId: lead.id,
-            customerName: lead.customer_name || 'Khách hàng',
-            action: 'stop_clock_skipped',
-            reason: remaining.pauseReason,
-          });
-        }
-        continue;
+      // Mô phỏng cơ chế DB: SELECT ... FOR UPDATE SKIP LOCKED
+      if (AutoTransferService.lockedLeadIds.has(lead.id)) {
+        continue; // Bỏ qua nếu lead đang bị worker khác khóa
       }
+      AutoTransferService.lockedLeadIds.add(lead.id);
 
-      // TH1: QUÁ HẠN 24H -> TỰ ĐỘNG CHUYỂN
-      if (remaining.isOverdue) {
-        const nextSale = this.selectNextSale(lead, options.allSales, config);
+      try {
+        const remaining = this.getCareRemainingHours(lead, config);
 
-        if (!options.isDryRun) {
-          const res = await this.transferLead(
-            lead,
-            nextSale,
-            'auto_overdue',
-            options.performedBy || 'Cron Job Quét Quá Hạn',
-            'Tự động chuyển do quá 24 giờ liên tục không có cập nhật chăm sóc',
-            options.allSales
-          );
-          if (res.isPool) {
-            poolReclaimedCount++;
-          } else {
-            transferredCount++;
-          }
-        } else {
-          if (!nextSale || (lead.auto_transfer_count || 0) >= config.max_transfer_count) {
-            poolReclaimedCount++;
-          } else {
-            transferredCount++;
-          }
-        }
-
-        details.push({
-          leadId: lead.id,
-          customerName: lead.customer_name || 'Khách hàng',
-          action: (!nextSale || (lead.auto_transfer_count || 0) >= config.max_transfer_count) ? 'pool_reclaimed' : 'transferred',
-          fromSale: lead.assigned_name,
-          toSale: nextSale ? nextSale.full_name : 'Kho lead chung',
-          remainingHours: remaining.hoursRemaining,
-          reason: `Quá hạn ${Math.abs(remaining.hoursRemaining)} giờ liên tục`,
-        });
-      }
-      // TH2: SẮP HẾT HẠN (MỐC 20H - CÒN DƯỚI 4H) -> GỬI CẢNH BÁO
-      else if (remaining.isWarning) {
-        warnedCount++;
-        details.push({
-          leadId: lead.id,
-          customerName: lead.customer_name || 'Khách hàng',
-          action: 'warned',
-          fromSale: lead.assigned_name,
-          remainingHours: remaining.hoursRemaining,
-          reason: `Sắp hết hạn: Còn ${remaining.hoursRemaining} giờ`,
-        });
-
-        if (!options.isDryRun && lead.assigned_to) {
-          const currentSale = options.allSales.find(s => s.id === lead.assigned_to);
-          if (currentSale && currentSale.email) {
-            await notificationService.sendNotification({
+        if (remaining.isPaused) {
+          if (lead.is_exempt_auto_transfer) {
+            exemptSkippedCount++;
+            details.push({
               leadId: lead.id,
-              recipientId: currentSale.id,
-              recipientEmail: currentSale.email,
-              recipientName: currentSale.full_name,
-              eventType: 'overdue_warning',
-              channel: 'both',
-              variables: {
-                ten_sale: currentSale.full_name,
-                ten_khach_hang: lead.customer_name || 'Khách hàng',
-                du_an: lead.project_name || '',
-                han_cham_soc: new Date(lead.care_deadline_at || '').toLocaleString('vi-VN'),
-                lead_id: lead.id,
-              },
+              customerName: lead.customer_name || 'Khách hàng',
+              action: 'exempt_skipped',
+              reason: remaining.pauseReason,
+            });
+          } else {
+            stopClockSkippedCount++;
+            details.push({
+              leadId: lead.id,
+              customerName: lead.customer_name || 'Khách hàng',
+              action: 'stop_clock_skipped',
+              reason: remaining.pauseReason,
             });
           }
+          continue;
         }
+
+        // TH1: QUÁ HẠN 24H -> TỰ ĐỘNG CHUYỂN
+        if (remaining.isOverdue) {
+          const nextSale = this.selectNextSale(lead, options.allSales, config);
+
+          if (!options.isDryRun) {
+            const res = await this.transferLead(
+              lead,
+              nextSale,
+              'auto_overdue',
+              options.performedBy || 'Cron Job Quét Quá Hạn',
+              'Tự động chuyển do quá 24 giờ liên tục không có cập nhật chăm sóc',
+              options.allSales
+            );
+            if (res.isPool) {
+              poolReclaimedCount++;
+            } else {
+              transferredCount++;
+            }
+          } else {
+            if (!nextSale || (lead.auto_transfer_count || 0) >= config.max_transfer_count) {
+              poolReclaimedCount++;
+            } else {
+              transferredCount++;
+            }
+          }
+
+          details.push({
+            leadId: lead.id,
+            customerName: lead.customer_name || 'Khách hàng',
+            action: (!nextSale || (lead.auto_transfer_count || 0) >= config.max_transfer_count) ? 'pool_reclaimed' : 'transferred',
+            fromSale: lead.assigned_name,
+            toSale: nextSale ? nextSale.full_name : 'Kho lead chung',
+            remainingHours: remaining.hoursRemaining,
+            reason: `Quá hạn ${Math.abs(remaining.hoursRemaining)} giờ liên tục`,
+          });
+        }
+        // TH2: SẮP HẾT HẠN (MỐC 20H - CÒN DƯỚI 4H) -> GỬI CẢNH BÁO
+        else if (remaining.isWarning) {
+          warnedCount++;
+          details.push({
+            leadId: lead.id,
+            customerName: lead.customer_name || 'Khách hàng',
+            action: 'warned',
+            fromSale: lead.assigned_name,
+            remainingHours: remaining.hoursRemaining,
+            reason: `Sắp hết hạn: Còn ${remaining.hoursRemaining} giờ`,
+          });
+
+          if (!options.isDryRun && lead.assigned_to) {
+            const currentSale = options.allSales.find(s => s.id === lead.assigned_to);
+            if (currentSale && currentSale.email) {
+              await notificationService.sendNotification({
+                leadId: lead.id,
+                recipientId: currentSale.id,
+                recipientEmail: currentSale.email,
+                recipientName: currentSale.full_name,
+                eventType: 'overdue_warning',
+                channel: 'both',
+                variables: {
+                  ten_sale: currentSale.full_name,
+                  ten_khach_hang: lead.customer_name || 'Khách hàng',
+                  du_an: lead.project_name || '',
+                  han_cham_soc: new Date(lead.care_deadline_at || '').toLocaleString('vi-VN'),
+                  lead_id: lead.id,
+                },
+              });
+            }
+          }
+        }
+      } finally {
+        AutoTransferService.lockedLeadIds.delete(lead.id);
       }
     }
 
