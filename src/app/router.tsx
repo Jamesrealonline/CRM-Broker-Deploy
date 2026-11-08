@@ -74,7 +74,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'distribution',
-        element: <DistributionPage />,
+        element: <Navigate to="/leads?tab=distribution" replace />,
       },
       {
         path: 'projects',

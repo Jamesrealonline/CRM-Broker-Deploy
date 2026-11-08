@@ -497,6 +497,46 @@ ${leadListPlain}
   }
 
   /**
+   * 4.5 XÂY DỰNG CHÂN DUNG KHÁCH HÀNG & GỢI Ý KỊCH BẢN AI
+   */
+  buildLeadPersonaAndScript(lead: Partial<Lead>): {
+    mucDich: string;
+    nganSach: string;
+    loaiBds: string;
+    ghiChu: string;
+    buocKichBan: string;
+    aiScript: string;
+  } {
+    const isInvest = lead.purpose === 'investment';
+    const mucDich = isInvest 
+      ? 'Đầu tư sinh lời (ưu tiên dòng tiền cho thuê & tiềm năng tăng giá)' 
+      : (lead.purpose === 'residence' ? 'Mua để ở / an cư (ưu tiên tiện ích, trường học & môi trường sống gia đình)' : 'Đầu tư kết hợp an cư');
+
+    const nganSach = (lead.budget_min && lead.budget_max)
+      ? `${((lead.budget_min || 0) / 1e9).toFixed(1)} - ${((lead.budget_max || 0) / 1e9).toFixed(1)} tỷ`
+      : (lead.budget_min ? `Từ ${((lead.budget_min || 0) / 1e9).toFixed(1)} tỷ` : 'Khoảng 3.5 - 6.0 tỷ (theo phân khúc dự án)');
+
+    const loaiBds = lead.preferred_property_type || 'Căn hộ cao cấp 2PN / Nhà phố liền kề';
+    const ghiChu = lead.notes || 'Khách quan tâm phân khu mới, cần tư vấn bảng giá và tiến độ thanh toán chi tiết.';
+
+    let buocKichBan = 'Bước 1: Tiếp cận ban đầu & Khai thác nhu cầu cốt lõi';
+    let aiScript = `Dạ em chào Anh/Chị ${lead.customer_name || (lead as any).customer?.full_name || 'Quý khách'}! Em là chuyên viên phụ trách dự án ${lead.project_name || (lead as any).project?.name || 'bất động sản'}. Em được biết Anh/Chị đang tìm hiểu sản phẩm phù hợp nhu cầu ${isInvest ? 'đầu tư sinh lời' : 'an cư'} với tầm tài chính ${nganSach}. Em vừa lọc được giỏ hàng 2 căn đẹp nhất đợt này có chiết khấu tốt, em xin phép gửi thông tin chi tiết qua Zalo để Anh/Chị tham khảo nhé ạ!`;
+
+    if (lead.status === 'contacted' || lead.status === 'qualifying' || lead.status === 'doc_sent') {
+      buocKichBan = 'Bước 2: Phân tích giỏ hàng & Tư vấn chính sách tài chính';
+      aiScript = `Dạ Anh/Chị ${lead.customer_name || (lead as any).customer?.full_name || 'Quý khách'}, tiếp nối trao đổi lần trước, bên em đang có gói hỗ trợ ân hạn gốc lãi rất tối ưu cho bài toán ${isInvest ? 'dòng tiền đầu tư' : 'nhận nhà sớm'}. Em đã chuẩn bị sẵn bảng tính dòng tiền chi tiết cho căn phù hợp ngân sách ${nganSach} để gửi Anh/Chị nhé ạ!`;
+    } else if (lead.status === 'appointment_set' || lead.status === 'consulted' || lead.status === 'site_visit') {
+      buocKichBan = 'Bước 3: Thiết lập cuộc hẹn xem Sa bàn & Căn hộ mẫu thực tế';
+      aiScript = `Dạ Anh/Chị ${lead.customer_name || (lead as any).customer?.full_name || 'Quý khách'}, dự án ${lead.project_name || (lead as any).project?.name || ''} tuần này đang mở cửa đón khách VIP tham quan nhà mẫu hoàn thiện. Em đã đăng ký sẵn cho gia đình 1 suất VIP có xe đón tận nơi vào Thứ 7 này, em xin phép đón Anh/Chị ghé trải nghiệm thực tế nhé ạ?`;
+    } else if (lead.status === 'considering' || lead.status === 'booking' || lead.status === 'deposit' || lead.status === 'contract') {
+      buocKichBan = 'Bước 4: Xử lý từ chối & Đàm phán chốt cọc / Ký HĐMB';
+      aiScript = `Dạ Anh/Chị ${lead.customer_name || (lead as any).customer?.full_name || 'Quý khách'}, căn Anh/Chị đang quan tâm hiện đang có mức ưu đãi tốt nhất đợt này. Nếu Anh/Chị quyết định trong tuần này, em sẽ xin Giám đốc sàn suất quà tặng gói nội thất đặc biệt để tối ưu tài chính cho gia đình mình nhé ạ!`;
+    }
+
+    return { mucDich, nganSach, loaiBds, ghiChu, buocKichBan, aiScript };
+  }
+
+  /**
    * 5. GỬI EMAIL GỘP HÀNG LOẠT (BULK ASSIGN DIGEST)
    * Thay vì gửi 10 email cho 1 sale khi giao 10 lead, chỉ gửi duy nhất 1 email tổng hợp!
    */
@@ -507,15 +547,22 @@ ${leadListPlain}
   ): Promise<{ success: boolean; error?: string }> {
     if (leads.length === 0) return { success: true };
 
-    // Tạo bảng HTML danh sách các lead được giao
-    const rows = leads.map((l, idx) => `
-      <tr style="border-bottom: 1px solid #e2e8f0; background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
-        <td style="padding: 10px 12px; font-weight: bold; color: #0f172a;">${idx + 1}. ${l.customer_name}</td>
-        <td style="padding: 10px 12px; color: #2563eb; font-weight: bold;">${l.customer_phone}</td>
-        <td style="padding: 10px 12px; color: #334155;">${l.project_name || 'Dự án'}</td>
-        <td style="padding: 10px 12px; color: #64748b; font-size: 11px;">${l.notes || '---'}</td>
-      </tr>
-    `).join('');
+    // Tạo bảng HTML danh sách các lead được giao - đảm bảo không bị undefined
+    const rows = leads.map((l, idx) => {
+      const customerName = l.customer_name || (l as any).full_name || (l as any).customer?.full_name || 'Khách hàng';
+      const customerPhone = l.customer_phone || (l as any).phone || (l as any).customer?.phone || '---';
+      const projectName = l.project_name || (l as any).project?.name || 'Dự án';
+      const notes = l.notes || '---';
+
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0; background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+          <td style="padding: 10px 12px; font-weight: bold; color: #0f172a;">${idx + 1}. ${customerName}</td>
+          <td style="padding: 10px 12px; color: #2563eb; font-weight: bold;">${customerPhone}</td>
+          <td style="padding: 10px 12px; color: #334155;">${projectName}</td>
+          <td style="padding: 10px 12px; color: #64748b; font-size: 11px;">${notes}</td>
+        </tr>
+      `;
+    }).join('');
 
     const leadTableHtml = `
       <table style="width: 100%; border-collapse: collapse; font-size: 12px;">

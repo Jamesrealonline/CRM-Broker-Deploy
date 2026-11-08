@@ -691,17 +691,17 @@ export class LeadRepository {
 
     if (isLiveSupabaseConfigured) {
       for (const id of leadIds) {
-        const { data: leadData } = await supabase.from('leads').select('*').eq('id', id).single();
-        if (leadData) {
-          const prevSales: string[] = Array.isArray(leadData.previous_assigned_sales) ? [...leadData.previous_assigned_sales] : [];
-          if (leadData.assigned_to && !prevSales.includes(leadData.assigned_to)) {
-            prevSales.push(leadData.assigned_to);
+        const leadObj = await this.getLeadById(id);
+        if (leadObj) {
+          const prevSales: string[] = Array.isArray(leadObj.previous_assigned_sales) ? [...leadObj.previous_assigned_sales] : [];
+          if (leadObj.assigned_to && !prevSales.includes(leadObj.assigned_to)) {
+            prevSales.push(leadObj.assigned_to);
           }
 
           await supabase.from('leads').update({
             assigned_to: targetSale.id,
-            team_id: targetSale.team_id || leadData.team_id,
-            agency_id: targetSale.agency_id || leadData.agency_id,
+            team_id: targetSale.team_id || leadObj.team_id,
+            agency_id: targetSale.agency_id || leadObj.agency_id,
             care_deadline_at: newDeadline,
             last_care_updated_at: nowIso,
             previous_assigned_sales: prevSales,
@@ -710,20 +710,20 @@ export class LeadRepository {
 
           await supabase.from('lead_assignment_history').insert({
             lead_id: id,
-            from_sale_id: leadData.assigned_to,
+            from_sale_id: leadObj.assigned_to,
             to_sale_id: targetSale.id,
             reason: 'bulk_assign',
-            transfer_count: leadData.auto_transfer_count || 0,
+            transfer_count: leadObj.auto_transfer_count || 0,
             notes: reason,
             created_by: currentUser.full_name,
           });
 
           affectedLeads.push({
-            ...leadData,
+            ...leadObj,
             assigned_to: targetSale.id,
             assigned_name: targetSale.full_name,
             care_deadline_at: newDeadline,
-          } as Lead);
+          });
         }
       }
     } else {
@@ -772,13 +772,44 @@ export class LeadRepository {
       localStorage.setItem(STORAGE_KEY_ASSIGNMENT_HISTORY, JSON.stringify(history));
     }
 
-    // Gửi email gộp 1 lần (Digest) cho Sale nhận
+    // Gửi email thông báo tự động cho Sale nhận
     if (targetSale.email && affectedLeads.length > 0) {
-      notificationService.sendBulkAssignDigest(
-        targetSale,
-        affectedLeads,
-        currentUser.full_name
-      ).catch(err => console.error('Error sending bulk assign digest:', err));
+      if (affectedLeads.length === 1) {
+        // Phân bổ đúng 1 Lead: Gửi email chi tiết Chân dung khách hàng + Bước kịch bản + Gợi ý AI tư vấn
+        const singleLead = affectedLeads[0];
+        const persona = notificationService.buildLeadPersonaAndScript(singleLead);
+
+        notificationService.sendNotification({
+          leadId: singleLead.id,
+          recipientId: targetSale.id,
+          recipientEmail: targetSale.email,
+          recipientName: targetSale.full_name,
+          eventType: 'lead_transferred',
+          channel: 'both',
+          variables: {
+            ten_sale: targetSale.full_name,
+            ten_khach_hang: singleLead.customer_name || 'Khách hàng',
+            so_dien_thoai: singleLead.customer_phone || '',
+            du_an: singleLead.project_name || 'Dự án',
+            muc_dich: persona.mucDich,
+            ngan_sach: persona.nganSach,
+            loai_bds: persona.loaiBds,
+            ghi_chu: persona.ghiChu,
+            buoc_kich_ban: persona.buocKichBan,
+            ai_script: persona.aiScript,
+            thoi_gian: new Date().toLocaleString('vi-VN'),
+            han_cham_soc: new Date(newDeadline).toLocaleString('vi-VN'),
+            lead_id: singleLead.id,
+          },
+        }).catch(err => console.error('Error sending single lead assign notification:', err));
+      } else {
+        // Phân bổ từ 2 Lead trở lên: Gộp thành 1 email Digest tổng hợp bảng danh sách
+        notificationService.sendBulkAssignDigest(
+          targetSale,
+          affectedLeads,
+          currentUser.full_name
+        ).catch(err => console.error('Error sending bulk assign digest:', err));
+      }
     }
 
     return { success: true, updatedCount: affectedLeads.length };

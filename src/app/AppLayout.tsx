@@ -62,11 +62,10 @@ export const AppLayout: React.FC = () => {
 
   const navItems = [
     { to: '/dashboard', label: 'Tổng quan KPI', icon: LayoutDashboard },
-    { to: '/leads', label: 'Quản lý Lead', icon: Users },
+    { to: '/leads', label: 'Quản lý & Phân bổ Lead', icon: Users },
     { to: '/journey', label: 'Customer Journey', icon: GitCommit },
     { to: '/transactions', label: 'Giao dịch & Hợp đồng', icon: FileCheck },
     { to: '/leaderboard', label: 'Bảng Thi Đua & Hiệu Suất', icon: Trophy },
-    { to: '/distribution', label: 'Phân bổ Lead', icon: Share2 },
     { to: '/projects', label: 'Dự án & Tri thức AI', icon: Building2 },
     { to: '/scripts', label: 'Sales Scripts', icon: FileText },
     { to: '/notifications', label: 'Thông báo Follow-up', icon: Bell },

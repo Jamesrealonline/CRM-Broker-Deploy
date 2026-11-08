@@ -345,31 +345,7 @@ export class AutoTransferService {
 
       // 1. Gửi email cho Sale mới (nhận lead)
       if (nextSale.email) {
-        const isInvest = lead.purpose === 'investment';
-        const mucDich = isInvest 
-          ? 'Đầu tư sinh lời (ưu tiên dòng tiền cho thuê & tiềm năng tăng giá)' 
-          : (lead.purpose === 'residence' ? 'Mua để ở / an cư (ưu tiên tiện ích, trường học & môi trường sống gia đình)' : 'Đầu tư kết hợp an cư');
-
-        const nganSach = (lead.budget_min && lead.budget_max)
-          ? `${((lead.budget_min || 0) / 1e9).toFixed(1)} - ${((lead.budget_max || 0) / 1e9).toFixed(1)} tỷ`
-          : (lead.budget_min ? `Từ ${((lead.budget_min || 0) / 1e9).toFixed(1)} tỷ` : 'Khoảng 3.5 - 6.0 tỷ (theo phân khúc dự án)');
-
-        const loaiBds = lead.preferred_property_type || 'Căn hộ cao cấp 2PN / Nhà phố liền kề';
-        const ghiChu = lead.notes || 'Khách quan tâm phân khu mới, cần tư vấn bảng giá và tiến độ thanh toán chi tiết.';
-
-        let buocKichBan = 'Bước 1: Tiếp cận ban đầu & Khai thác nhu cầu cốt lõi';
-        let aiScript = `Dạ em chào Anh/Chị ${lead.customer_name || 'Quý khách'}! Em là chuyên viên phụ trách dự án ${lead.project_name || 'bất động sản'}. Em được biết Anh/Chị đang tìm hiểu sản phẩm phù hợp nhu cầu ${isInvest ? 'đầu tư sinh lời' : 'an cư'} với tầm tài chính ${nganSach}. Em vừa lọc được giỏ hàng 2 căn đẹp nhất đợt này có chiết khấu tốt, em xin phép gửi thông tin chi tiết qua Zalo để Anh/Chị tham khảo nhé ạ!`;
-
-        if (lead.status === 'contacted' || lead.status === 'qualifying' || lead.status === 'doc_sent') {
-          buocKichBan = 'Bước 2: Phân tích giỏ hàng & Tư vấn chính sách tài chính';
-          aiScript = `Dạ Anh/Chị ${lead.customer_name || 'Quý khách'}, tiếp nối trao đổi lần trước, bên em đang có gói hỗ trợ ân hạn gốc lãi rất tối ưu cho bài toán ${isInvest ? 'dòng tiền đầu tư' : 'nhận nhà sớm'}. Em đã chuẩn bị sẵn bảng tính dòng tiền chi tiết cho căn phù hợp ngân sách ${nganSach} để gửi Anh/Chị nhé ạ!`;
-        } else if (lead.status === 'appointment_set' || lead.status === 'consulted' || lead.status === 'site_visit') {
-          buocKichBan = 'Bước 3: Thiết lập cuộc hẹn xem Sa bàn & Căn hộ mẫu thực tế';
-          aiScript = `Dạ Anh/Chị ${lead.customer_name || 'Quý khách'}, dự án ${lead.project_name || ''} tuần này đang mở cửa đón khách VIP tham quan nhà mẫu hoàn thiện. Em đã đăng ký sẵn cho gia đình 1 suất VIP có xe đón tận nơi vào Thứ 7 này, em xin phép đón Anh/Chị ghé trải nghiệm thực tế nhé ạ?`;
-        } else if (lead.status === 'considering' || lead.status === 'booking' || lead.status === 'deposit' || lead.status === 'contract') {
-          buocKichBan = 'Bước 4: Xử lý từ chối & Đàm phán chốt cọc / Ký HĐMB';
-          aiScript = `Dạ Anh/Chị ${lead.customer_name || 'Quý khách'}, căn Anh/Chị đang quan tâm hiện đang có mức ưu đãi tốt nhất đợt này. Nếu Anh/Chị quyết định trong tuần này, em sẽ xin Giám đốc sàn suất quà tặng gói nội thất đặc biệt để tối ưu tài chính cho gia đình mình nhé ạ!`;
-        }
+        const persona = notificationService.buildLeadPersonaAndScript(lead);
 
         await notificationService.sendNotification({
           leadId: lead.id,
@@ -382,13 +358,13 @@ export class AutoTransferService {
             ten_sale: nextSale.full_name,
             ten_khach_hang: lead.customer_name || 'Khách hàng',
             so_dien_thoai: lead.customer_phone || '',
-            du_an: lead.project_name || '',
-            muc_dich: mucDich,
-            ngan_sach: nganSach,
-            loai_bds: loaiBds,
-            ghi_chu: ghiChu,
-            buoc_kich_ban: buocKichBan,
-            ai_script: aiScript,
+            du_an: lead.project_name || 'Dự án',
+            muc_dich: persona.mucDich,
+            ngan_sach: persona.nganSach,
+            loai_bds: persona.loaiBds,
+            ghi_chu: persona.ghiChu,
+            buoc_kich_ban: persona.buocKichBan,
+            ai_script: persona.aiScript,
             thoi_gian: new Date().toLocaleString('vi-VN'),
             han_cham_soc: new Date(newDeadline).toLocaleString('vi-VN'),
             lead_id: lead.id,

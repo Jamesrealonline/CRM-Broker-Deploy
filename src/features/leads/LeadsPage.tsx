@@ -4,7 +4,7 @@
 // ========================================================
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   Users, 
   Search, 
@@ -24,9 +24,11 @@ import {
   UserCheck,
   Send,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Share2
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
+import { DistributionPage } from '@/features/distribution/DistributionPage';
 import { leadRepository } from '@/data/repositories/leadRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
@@ -45,6 +47,16 @@ import { formatDate, maskPhone, formatCurrencyVND } from '@/lib/utils';
 export const LeadsPage: React.FC = () => {
   const { currentUser } = useAuthStore();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentTab = searchParams.get('tab') === 'distribution' ? 'distribution' : 'leads';
+
+  const setTab = (tab: 'leads' | 'distribution') => {
+    if (tab === 'distribution') {
+      setSearchParams({ tab: 'distribution' });
+    } else {
+      setSearchParams({});
+    }
+  };
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
@@ -253,29 +265,60 @@ export const LeadsPage: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* 1. THANH CÔNG CỤ TRÊN CÙNG */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <div>
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <Users className="h-5 w-5 text-blue-600" />
-            Danh Sách Khách Hàng Tiềm Năng (Leads)
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Tổng cộng: <span className="font-semibold text-slate-800">{total}</span> Lead theo phân quyền của bạn
-          </p>
-        </div>
+      {/* 0. MODULE TABS: GOM QUẢN LÝ LEAD & PHÂN BỔ LEAD VÀO 1 MODULE */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          onClick={() => setTab('leads')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${
+            currentTab === 'leads'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 bg-white border border-slate-200'
+          }`}
+        >
+          <Users className="h-4 w-4" />
+          <span>Danh Sách & Tiếp Nhận Lead ({total})</span>
+        </button>
 
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleExportCSV}>
-            <Download className="h-4 w-4 mr-1.5" />
-            Xuất CSV
-          </Button>
-          <Button variant="primary" size="sm" onClick={() => setCreateModalOpen(true)}>
-            <Plus className="h-4 w-4 mr-1.5" />
-            Thêm Lead mới
-          </Button>
-        </div>
+        <button
+          onClick={() => setTab('distribution')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${
+            currentTab === 'distribution'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 bg-white border border-slate-200'
+          }`}
+        >
+          <Share2 className="h-4 w-4" />
+          <span>Phân Bổ & Lead Pool (SLA 24h)</span>
+        </button>
       </div>
+
+      {currentTab === 'distribution' ? (
+        <DistributionPage />
+      ) : (
+        <>
+          {/* 1. THANH CÔNG CỤ TRÊN CÙNG */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Users className="h-5 w-5 text-blue-600" />
+                Danh Sách Khách Hàng Tiềm Năng (Leads)
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Tổng cộng: <span className="font-semibold text-slate-800">{total}</span> Lead theo phân quyền của bạn
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportCSV}>
+                <Download className="h-4 w-4 mr-1.5" />
+                Xuất CSV
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => setCreateModalOpen(true)}>
+                <Plus className="h-4 w-4 mr-1.5" />
+                Thêm Lead mới
+              </Button>
+            </div>
+          </div>
 
       {/* 2. THANH TÌM KIẾM VÀ BỘ LỌC */}
       <div className="flex flex-col md:flex-row items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
@@ -733,6 +776,8 @@ export const LeadsPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+        </>
+      )}
     </div>
   );
 };
