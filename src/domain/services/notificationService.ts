@@ -555,8 +555,18 @@ ${leadListPlain}
   /**
    * 6.1 GỬI THỬ EMAIL (TEST CONNECTION)
    */
-  async sendTestEmail(targetEmail: string): Promise<{ success: boolean; error?: string }> {
-    const config = await this.getEmailConfig();
+  async sendTestEmail(targetEmail: string, customConfig?: Partial<EmailNotificationConfig>): Promise<{ success: boolean; error?: string }> {
+    const savedConfig = await this.getEmailConfig();
+    const config = { ...savedConfig, ...(customConfig || {}) };
+
+    // Tự động chuẩn hóa Google Apps Script URL (trim và đổi /dev thành /exec)
+    if (config.google_apps_script_url) {
+      config.google_apps_script_url = config.google_apps_script_url.trim();
+      if (config.google_apps_script_url.endsWith('/dev')) {
+        config.google_apps_script_url = config.google_apps_script_url.replace(/\/dev$/, '/exec');
+      }
+    }
+
     if (!config.smtp_user || !config.smtp_pass) {
       if (!config.resend_api_key && !config.google_apps_script_url) {
         return { 

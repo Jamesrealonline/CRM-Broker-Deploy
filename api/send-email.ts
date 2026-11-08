@@ -40,8 +40,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      const gasRes = await fetch(googleAppsScriptUrl, {
+      let cleanGasUrl = googleAppsScriptUrl.trim();
+      if (cleanGasUrl.endsWith('/dev')) {
+        cleanGasUrl = cleanGasUrl.replace(/\/dev$/, '/exec');
+      }
+
+      const gasRes = await fetch(cleanGasUrl, {
         method: 'POST',
+        redirect: 'follow',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to,
@@ -52,11 +58,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }),
       });
 
-      if (!gasRes.ok) {
-        const gasErr = await gasRes.text();
+      const responseText = await gasRes.text();
+
+      // Kiểm tra nếu Google chặn do chưa phân quyền Anyone hoặc chưa Ủy quyền (Authorize)
+      if (responseText.includes('Không tìm thấy trang') || responseText.includes('accounts.google.com') || responseText.includes('Rất tiếc, không thể mở tệp')) {
         return res.status(400).json({
           success: false,
-          error: `Google Apps Script trả lời lỗi: ${gasErr.slice(0, 200)}`,
+          error: 'Google Apps Script bị chặn quyền truy cập. Trong script.google.com: Khi Triển khai (Deploy), mục "Ai có quyền truy cập" (Who has access) BẮT BUỘC chọn "Bất kỳ ai" (Anyone) và hoàn thành bước "Xem lại quyền" (Authorize permissions).',
+        });
+      }
+
+      if (!gasRes.ok) {
+        return res.status(400).json({
+          success: false,
+          error: `Google Apps Script phản hồi lỗi (${gasRes.status}): ${responseText.slice(0, 200)}`,
         });
       }
 

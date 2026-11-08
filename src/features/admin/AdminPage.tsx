@@ -208,10 +208,21 @@ export const AdminPage: React.FC = () => {
     setIsSendingTestEmail(true);
     setTestEmailResult(null);
 
-    // Tự động lưu cấu hình email hiện tại trước khi test
-    await notificationService.saveEmailConfig(emailConfig);
+    // Chuẩn hóa cấu hình (trim URL và tự động đổi /dev thành /exec)
+    const normalizedConfig = { ...emailConfig };
+    if (normalizedConfig.google_apps_script_url) {
+      let url = normalizedConfig.google_apps_script_url.trim();
+      if (url.endsWith('/dev')) {
+        url = url.replace(/\/dev$/, '/exec');
+      }
+      normalizedConfig.google_apps_script_url = url;
+      setEmailConfig(normalizedConfig);
+    }
 
-    const res = await notificationService.sendTestEmail(target);
+    // Tự động lưu cấu hình email hiện tại trước khi test
+    await notificationService.saveEmailConfig(normalizedConfig);
+
+    const res = await notificationService.sendTestEmail(target, normalizedConfig);
     setIsSendingTestEmail(false);
     if (res.success) {
       setTestEmailResult({ 
@@ -1287,26 +1298,35 @@ export const AdminPage: React.FC = () => {
                             Mở script.google.com <ExternalLink className="h-3 w-3" />
                           </a>
                         </div>
-                        <ol className="list-decimal pl-4 space-y-1 leading-relaxed text-indigo-900/90">
+                        <ol className="list-decimal pl-4 space-y-1.5 leading-relaxed text-indigo-900/90">
                           <li>Truy cập <strong>script.google.com</strong> bằng tài khoản Gmail của bạn $\rightarrow$ Nhấn nút <strong>"Dự án mới" (New project)</strong>.</li>
                           <li>
                             Xóa hết mã có sẵn và dán đoạn mã bên dưới vào:
                             <div className="relative mt-1">
-                              <pre className="p-2.5 bg-slate-900 text-slate-100 rounded font-mono text-[10px] overflow-x-auto">
+                              <pre className="p-2.5 bg-slate-900 text-slate-100 rounded font-mono text-[10px] overflow-x-auto leading-relaxed">
 {`function doPost(e) {
-  var data = JSON.parse(e.postData.contents);
-  MailApp.sendEmail({
-    to: data.to,
-    subject: data.subject,
-    htmlBody: data.html
-  });
-  return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+  try {
+    var data = JSON.parse(e.postData.contents);
+    MailApp.sendEmail({
+      to: data.to,
+      subject: data.subject,
+      htmlBody: data.html
+    });
+    return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+  } catch(err) {
+    return ContentService.createTextOutput(JSON.stringify({success: false, error: err.message})).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({status: "active", message: "Webhook ready"})).setMimeType(ContentService.MimeType.JSON);
 }`}
                               </pre>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  navigator.clipboard.writeText(`function doPost(e) {\n  var data = JSON.parse(e.postData.contents);\n  MailApp.sendEmail({\n    to: data.to,\n    subject: data.subject,\n    htmlBody: data.html\n  });\n  return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);\n}`);
+                                  const code = `function doPost(e) {\n  try {\n    var data = JSON.parse(e.postData.contents);\n    MailApp.sendEmail({\n      to: data.to,\n      subject: data.subject,\n      htmlBody: data.html\n    });\n    return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);\n  } catch(err) {\n    return ContentService.createTextOutput(JSON.stringify({success: false, error: err.message})).setMimeType(ContentService.MimeType.JSON);\n  }\n}\n\nfunction doGet(e) {\n  return ContentService.createTextOutput(JSON.stringify({status: "active", message: "Webhook ready"})).setMimeType(ContentService.MimeType.JSON);\n}`;
+                                  navigator.clipboard.writeText(code);
                                   setCopiedGasCode(true);
                                   setTimeout(() => setCopiedGasCode(false), 2000);
                                 }}
@@ -1318,7 +1338,21 @@ export const AdminPage: React.FC = () => {
                             </div>
                           </li>
                           <li>
-                            Nhấn <strong>Triển khai (Deploy)</strong> $\rightarrow$ <strong>Triển khai mới (New deployment)</strong> $\rightarrow$ Chọn loại <strong>Ứng dụng web (Web app)</strong> $\rightarrow$ Ở mục <em>"Ai có quyền truy cập" (Who has access)</em>, chọn <strong>"Bất kỳ ai" (Anyone)</strong> $\rightarrow$ Nhấn <strong>Triển khai</strong> và sao chép <strong>URL ứng dụng web</strong> dán vào ô bên dưới.
+                            Nhấn <strong>Triển khai (Deploy)</strong> $\rightarrow$ <strong>Triển khai mới (New deployment)</strong>:
+                            <ul className="list-disc pl-4 space-y-0.5 mt-1 text-[10px] text-indigo-950 font-medium">
+                              <li>Chọn loại: <strong>Ứng dụng web (Web app)</strong>.</li>
+                              <li>Thực thi dưới tên (Execute as): <strong>"Tôi" (Me)</strong>.</li>
+                              <li>Ai có quyền truy cập (Who has access): <strong className="text-rose-600 underline">Bắt buộc chọn "Bất kỳ ai" (Anyone)</strong>.</li>
+                            </ul>
+                          </li>
+                          <li>
+                            Nhấn nút <strong>Triển khai (Deploy)</strong> $\rightarrow$ Google sẽ hỏi <strong>"Ủy quyền truy cập" (Authorize access)</strong>:
+                            <div className="p-2 bg-amber-100/80 border border-amber-300 rounded text-[10px] text-amber-900 mt-1">
+                              👉 Bấm <strong>Xem lại quyền (Review permissions)</strong> $\rightarrow$ Chọn tài khoản Google $\rightarrow$ Bấm <strong>Nâng cao (Advanced)</strong> $\rightarrow$ Bấm <strong>Đi tới Dự án không an toàn (Go to ... unsafe)</strong> $\rightarrow$ Bấm <strong>Cho phép (Allow)</strong>.
+                            </div>
+                          </li>
+                          <li>
+                            Sao chép <strong>URL ứng dụng web</strong> (đường link có đuôi kết thúc bằng <code className="bg-indigo-100 px-1 py-0.5 rounded font-mono font-bold text-indigo-900">/exec</code>) dán vào ô bên dưới.
                           </li>
                         </ol>
                       </div>
