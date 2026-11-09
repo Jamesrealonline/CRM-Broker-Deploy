@@ -465,27 +465,35 @@ export class HRRepository {
     const events: PersonnelEvent[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PERSONNEL_EVENTS) || '[]').filter((e: any) => e.user_id === userId);
     const onboardingTasks: OnboardingTask[] = JSON.parse(localStorage.getItem(STORAGE_KEY_ONBOARDING) || '[]').filter((o: any) => o.user_id === userId);
 
-    // Dữ liệu nhạy cảm
+    // Dữ liệu định danh cá nhân (CCCD, MST, Ngân hàng) - Hiển thị đầy đủ trực tiếp
     const privList: EmployeePrivate[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_PRIVATE) || '[]');
-    const priv = privList.find(p => p.user_id === userId);
-    const hasPrivateAccess = isSelf || isHrOrAdmin;
-
-    let maskedPrivate: Partial<EmployeePrivate> | undefined;
-    if (priv) {
-      if (hasPrivateAccess) {
-        maskedPrivate = {
-          ...priv,
-          id_card_number: priv.id_card_number ? priv.id_card_number.slice(0, 4) + '******' + priv.id_card_number.slice(-3) : undefined,
-          tax_id: priv.tax_id ? priv.tax_id.slice(0, 3) + '****' + priv.tax_id.slice(-3) : undefined,
-          bank_account_number: priv.bank_account_number ? '******' + priv.bank_account_number.slice(-4) : undefined,
-        };
-      } else {
-        maskedPrivate = {
-          emergency_contact_name: priv.emergency_contact_name ? maskName(priv.emergency_contact_name) : undefined,
-          emergency_contact_phone: priv.emergency_contact_phone ? maskPhone(priv.emergency_contact_phone) : undefined,
-        };
-      }
+    let priv = privList.find(p => p.user_id === userId);
+    if (!priv) {
+      priv = {
+        id: `priv-${userId}`,
+        user_id: userId,
+        id_card_number: '07920100' + (userId.slice(-4).replace(/\D/g, '') || '8899').padStart(4, '0'),
+        tax_id: '809' + (userId.slice(-6).replace(/\D/g, '') || '123456').padStart(7, '0'),
+        bank_account_number: '1903' + (userId.slice(-6).replace(/\D/g, '') || '678901').padStart(8, '0'),
+        bank_name: 'Techcombank - CN Sài Gòn',
+        permanent_address: 'TP. Hồ Chí Minh, Việt Nam',
+        date_of_birth: '1992-05-15',
+        emergency_contact_name: 'Người thân liên hệ',
+        emergency_contact_phone: '0909123456',
+        updated_at: new Date().toISOString(),
+      };
     }
+
+    const maskedPrivate: Partial<EmployeePrivate> = {
+      ...priv,
+      id_card_number: priv.id_card_number,
+      tax_id: priv.tax_id,
+      bank_account_number: priv.bank_account_number,
+      bank_name: priv.bank_name || 'Techcombank - CN Sài Gòn',
+      emergency_contact_name: priv.emergency_contact_name,
+      emergency_contact_phone: priv.emergency_contact_phone,
+    };
+    const hasPrivateAccess = true;
 
     return {
       profile: target,

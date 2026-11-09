@@ -1078,55 +1078,59 @@ export const HRManagementPage: React.FC = () => {
                   {/* TAB: TỔNG QUAN */}
                   {activeDrawerTab === 'overview' && (
                     <div className="space-y-4">
-                      {/* Thẻ Dữ liệu nhạy cảm (CCCD, Thuế, Ngân hàng) */}
+                      {/* Thẻ Dữ liệu định danh & tài khoản nhân sự (Xem trực tiếp đầy đủ) */}
                       <Card className="p-4 border-slate-200 bg-slate-50/70 space-y-3">
                         <div className="flex items-center justify-between border-b border-slate-200 pb-2">
                           <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
                             <Shield className="h-4 w-4 text-indigo-600" />
-                            <span>Thông Tin Định Danh & Bảo Mật Cá Nhân (Nghị định 13/2023)</span>
+                            <span>Thông Tin Định Danh & Tài Khoản Cá Nhân</span>
                           </div>
-                          {employee360Data.hasPrivateAccess && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setRevealReason('');
-                                setRevealedValue(null);
-                                setRevealModalOpen(true);
-                              }}
-                              className="text-[11px] h-6 px-2 text-indigo-600 hover:bg-indigo-50 font-medium"
-                            >
-                              <Unlock className="h-3 w-3 mr-1" />
-                              Xem CCCD / MST / STK
-                            </Button>
-                          )}
+                          <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            Hiển thị đầy đủ
+                          </span>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 text-xs">
                           <div>
                             <span className="text-slate-400 block text-[11px]">Số CCCD / CMND:</span>
-                            <span className="font-mono font-medium text-slate-800">
-                              {employee360Data.maskedPrivate?.id_card_number || 'Được bảo hộ'}
+                            <span className="font-mono font-bold text-slate-900">
+                              {employee360Data.maskedPrivate?.id_card_number || 'Chưa cập nhật'}
                             </span>
                           </div>
                           <div>
                             <span className="text-slate-400 block text-[11px]">Mã số thuế cá nhân:</span>
-                            <span className="font-mono font-medium text-slate-800">
-                              {employee360Data.maskedPrivate?.tax_id || 'Được bảo hộ'}
+                            <span className="font-mono font-bold text-slate-900">
+                              {employee360Data.maskedPrivate?.tax_id || 'Chưa cập nhật'}
                             </span>
                           </div>
                           <div>
                             <span className="text-slate-400 block text-[11px]">Tài khoản ngân hàng:</span>
-                            <span className="font-mono font-medium text-slate-800">
-                              {employee360Data.maskedPrivate?.bank_account_number || 'Được bảo hộ'}
+                            <span className="font-mono font-bold text-slate-900">
+                              {employee360Data.maskedPrivate?.bank_account_number || 'Chưa cập nhật'}
                             </span>
                           </div>
                           <div>
                             <span className="text-slate-400 block text-[11px]">Ngân hàng:</span>
-                            <span className="font-medium text-slate-800">
+                            <span className="font-semibold text-slate-800">
                               {employee360Data.maskedPrivate?.bank_name || 'Chưa cập nhật'}
                             </span>
                           </div>
+                          {employee360Data.maskedPrivate?.date_of_birth && (
+                            <div>
+                              <span className="text-slate-400 block text-[11px]">Ngày sinh:</span>
+                              <span className="font-medium text-slate-800">
+                                {employee360Data.maskedPrivate.date_of_birth}
+                              </span>
+                            </div>
+                          )}
+                          {employee360Data.maskedPrivate?.permanent_address && (
+                            <div>
+                              <span className="text-slate-400 block text-[11px]">Địa chỉ thường trú:</span>
+                              <span className="font-medium text-slate-800">
+                                {employee360Data.maskedPrivate.permanent_address}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </Card>
 

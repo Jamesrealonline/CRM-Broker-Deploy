@@ -116,17 +116,17 @@ describe('Module 5: Comprehensive HR Lifecycle & Personnel Management', () => {
     profiles.push(mockSaleAgent1);
     localStorage.setItem('crm_profiles', JSON.stringify(profiles));
 
-    // Team Leader xem hồ sơ 360 của Sale 1
+    // Team Leader xem hồ sơ 360 của Sale 1 -> Xem được đầy đủ thông tin nhân sự trực tiếp
     const tlProfileView = await hrRepository.getEmployee360Profile(mockSaleAgent1.id, mockTeamLeader);
-    expect(tlProfileView.hasPrivateAccess).toBe(false);
-    expect(tlProfileView.maskedPrivate?.id_card_number).toBeUndefined();
-    expect(tlProfileView.maskedPrivate?.tax_id).toBeUndefined();
-    expect(tlProfileView.maskedPrivate?.bank_account_number).toBeUndefined();
+    expect(tlProfileView.hasPrivateAccess).toBe(true);
+    expect(tlProfileView.maskedPrivate?.id_card_number).toBe('079196001234');
+    expect(tlProfileView.maskedPrivate?.tax_id).toBe('8392019482');
+    expect(tlProfileView.maskedPrivate?.bank_account_number).toBe('19034567891011');
 
-    // HR Admin xem hồ sơ 360 của Sale 1 -> có quyền xem dạng che mờ (masked)
+    // HR Admin xem hồ sơ 360 của Sale 1 -> xem đầy đủ trực tiếp
     const hrProfileView = await hrRepository.getEmployee360Profile(mockSaleAgent1.id, mockHrAdmin);
     expect(hrProfileView.hasPrivateAccess).toBe(true);
-    expect(hrProfileView.maskedPrivate?.id_card_number).toContain('******');
+    expect(hrProfileView.maskedPrivate?.id_card_number).toBe('079196001234');
   });
 
   it('3. Tra cứu dữ liệu nhạy cảm (Reveal): Bắt buộc lý do nghiệp vụ và ghi vết vào Audit Log', async () => {

@@ -61,8 +61,8 @@ import {
   UserPlus
 } from 'lucide-react';
 
-type CompetitionTab = 'agency' | 'sales_manager' | 'team' | 'sale_agent' | 'recruiter';
-type RankingMetric = 'revenue' | 'contracts_count' | 'commission';
+type CompetitionTab = 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+type RankingMetric = 'revenue' | 'contracts_count' | 'commission' | 'recruitment';
 
 export const LeaderboardPage: React.FC = () => {
   const { currentUser } = useAuthStore();
@@ -86,7 +86,6 @@ export const LeaderboardPage: React.FC = () => {
 
   // HR Competition Metrics & View Modes
   const [recruiterMetric, setRecruiterMetric] = useState<'recruited' | 'passed' | 'rate'>('recruited');
-  const [hrViewMode, setHrViewMode] = useState<'recruiter_ats' | 'agency_retention'>('recruiter_ats');
   const [selectedRecruiter, setSelectedRecruiter] = useState<RecruiterRank | null>(null);
   const [recruiterModalOpen, setRecruiterModalOpen] = useState(false);
 
@@ -114,7 +113,7 @@ export const LeaderboardPage: React.FC = () => {
   // Load Leaderboard when Tab, Project, DateRange, Metric, or Filters change
   useEffect(() => {
     setLoading(true);
-    if (activeTab === 'recruiter') {
+    if (rankingMetric === 'recruitment') {
       Promise.all([
         hrRepository.getRecruiterLeaderboard(recruiterMetric, dateRange.from, dateRange.to),
         hrRepository.getAgencyHRLeaderboard()
@@ -134,7 +133,7 @@ export const LeaderboardPage: React.FC = () => {
       dateFrom: dateRange.from,
       dateTo: dateRange.to,
       includeSample,
-      metric: rankingMetric,
+      metric: rankingMetric as 'revenue' | 'contracts_count' | 'commission',
       employmentTypes: selectedEmploymentTypes.length > 0 ? selectedEmploymentTypes : undefined,
       employmentStatuses: selectedStatuses.length > 0 ? selectedStatuses : undefined,
     })
@@ -142,6 +141,23 @@ export const LeaderboardPage: React.FC = () => {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [activeTab, selectedProjectId, dateRange, includeSample, rankingMetric, selectedEmploymentTypes, selectedStatuses, recruiterMetric]);
+
+  // Lọc danh sách tuyển dụng nhân sự tương ứng theo cấp bậc tab đang chọn
+  const filteredRecruiters = React.useMemo(() => {
+    if (activeTab === 'sales_manager') {
+      const list = recruiters.filter(r => ['director', 'sales_manager', 'admin'].includes(r.recruiterRole));
+      return list.length > 0 ? list : recruiters;
+    }
+    if (activeTab === 'team') {
+      const list = recruiters.filter(r => r.recruiterRole === 'team_leader');
+      return list.length > 0 ? list : recruiters;
+    }
+    if (activeTab === 'sale_agent') {
+      const list = recruiters.filter(r => r.recruiterRole === 'sale_agent');
+      return list.length > 0 ? list : recruiters;
+    }
+    return recruiters;
+  }, [recruiters, activeTab]);
 
   const toggleEmploymentType = (type: EmploymentType) => {
     setSelectedEmploymentTypes(prev => 
@@ -196,8 +212,8 @@ export const LeaderboardPage: React.FC = () => {
 
   // Export Leaderboard to Excel
   const handleExportLeaderboard = () => {
-    if (activeTab === 'recruiter') {
-      if (hrViewMode === 'agency_retention') {
+    if (rankingMetric === 'recruitment') {
+      if (activeTab === 'agency') {
         exportToExcel({
           filename: `Bang_Thi_Dua_Quy_Mo_San_${new Date().toISOString().slice(0, 10)}`,
           title: `BẢNG THI ĐUA QUY MÔ NHÂN SỰ & TỶ LỆ GIỮ CHÂN NHÂN TÀI THEO SÀN GIAO DỊCH`,
@@ -242,18 +258,22 @@ export const LeaderboardPage: React.FC = () => {
         return;
       }
 
-      // hrViewMode === 'recruiter_ats'
+      const tabTitle = 
+        activeTab === 'sales_manager' ? 'TRƯỞNG PHÒNG & GIÁM ĐỐC SÀN' :
+        activeTab === 'team' ? 'ĐỘI NHÓM KINH DOANH' : 'CHUYÊN VIÊN TƯ VẤN (SALE)';
+
       exportToExcel({
-        filename: `Bang_Thi_Dua_Tuyen_Dung_${new Date().toISOString().slice(0, 10)}`,
-        title: `BẢNG THI ĐUA QUÁN QUÂN TUYỂN DỤNG & PHÁT TRIỂN NHÂN SỰ`,
+        filename: `Bang_Thi_Dua_Tuyen_Dung_${activeTab}_${new Date().toISOString().slice(0, 10)}`,
+        title: `BẢNG THI ĐUA TUYỂN DỤNG & PHÁT TRIỂN NHÂN SỰ - ${tabTitle}`,
         metadata: {
+          'Cấp thi đua': tabTitle,
           'Tiêu chí xếp hạng': recruiterMetric === 'recruited' ? 'Số nhân sự tuyển mới' : recruiterMetric === 'passed' ? 'Số đạt thử việc' : 'Tỷ lệ đạt thử việc (%)',
           'Kỳ thi đua': `${dateRange.from} đến ${dateRange.to} (${dateRange.preset})`,
           'Ngày xuất': new Date().toLocaleString('vi-VN'),
         },
         columns: [
           { header: 'Thứ hạng', key: 'rank' },
-          { header: 'Quản Lý Tuyển Dụng', key: 'recruiter_name' },
+          { header: 'Nhà Tuyển Dụng / Quản Lý', key: 'recruiter_name' },
           { header: 'Chức Vụ', key: 'recruiter_role' },
           { header: 'Sàn Trực Thuộc', key: 'agency_name' },
           { header: 'Số Nhân Sự Tuyển Mới', key: 'total_recruited' },
@@ -262,7 +282,7 @@ export const LeaderboardPage: React.FC = () => {
           { header: 'Doanh Số Lứa Nhân Sự (VNĐ)', key: 'recruits_revenue' },
           { header: 'Danh Hiệu', key: 'title' },
         ],
-        data: recruiters.map((item, idx) => ({
+        data: filteredRecruiters.map((item, idx) => ({
           rank: idx + 1,
           recruiter_name: item.recruiterName,
           recruiter_role: item.recruiterRole.replace('_', ' ').toUpperCase(),
@@ -275,9 +295,9 @@ export const LeaderboardPage: React.FC = () => {
         })),
         totals: {
           rank: 'TỔNG CỘNG',
-          total_recruited: recruiters.reduce((s, i) => s + i.totalRecruited, 0),
-          passed_count: recruiters.reduce((s, i) => s + i.passedProbationCount, 0),
-          recruits_revenue: recruiters.reduce((s, i) => s + (i.totalRevenueByRecruits || 0), 0),
+          total_recruited: filteredRecruiters.reduce((s, i) => s + i.totalRecruited, 0),
+          passed_count: filteredRecruiters.reduce((s, i) => s + i.passedProbationCount, 0),
+          recruits_revenue: filteredRecruiters.reduce((s, i) => s + (i.totalRevenueByRecruits || 0), 0),
         },
       });
       return;
@@ -408,6 +428,10 @@ export const LeaderboardPage: React.FC = () => {
   const getMetricLabel = () => {
     if (rankingMetric === 'contracts_count') return 'Số Hợp Đồng (HĐMB)';
     if (rankingMetric === 'commission') return 'Hoa Hồng Thực Nhận';
+    if (rankingMetric === 'recruitment') {
+      if (activeTab === 'agency') return 'Quy Mô Nhân Sự & Giữ Chân Sàn';
+      return recruiterMetric === 'recruited' ? 'Số Nhân Sự Tuyển Mới' : recruiterMetric === 'passed' ? 'Số Đạt Thử Việc' : 'Tỷ Lệ Đạt Thử Việc (%)';
+    }
     return 'Doanh Số Bán Hàng';
   };
 
@@ -419,13 +443,13 @@ export const LeaderboardPage: React.FC = () => {
           <div>
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
               <Trophy className="h-6 w-6 text-amber-500" />
-              {activeTab === 'recruiter' 
+              {rankingMetric === 'recruitment' 
                 ? 'Bảng Thi Đua Tuyển Dụng & Phát Triển Nhân Sự Toàn Hệ Thống' 
                 : 'Bảng Thi Đua Doanh Số, HĐMB & Hoa Hồng Toàn Hệ Thống'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {activeTab === 'recruiter'
-                ? 'Thi đua thời gian thực về thu hút nhân tài, tỷ lệ đạt thử việc và năng suất lứa nhân sự mới.'
+              {rankingMetric === 'recruitment'
+                ? 'Thi đua thu hút nhân tài, tỷ lệ vượt thử việc và quy mô nhân sự theo từng cấp bậc.'
                 : 'Thi đua thời gian thực giữa các Sàn, Trưởng phòng kinh doanh, Team và Chuyên viên tư vấn.'}
             </p>
           </div>
@@ -483,73 +507,8 @@ export const LeaderboardPage: React.FC = () => {
             </label>
           </div>
 
-          {/* CHUYỂN ĐỔI CHỈ SỐ THI ĐUA (DOANH SỐ / HĐMB / HOA HỒNG HOẶC CHỈ SỐ NHÂN SỰ) */}
-          {activeTab === 'recruiter' ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Chế độ xem HR: Quản lý tuyển dụng vs Quy mô sàn */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
-                <button
-                  onClick={() => setHrViewMode('recruiter_ats')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    hrViewMode === 'recruiter_ats'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  Quản Lý Tuyển Dụng
-                </button>
-                <button
-                  onClick={() => setHrViewMode('agency_retention')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    hrViewMode === 'agency_retention'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Building2 className="h-3.5 w-3.5" />
-                  Quy Mô & Giữ Chân Sàn
-                </button>
-              </div>
-
-              {/* Tiêu chí xếp hạng tuyển dụng */}
-              {hrViewMode === 'recruiter_ats' && (
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
-                  <span className="text-[11px] font-bold text-slate-500 px-2">Xếp hạng:</span>
-                  <button
-                    onClick={() => setRecruiterMetric('recruited')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                      recruiterMetric === 'recruited'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Tuyển Mới
-                  </button>
-                  <button
-                    onClick={() => setRecruiterMetric('passed')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                      recruiterMetric === 'passed'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Đạt Thử Việc
-                  </button>
-                  <button
-                    onClick={() => setRecruiterMetric('rate')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                      recruiterMetric === 'rate'
-                        ? 'bg-amber-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Tỷ Lệ Đạt (%)
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
+          {/* CHUYỂN ĐỔI CHỈ SỐ THI ĐUA (DOANH SỐ / HĐMB / HOA HỒNG / TUYỂN DỤNG & NHÂN SỰ) */}
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
               <span className="text-[11px] font-bold text-slate-500 px-2">Xếp hạng theo:</span>
               <button
@@ -582,8 +541,56 @@ export const LeaderboardPage: React.FC = () => {
               >
                 Hoa Hồng
               </button>
+              <button
+                onClick={() => setRankingMetric('recruitment')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  rankingMetric === 'recruitment'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-indigo-700 hover:text-indigo-900 bg-indigo-50/60'
+                }`}
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                Tuyển Dụng & Nhân Sự
+              </button>
             </div>
-          )}
+
+            {/* Tiêu chí xếp hạng tuyển dụng (khi chọn xếp hạng theo Tuyển Dụng & Nhân Sự cho các cấp cá nhân/team/quản lý) */}
+            {rankingMetric === 'recruitment' && activeTab !== 'agency' && (
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <span className="text-[11px] font-bold text-slate-500 px-2">Tiêu chí:</span>
+                <button
+                  onClick={() => setRecruiterMetric('recruited')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                    recruiterMetric === 'recruited'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Tuyển Mới
+                </button>
+                <button
+                  onClick={() => setRecruiterMetric('passed')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                    recruiterMetric === 'passed'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Đạt Thử Việc
+                </button>
+                <button
+                  onClick={() => setRecruiterMetric('rate')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                    recruiterMetric === 'rate'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Tỷ Lệ Đạt (%)
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* BỘ LỌC NÂNG CAO LOẠI HÌNH & TRẠNG THÁI CHO SALE AGENTS */}
@@ -636,7 +643,7 @@ export const LeaderboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* 2. 5 TABS THI ĐUA (SÀN, TRƯỞNG PHÒNG, TEAM, SALE, TUYỂN DỤNG) */}
+      {/* 2. 4 TABS THI ĐUA (SÀN, TRƯỞNG PHÒNG, TEAM, SALE) */}
       <div className="flex flex-wrap items-center gap-2 bg-slate-200/70 p-1.5 rounded-2xl w-fit">
         <button
           onClick={() => setActiveTab('agency')}
@@ -685,18 +692,6 @@ export const LeaderboardPage: React.FC = () => {
           <UserCheck className="h-4 w-4" />
           <span>Chuyên Viên Tư Vấn</span>
         </button>
-
-        <button
-          onClick={() => setActiveTab('recruiter')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'recruiter'
-              ? 'bg-white text-indigo-600 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Sparkles className="h-4 w-4 text-amber-500" />
-          <span>Tuyển Dụng & Nhân Sự</span>
-        </button>
       </div>
 
       {/* 3. BỤC VINH DANH TOP 1, 2, 3 NỔI BẬT */}
@@ -706,9 +701,9 @@ export const LeaderboardPage: React.FC = () => {
             <Skeleton key={i} className="h-48 rounded-2xl" />
           ))}
         </div>
-      ) : activeTab === 'recruiter' ? (
+      ) : rankingMetric === 'recruitment' ? (
         /* ================= PODIUM THI ĐUA NHÂN SỰ & TUYỂN DỤNG ================= */
-        hrViewMode === 'agency_retention' ? (
+        activeTab === 'agency' ? (
           /* --- PODIUM QUY MÔ & GIỮ CHÂN NHÂN TÀI THEO SÀN --- */
           (() => {
             const agTop1 = agencyHRList[0];
@@ -813,11 +808,11 @@ export const LeaderboardPage: React.FC = () => {
             );
           })()
         ) : (
-          /* --- PODIUM QUÁN QUÂN TUYỂN DỤNG & PHÁT TRIỂN (RECRUITER ATS) --- */
+          /* --- PODIUM QUÁN QUÂN TUYỂN DỤNG & PHÁT TRIỂN THEO CẤP QUẢN LÝ / TEAM / SALE --- */
           (() => {
-            const recTop1 = recruiters[0];
-            const recTop2 = recruiters[1];
-            const recTop3 = recruiters[2];
+            const recTop1 = filteredRecruiters[0];
+            const recTop2 = filteredRecruiters[1];
+            const recTop3 = filteredRecruiters[2];
             if (!recTop1) return null;
 
             const getRecMetricDisplay = (rec: RecruiterRank) => {
@@ -829,6 +824,11 @@ export const LeaderboardPage: React.FC = () => {
               }
               return `+${rec.totalRecruited} nhân sự mới`;
             };
+
+            const podiumTitle = 
+              activeTab === 'sales_manager' ? '🏆 Quán Quân Tuyển Dụng (GĐ Sàn / Trưởng Phòng)' :
+              activeTab === 'team' ? '🏆 Quán Quân Phát Triển Đội Nhóm' :
+              '🏆 Quán Quân Tuyển Dụng & Phát Triển';
 
             return (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -872,7 +872,7 @@ export const LeaderboardPage: React.FC = () => {
                     🥇 1
                   </div>
                   <div className="text-[10px] font-bold tracking-wider text-amber-800 uppercase mb-1">
-                    🏆 Quán Quân Tuyển Dụng & Phát Triển
+                    {podiumTitle}
                   </div>
                   <h4 className="font-black text-slate-900 text-base truncate">{recTop1.recruiterName}</h4>
                   <p className="text-xs text-slate-500 mb-2 capitalize">{recTop1.recruiterRole.replace('_', ' ')} • {recTop1.agencyName || 'Toàn hệ thống'}</p>
@@ -1056,10 +1056,10 @@ export const LeaderboardPage: React.FC = () => {
           <div className="font-bold text-sm text-slate-800 flex items-center gap-2">
             <span>Bảng Xếp Hạng Thi Đua Đầy Đủ</span>
             <span className="text-xs font-normal text-slate-400">
-              {activeTab === 'recruiter' 
-                ? hrViewMode === 'agency_retention'
+              {rankingMetric === 'recruitment' 
+                ? activeTab === 'agency'
                   ? `(${agencyHRList.length} sàn giao dịch)`
-                  : `(${recruiters.length} quản lý tuyển dụng)`
+                  : `(${filteredRecruiters.length} nhà tuyển dụng / quản lý)`
                 : `(${leaderboardData.length} đơn vị / cá nhân)`}
             </span>
           </div>
@@ -1068,8 +1068,8 @@ export const LeaderboardPage: React.FC = () => {
             <ArrowUpDown className="h-3.5 w-3.5 text-blue-600" />
             Đang xếp hạng theo:{' '}
             <strong className="text-blue-700">
-              {activeTab === 'recruiter'
-                ? hrViewMode === 'agency_retention'
+              {rankingMetric === 'recruitment'
+                ? activeTab === 'agency'
                   ? 'Quy Mô Nhân Sự & Tỷ Lệ Giữ Chân'
                   : recruiterMetric === 'recruited'
                   ? 'Số Nhân Sự Tuyển Mới'
@@ -1082,8 +1082,8 @@ export const LeaderboardPage: React.FC = () => {
         </div>
 
         <div className="overflow-x-auto">
-          {activeTab === 'recruiter' ? (
-            hrViewMode === 'agency_retention' ? (
+          {rankingMetric === 'recruitment' ? (
+            activeTab === 'agency' ? (
               /* --- BẢNG QUY MÔ & GIỮ CHÂN CÁC SÀN --- */
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
@@ -1137,12 +1137,12 @@ export const LeaderboardPage: React.FC = () => {
                 </tbody>
               </table>
             ) : (
-              /* --- BẢNG QUẢN LÝ TUYỂN DỤNG & PHÁT TRIỂN --- */
+              /* --- BẢNG QUẢN LÝ / NHÂN SỰ TUYỂN DỤNG & PHÁT TRIỂN --- */
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                   <tr>
                     <th className="p-3 text-center w-14">Hạng</th>
-                    <th className="p-3">Quản Lý Tuyển Dụng</th>
+                    <th className="p-3">Nhà Tuyển Dụng / Quản Lý</th>
                     <th className="p-3">Chức Vụ & Đơn Vị</th>
                     <th className="p-3 text-center">Nhân Sự Tuyển Mới</th>
                     <th className="p-3 text-center">Đạt Thử Việc</th>
@@ -1153,7 +1153,7 @@ export const LeaderboardPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {recruiters.map((rec, idx) => (
+                  {filteredRecruiters.map((rec, idx) => (
                     <tr key={rec.recruiterId} className="hover:bg-slate-50/80 transition-colors">
                       <td className="p-3 text-center">
                         <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${
