@@ -62,7 +62,7 @@ import {
   UserPlus
 } from 'lucide-react';
 
-type CompetitionTab = 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+type CompetitionTab = 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
 type RankingMetric = 'revenue' | 'contracts_count' | 'commission' | 'recruitment';
 
 export const LeaderboardPage: React.FC = () => {
@@ -302,6 +302,7 @@ export const LeaderboardPage: React.FC = () => {
     }
 
     const tabName = 
+      activeTab === 'region' ? 'Cac_Vung' :
       activeTab === 'agency' ? 'Các_San' :
       activeTab === 'sales_manager' ? 'Truong_Phong' :
       activeTab === 'team' ? 'Doi_Nhom' : 'Sale_Agents';
@@ -309,6 +310,7 @@ export const LeaderboardPage: React.FC = () => {
     exportToExcel({
       filename: `Bang_Thi_Dua_${tabName}_${new Date().toISOString().slice(0, 10)}`,
       title: `BẢNG XẾP HẠNG THI ĐUA - ${
+        activeTab === 'region' ? 'CÁC VÙNG KINH DOANH' :
         activeTab === 'agency' ? 'CÁC SÀN GIAO DỊCH' :
         activeTab === 'sales_manager' ? 'TRƯỞNG PHÒNG & GIÁM ĐỐC SÀN' :
         activeTab === 'team' ? 'ĐỘI NHÓM KINH DOANH' : 'CHUYÊN VIÊN TƯ VẤN (SALE)'
@@ -663,8 +665,20 @@ export const LeaderboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* 2. 4 TABS THI ĐUA (SÀN, TRƯỞNG PHÒNG, TEAM, SALE) */}
+      {/* 2. CÁC TABS THI ĐUA (VÙNG, SÀN, TRƯỞNG PHÒNG, TEAM, SALE) */}
       <div className="flex flex-wrap items-center gap-2 bg-slate-200/70 p-1.5 rounded-2xl w-fit">
+        <button
+          onClick={() => setActiveTab('region')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'region'
+              ? 'bg-white text-blue-600 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Layers className="h-4 w-4" />
+          <span>Thi Đua Các Vùng</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('agency')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${

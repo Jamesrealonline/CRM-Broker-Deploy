@@ -110,14 +110,34 @@ CRM-Broker/
 
 ---
 
-## 4. HỆ THỐNG 6 VAI TRÒ & PHÂN QUYỀN (RBAC)
+## 4. HỆ THỐNG 9 VAI TRÒ & PHÂN CẤP CƠ CẤU 3 KHỐI (RBAC & ORG TREE)
 
-1. **`admin` (Quản trị viên Hệ thống)**: Toàn quyền cấu hình, quản trị tài khoản, cài đặt Webhook/SLA, kích hoạt tính năng đóng giả vai trò (Impersonation).
-2. **`director` (Ban Giám đốc)**: Xem báo cáo tài chính toàn diện, doanh thu hoa hồng, phê duyệt giao dịch lớn, xem thi đua toàn công ty.
-3. **`sales_manager` (Giám đốc Sàn / Trưởng phòng KD)**: Phân bổ lead cho sàn, giám sát SLA 24h, thu hồi lead quá hạn, gia hạn hạn chăm sóc, xem hiệu suất sàn.
-4. **`team_leader` (Trưởng nhóm Kinh doanh)**: Nhận cảnh báo lead quá hạn của nhóm, phân bổ nội bộ team, hỗ trợ sale chốt deal, duyệt kịch bản chăm sóc.
-5. **`sale_agent` (Chuyên viên Tư vấn)**: Tiếp nhận lead, cập nhật nhật ký chăm sóc, nhận email bàn giao kèm AI Script, theo dõi hạn SLA 24h, tạo giao dịch cọc/HĐMB.
-6. **`marketing_manager` (Trưởng phòng Marketing)**: Theo dõi chất lượng nguồn lead (CPL, ROI), bị che mờ số điện thoại để tuân thủ Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân.
+### 4.1. Cơ Cấu Tổ Chức 3 Khối Trực Thuộc Tổng Giám Đốc (CEO)
+```text
+Tổng Giám Đốc (ceo)
+ ├─ Khối Kinh Doanh:
+ │    └─ Giám Đốc Vùng (regional_director)
+ │         └─ Giám Đốc Sàn (director)
+ │              └─ Trưởng Phòng Kinh Doanh (sales_manager)
+ │                   └─ Trưởng Nhóm (team_leader)
+ │                        └─ Chuyên Viên Tư Vấn (sale_agent)
+ ├─ Khối Marketing:
+ │    └─ Giám Đốc / Trưởng Marketing (marketing_manager) → Các Đơn Vị Marketing
+ └─ Khối Nhân Sự:
+      └─ Giám Đốc / Trưởng HR (hr_admin) → Nhân Viên HR
+[Quản trị Kỹ Thuật: admin - Quản trị hệ thống, không nằm trong chuỗi chỉ huy kinh doanh]
+```
+
+### 4.2. Chi Tiết 9 Vai Trò & Ma Trận Phân Quyền
+1. **`ceo` (Tổng Giám Đốc)**: Lãnh đạo tối cao toàn doanh nghiệp, xem toàn bộ dữ liệu, phê duyệt các hợp đồng đặc biệt lớn (>30 tỷ VNĐ), phê duyệt điều chuyển nhân sự khác vùng kinh doanh, toàn quyền xem PII không che và không giới hạn.
+2. **`regional_director` (Giám Đốc Vùng)**: Quản lý toàn diện các Sàn giao dịch thuộc Vùng kinh doanh của mình (`region_id`), phê duyệt hợp đồng từ 15 đến 30 tỷ VNĐ, phê duyệt điều chuyển nhân sự giữa các sàn trong vùng, xem PII đầy đủ của khách hàng trong vùng.
+3. **`director` (Giám Đốc Sàn)**: Toàn quyền quản trị dữ liệu thuộc sàn của mình (`agency_id`), phê duyệt hợp đồng từ 5 đến 15 tỷ VNĐ, xem PII đầy đủ khách hàng trong sàn, phê duyệt điều chuyển giữa các đội nhóm trong sàn. (Hỗ trợ cờ cấu hình `director_global_scope` để mở rộng ra toàn hệ thống nếu được cấp phép).
+4. **`sales_manager` (Trưởng Phòng Kinh Doanh)**: Giám sát các đội nhóm kinh doanh thuộc phòng, phân bổ lead cho sàn, giám sát SLA 24h, thu hồi lead quá hạn, phê duyệt hợp đồng tiêu chuẩn đến 5 tỷ VNĐ.
+5. **`team_leader` (Trưởng Nhóm Kinh Doanh)**: Quản lý chuyên viên tư vấn trong team (`team_id`), hỗ trợ chốt deal, phân bổ lead nội bộ nhóm, nhận cảnh báo SLA trước 4 giờ.
+6. **`sale_agent` (Chuyên viên Tư vấn)**: Tiếp nhận lead, cập nhật nhật ký chăm sóc, nhận email bàn giao kèm AI Script, theo dõi hạn SLA 24h, tạo giao dịch cọc/HĐMB; chỉ xem được dữ liệu của chính mình.
+7. **`marketing_manager` (Giám Đốc / Trưởng Marketing)**: Trực thuộc Tổng Giám Đốc, quản lý chiến dịch mở bán, Lead Ads, CPL, ROI; che mờ PII khách hàng theo Nghị định 13/2023/NĐ-CP; xem tổng quan hiệu suất các sàn.
+8. **`hr_admin` (Giám Đốc / Trưởng HR)**: Trực thuộc Tổng Giám Đốc, quản trị vòng đời nhân sự 360°, tuyển dụng ATS, tiếp nhận điều chuyển, quản lý hợp đồng lao động và chứng chỉ môi giới; che mờ PII khách hàng, xem trực tiếp thông tin hồ sơ nhân sự nội bộ.
+9. **`admin` (Quản trị viên Hệ thống)**: Toàn quyền kỹ thuật, phân quyền, cấu hình hạ tầng, Webhook/SLA, kích hoạt tính năng Impersonation an toàn (chế độ chỉ đọc); không thể bị xóa nếu là admin cuối cùng.
 
 ---
 

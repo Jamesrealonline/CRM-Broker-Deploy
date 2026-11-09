@@ -6,13 +6,15 @@
 import { LeadStatus, UserRole, EmploymentType, DateRangePreset } from './types';
 
 export const USER_ROLES: { value: UserRole; label: string; description: string }[] = [
-  { value: 'admin', label: 'Quản Trị Viên (Admin)', description: 'Toàn quyền quản trị hệ thống, phân quyền, cấu hình' },
-  { value: 'director', label: 'Ban Giám Đốc (Director)', description: 'Xem toàn bộ báo cáo, KPI doanh số và điều phối toàn hệ thống' },
-  { value: 'hr_admin', label: 'Quản Trị Nhân Sự (HR Admin)', description: 'Quản lý vòng đời nhân sự, tuyển dụng, hợp đồng, chứng chỉ, nghỉ phép' },
-  { value: 'marketing_manager', label: 'Marketing Manager', description: 'Quản lý chiến dịch, nguồn lead, chi phí & tỷ lệ chuyển đổi' },
-  { value: 'sales_manager', label: 'Giám Đốc Sàn (Sales Manager)', description: 'Quản lý toàn bộ Team và doanh số thuộc Sàn phân phối' },
+  { value: 'admin', label: 'Quản Trị Kỹ Thuật (Admin)', description: 'Toàn quyền quản trị hệ thống, hạ tầng kỹ thuật và phân quyền' },
+  { value: 'ceo', label: 'Tổng Giám Đốc (CEO)', description: 'Lãnh đạo cao nhất, điều hành toàn bộ Khối Kinh Doanh, Marketing và HR' },
+  { value: 'regional_director', label: 'Giám Đốc Vùng (Regional Director)', description: 'Quản lý toàn bộ các Sàn giao dịch thuộc Vùng kinh doanh' },
+  { value: 'director', label: 'Giám Đốc Sàn (Agency Director)', description: 'Điều hành toàn bộ hoạt động, nhân sự và doanh số của Sàn' },
+  { value: 'sales_manager', label: 'Trưởng Phòng Kinh Doanh (Sales Manager)', description: 'Quản lý các Đội nhóm kinh doanh và phòng ban' },
   { value: 'team_leader', label: 'Trưởng Nhóm (Team Leader)', description: 'Quản lý giỏ Lead và hỗ trợ chốt deal của Team' },
   { value: 'sale_agent', label: 'Chuyên Viên Tư Vấn (Sale Agent)', description: 'Chăm sóc khách hàng, tư vấn dự án và thực hiện giao dịch' },
+  { value: 'marketing_manager', label: 'Giám Đốc Marketing (Marketing Head)', description: 'Trực thuộc Tổng giám đốc, quản lý các đơn vị marketing & chiến dịch' },
+  { value: 'hr_admin', label: 'Giám Đốc/Trưởng HR (HR Head)', description: 'Trực thuộc Tổng giám đốc, quản lý vòng đời nhân sự toàn công ty' },
 ];
 
 export const JOURNEY_STAGES: {

@@ -73,3 +73,58 @@
   - *Dọn dẹp sạch sẽ:* Cung cấp chức năng `purge_sample_data` ở cả RPC DB và UI Admin để dọn sạch toàn bộ dữ liệu mẫu một cách an toàn mà không làm mất bất kỳ dữ liệu thực nào.
 - **Quyết định 6.5: Chuẩn hóa Bộ lọc thời gian dùng chung (DateRangeFilter & useDateRange)**
   - *Phương án chọn:* Thống nhất bộ lọc thời gian theo múi giờ Việt Nam `Asia/Ho_Chi_Minh` (UTC+7), hỗ trợ 9 preset nhanh + tùy chọn ngày (Custom Range), có tính toán kỳ đối chiếu liền trước (Previous Period Comparison), tự động đồng bộ URL Params và ghi nhớ tùy chọn người dùng qua `localStorage`.
+
+---
+
+## 7. ĐIỀU CHỈNH CƠ CẤU TỔ CHỨC: TỔNG GIÁM ĐỐC, GIÁM ĐỐC VÙNG & 3 KHỐI ĐIỀU HÀNH (GIAI ĐOẠN 9 - FEAT/ORG-CEO-REGIONAL-DIVISIONS)
+- **Quyết định 7.1: Ánh xạ và bổ sung vai trò additive**
+  - *Giữ nguyên mã vai trò:* `director` = Giám đốc Sàn (bảo toàn toàn bộ quyền hạn và RLS đã thiết lập ở các giai đoạn trước). Thay thế triệt để các nhãn hiển thị cũ "Ban Giám đốc" thành "Giám đốc Sàn".
+  - *Thêm vai trò mới:*
+    • `ceo`: Tổng Giám Đốc (Lãnh đạo tối cao của toàn bộ hệ sinh thái doanh nghiệp).
+    • `regional_director`: Giám đốc Vùng (Lãnh đạo phụ trách khu vực/vùng kinh doanh, quản lý các Giám đốc Sàn).
+  - *Chuẩn hóa chức danh:* `sales_manager` = Trưởng phòng Kinh doanh; `team_leader` = Trưởng nhóm; `sale_agent` = Chuyên viên tư vấn; `marketing_manager` = Giám đốc/Trưởng Marketing (trực thuộc CEO); `hr_admin` = Giám đốc/Trưởng HR (trực thuộc CEO); `admin` = Quản trị kỹ thuật (toàn quyền hệ thống, không thuộc chuỗi quản lý bán hàng).
+- **Quyết định 7.2: Mô hình cơ cấu tổ chức 3 Khối (Divisions) và Vùng kinh doanh (Regions)**
+  - *Cơ cấu 3 khối độc lập dưới CEO:*
+    • Khối Kinh Doanh (SALES): Gồm các Vùng kinh doanh (`regions`) → Sàn giao dịch (`agencies`) → Phòng ban (`departments`) → Đội nhóm (`teams`) → Chuyên viên (`sale_agent`).
+    • Khối Marketing (MARKETING): Gồm các Đơn vị Marketing (`marketing_units`), trực thuộc CEO thay vì phụ thuộc giám đốc sàn; quản lý đa kênh và chia sẻ nguồn lead cross-vùng.
+    • Khối Nhân Sự (HR): Gồm bộ máy tuyển dụng, đào tạo, hồ sơ 360°, hợp đồng lao động, trực thuộc CEO.
+  - *Bảng mới:* `regions`, `divisions`, `company_settings`, `org_position_levels`. Bổ sung cột `agencies.region_id` (trỏ về Vùng).
+- **Quyết định 7.3: Mở rộng thẩm quyền xem PII cho CEO và Giám đốc Vùng**
+  - *Nguyên tắc:* Cấp trên không được có ít quyền hơn cấp dưới trong phạm vi quản lý bao trùm.
+  - *Phạm vi:* CEO xem PII đầy đủ toàn công ty. Giám đốc Vùng xem PII đầy đủ toàn bộ các sàn trong vùng của mình. Giữ nguyên che PII đối với Trưởng phòng, Trưởng nhóm, Sale; Khối Marketing và HR không được xem PII khách hàng.
+- **Quyết định 7.4: Quy trình Maker-Checker đa tầng theo ngưỡng giá trị hợp đồng**
+  - *Phương án:*
+    • Cấp 1 (Trưởng nhóm + Trưởng phòng): Duyệt hợp đồng tiêu chuẩn.
+    • Cấp 2 (Vượt ngưỡng 1 - Mặc định > 5 tỷ VNĐ): Giám đốc Sàn duyệt.
+    • Cấp 3 (Vượt ngưỡng 2 - Mặc định > 15 tỷ VNĐ): Giám đốc Vùng duyệt.
+    • Cấp 4 (Vượt ngưỡng 3 - Mặc định > 30 tỷ VNĐ): Tổng Giám Đốc duyệt.
+  - *Bảo mật thẩm quyền:* Chặn tự phê duyệt chính mình (Maker ≠ Checker). Người duyệt bắt buộc nằm trong chuỗi trực thuộc hoặc Admin.
+- **Quyết định 7.5: Quy trình điều chuyển nhân sự đa cấp & Bảo vệ vị trí**
+  - *Thẩm quyền:* Cùng phòng do Trưởng phòng duyệt; khác phòng cùng sàn do Giám đốc Sàn duyệt; khác sàn cùng vùng do Giám đốc Vùng duyệt; khác vùng do Tổng Giám Đốc duyệt. Bổ nhiệm Giám đốc Sàn do Giám đốc Vùng đề xuất, CEO duyệt. Bổ nhiệm Giám đốc Vùng do CEO quyết định.
+  - *Bảo vệ cấu trúc:* Không được bỏ trống vị trí quản lý khi còn cấp dưới chưa gán; bắt buộc chọn người kế nhiệm hoặc người phụ trách tạm thời (acting) có thời hạn.
+- **Quyết định 7.6: Backfill an toàn & Xử lý trạng thái chuyển tiếp**
+  - *Phương án:* Tự động sinh Vùng mặc định "Chưa phân vùng" (`REG-DEFAULT`) chứa mọi sàn hiện có; không tự ý gán CEO hay Giám đốc Vùng cho bất kỳ tài khoản cũ nào. Trong giai đoạn chuyển tiếp, Admin tạm thời đóng vai trò Acting CEO kèm cảnh báo hệ thống (Action Required Banner).
+
+- **Quyết định 7.7: Maker-Checker Đa Tầng Theo Ngưỡng Giá Trị Hợp Đồng**
+  - *Bối cảnh:* Các thương vụ lớn cần sự thẩm định của cấp lãnh đạo tương ứng để kiểm soát rủi ro tài chính và dòng tiền hoa hồng.
+  - *Phương án:*
+    - $\le$ 5 tỷ VNĐ: Trưởng phòng kinh doanh (`sales_manager`) hoặc Giám đốc Sàn (`director`) duyệt.
+    - \> 5 tỷ VNĐ: Cần Giám đốc Sàn (`director`) hoặc cao hơn duyệt (`requires_l1_approval = true`).
+    - \> 15 tỷ VNĐ: Cần Giám đốc Vùng (`regional_director`) hoặc cao hơn duyệt (`requires_l2_approval = true`).
+    - \> 30 tỷ VNĐ: Bắt buộc Tổng Giám Đốc (`ceo`) hoặc Admin duyệt (`requires_l3_approval = true`).
+    - Chặn hoàn toàn tự phê duyệt (Self-approval blocked).
+
+- **Quyết định 7.8: Phân Cấp Thẩm Quyền Điều Chuyển Nhân Sự**
+  - *Bối cảnh:* Ngăn chặn xáo trộn nhân sự tự ý giữa các đơn vị kinh doanh.
+  - *Phương án:*
+    - Cùng phòng / cùng nhóm: Trưởng phòng (`sales_manager`) duyệt.
+    - Khác phòng, cùng sàn: Giám đốc Sàn (`director`) duyệt.
+    - Khác sàn, cùng vùng: Giám đốc Vùng (`regional_director`) duyệt.
+    - Khác vùng kinh doanh / toàn công ty: Tổng Giám Đốc (`ceo`) hoặc Admin duyệt.
+
+- **Quyết định 7.9: Trực Quan Hóa Bảng Thi Đua & Bỏ Ẩn Thông Tin Định Danh Nhân Sự Nội Bộ**
+  - *Bối cảnh:* Chủ hệ thống yêu cầu thông tin định danh nhân sự nội bộ (CCCD, MST, STK ngân hàng) được hiển thị trực tiếp cho cấp quản lý để thuận tiện đối soát hoa hồng và chi trả lương, không bắt nhập lý do hoặc bấm mở khóa. Đối với khách hàng bên ngoài, vẫn tiếp tục duy trì bảo vệ PII nghiêm ngặt theo Nghị định 13/2023/NĐ-CP.
+  - *Phương án:*
+    - Bảng thi đua hỗ trợ tab Vùng (`region`), Sàn (`agency`), Trưởng phòng/GĐ sàn (`sales_manager`), Team (`team`), Chuyên viên (`sale_agent`).
+    - Tiêu chí xếp hạng linh hoạt gồm: Doanh Số, Số HĐMB, Hoa Hồng, và Tuyển Dụng & Nhân Sự.
+    - Giao diện Hồ sơ 360° nhân sự hiển thị đầy đủ thông tin định danh không cần che.

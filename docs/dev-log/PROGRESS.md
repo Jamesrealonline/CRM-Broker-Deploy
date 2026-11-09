@@ -119,3 +119,15 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 - [x] **10.4** Bộ lọc thời gian dùng chung (`DateRangeFilter` & `useDateRange` hook) chuẩn hóa múi giờ `Asia/Ho_Chi_Minh` (UTC+7), hỗ trợ 9 presets + tùy chọn ngày, so sánh kỳ trước (±%), đồng bộ URL params và lưu sở thích `localStorage`.
 - [x] **10.5** Quản trị Dữ liệu mẫu: Khởi tạo 10 lead mẫu gắn nhãn `is_sample = true`, phân bổ qua 10 trạng thái; Nút bật/tắt hiển thị dữ liệu mẫu trên UI; Chức năng `purge_sample_data` dọn sạch dữ liệu mẫu an toàn; Miễn trừ dữ liệu mẫu khỏi email thật và phạt SLA.
 - [x] **10.6** Kiểm thử hồi quy toàn diện: Đạt 212/212 tests pass 100% trên 26 test files, `tsc --noEmit` & `npm run build` thành công 100%. Đã áp dụng migration 026 và chạy seed thành công trên Supabase Production.
+
+---
+
+### Giai đoạn 11 – Tái Cấu Trúc Cơ Cấu Tổ Chức & Phân Quyền: Tổng Giám Đốc, Giám Đốc Vùng & 3 Khối Chức Năng (HOÀN THÀNH)
+- [x] **11.1** Bổ sung vai trò `ceo` (Tổng Giám Đốc) và `regional_director` (Giám Đốc Vùng); Giữ nguyên mã vai trò `director` cho Giám Đốc Sàn; Khối Marketing (`marketing_manager`) và Khối HR (`hr_admin`) trực thuộc trực tiếp CEO ngang hàng Khối Kinh Doanh.
+- [x] **11.2** Migration SQL additive `027_ceo_regional_divisions_and_org_restructure.sql` & rollback script: Bảng `regions`, `divisions`, `company_settings`, `org_position_levels`, thêm cột `region_id` vào `agencies`, `division_id` vào `marketing_units`, các cột đa tầng và snapshot vào `transactions`, backfill Vùng mặc định `REG-DEFAULT`.
+- [x] **11.3** Phân cấp phê duyệt hợp đồng đa tầng (Multi-tier Maker-Checker): $\le$ 5 tỷ (Trưởng phòng/GĐ sàn), > 5 tỷ (GĐ Sàn), > 15 tỷ (GĐ Vùng), > 30 tỷ (CEO/Admin). Chặn tự phê duyệt.
+- [x] **11.4** Phân cấp điều chuyển nhân sự: Cùng phòng (Trưởng phòng), khác phòng cùng sàn (GĐ Sàn), khác sàn cùng vùng (GĐ Vùng), khác vùng kinh doanh (CEO). Chặn tự phê duyệt.
+- [x] **11.5** Cập nhật Giao diện Cây Tổ Chức 3 Khối bắt đầu từ CEO tại `/hr`, tích hợp Hộp Việc Cần Xử Lý (Action Required Banner) phát hiện sàn thiếu vùng, vùng thiếu GĐ vùng, sàn thiếu GĐ sàn.
+- [x] **11.6** Chuẩn hóa Bảng Thi Đua `/leaderboard`: Bổ sung tab Thi Đua Các Vùng (`region`), các tiêu chí xếp hạng Doanh Số / Số HĐMB / Hoa Hồng / Tuyển Dụng & Nhân Sự. Hiển thị thông tin định danh nhân sự nội bộ trực tiếp đầy đủ, bỏ modal tra cứu nhạy cảm rườm rà.
+- [x] **11.7** Kiểm thử tự động toàn diện: Đạt 247/247 tests passed 100% trên 28 test files, `npx tsc --noEmit` 0 lỗi, `npm run build` thành công xuất sắc.
+

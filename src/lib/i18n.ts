@@ -23,6 +23,8 @@ export const DICTIONARY = {
     },
     roles: {
       admin: 'Quản trị viên Hệ thống',
+      ceo: 'Tổng Giám Đốc',
+      regional_director: 'Giám Đốc Vùng',
       director: 'Giám đốc Sàn',
       sales_manager: 'Trưởng phòng Kinh doanh',
       team_leader: 'Trưởng nhóm',
@@ -83,6 +85,8 @@ export const DICTIONARY = {
     },
     roles: {
       admin: 'System Administrator',
+      ceo: 'Chief Executive Officer (CEO)',
+      regional_director: 'Regional Director',
       director: 'Agency Director',
       sales_manager: 'Sales Manager',
       team_leader: 'Team Leader',

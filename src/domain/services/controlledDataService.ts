@@ -44,8 +44,8 @@ export class ControlledDataService {
     targetAgencyId?: string, 
     targetUser?: UserProfile
   ): void {
-    if (!['admin', 'director'].includes(operator.role)) {
-      throw new Error('Chỉ Admin hoặc Giám đốc Sàn mới có quyền quản trị sửa/xóa dữ liệu.');
+    if (!['admin', 'ceo', 'regional_director', 'director'].includes(operator.role)) {
+      throw new Error('Chỉ Admin, Tổng Giám Đốc, Giám Đốc Vùng hoặc Giám đốc Sàn mới có quyền quản trị sửa/xóa dữ liệu.');
     }
 
     // Impersonation check: Chặn mọi thao tác nhạy cảm khi đang mượn quyền
@@ -53,28 +53,52 @@ export class ControlledDataService {
       throw new Error('Từ chối thao tác: Không được phép sửa/xóa dữ liệu trong chế độ Giả lập góc nhìn (Impersonation).');
     }
 
+    // Giám đốc Vùng: chỉ thao tác trong vùng của mình, không đụng CEO/Admin
+    if (operator.role === 'regional_director') {
+      if (targetUser) {
+        if (targetUser.role === 'admin' || targetUser.role === 'ceo') {
+          throw new Error('Giám đốc Vùng không được phép sửa/xóa tài khoản của Admin hoặc Tổng Giám Đốc.');
+        }
+      }
+      if (targetAgencyId && operator.region_id) {
+        const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
+        const targetAgency = agencies.find(a => a.id === targetAgencyId);
+        if (targetAgency && targetAgency.region_id && targetAgency.region_id !== operator.region_id) {
+          throw new Error('Giám đốc Vùng chỉ có quyền thao tác trên dữ liệu thuộc vùng của mình.');
+        }
+      }
+    }
+
     // Giám đốc Sàn chỉ được thao tác trong sàn của mình (trừ khi bật directorGlobalScope)
-    const directorGlobalScope = typeof window !== 'undefined' && localStorage.getItem('crm_director_global_scope') === 'true';
+    const directorGlobalScope = typeof localStorage !== 'undefined' && localStorage.getItem('crm_director_global_scope') === 'true';
 
     if (operator.role === 'director' && !directorGlobalScope) {
       if (targetAgencyId && targetAgencyId !== operator.agency_id) {
         throw new Error('Giám đốc Sàn chỉ có quyền thao tác trên dữ liệu thuộc sàn của mình.');
       }
 
-      // Không được thao tác trên tài khoản Admin hoặc Director khác
+      // Không được thao tác trên tài khoản Admin, CEO, Giám đốc Vùng hoặc Director khác
       if (targetUser) {
-        if (targetUser.role === 'admin' || targetUser.role === 'director') {
+        if (['admin', 'ceo', 'regional_director', 'director'].includes(targetUser.role)) {
           throw new Error('Giám đốc Sàn không được phép sửa/xóa tài khoản của Admin hoặc Giám đốc Sàn khác.');
         }
       }
     }
 
-    // Chống xóa hoặc khóa Admin cuối cùng của hệ thống
+    // Chống xóa hoặc khóa Admin hoặc CEO duy nhất còn lại của hệ thống
     if (targetUser && targetUser.role === 'admin') {
       const profiles: UserProfile[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PROFILES) || '[]');
       const activeAdmins = profiles.filter(p => p.role === 'admin' && p.status === 'active');
       if (activeAdmins.length <= 1 && targetUser.id === activeAdmins[0]?.id) {
         throw new Error('Không thể khóa hoặc xóa Quản trị viên (Admin) duy nhất còn lại của hệ thống.');
+      }
+    }
+
+    if (targetUser && targetUser.role === 'ceo') {
+      const profiles: UserProfile[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PROFILES) || '[]');
+      const activeCeos = profiles.filter(p => p.role === 'ceo' && p.status === 'active');
+      if (activeCeos.length <= 1 && targetUser.id === activeCeos[0]?.id) {
+        throw new Error('Không thể khóa hoặc xóa Tổng Giám Đốc (CEO) duy nhất còn lại của doanh nghiệp.');
       }
     }
   }

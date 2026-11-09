@@ -18,7 +18,11 @@ import {
   AuditLog,
   LeadActivity,
   LeadStatusHistory,
-  LeadSource
+  LeadSource,
+  Region,
+  Division,
+  CompanySettings,
+  OrgPositionLevel
 } from '../domain/types';
 
 export const INITIAL_LEAD_SOURCES: LeadSource[] = [
@@ -55,20 +59,115 @@ export const INITIAL_ORGS: Organization[] = [
   },
 ];
 
+export const INITIAL_REGIONS: Region[] = [
+  {
+    id: '33333333-1111-1111-1111-111111111111',
+    organization_id: '11111111-1111-1111-1111-111111111111',
+    name: 'Vùng Kinh Doanh Miền Nam 1 (Đông Sài Gòn & Thủ Đức)',
+    code: 'REG-MN1',
+    regional_director_id: 'aaaaaaaa-7777-1111-1111-111111111111',
+    regional_director_name: 'Đặng Quốc Toàn (Giám Đốc Vùng 1)',
+    status: 'active',
+    description: 'Phụ trách thị trường trọng điểm Quận 1, Quận 2, Thủ Đức và khu Đông',
+    agency_count: 2,
+    total_members: 12,
+  },
+  {
+    id: '33333333-2222-1111-1111-111111111111',
+    organization_id: '11111111-1111-1111-1111-111111111111',
+    name: 'Vùng Kinh Doanh Miền Nam 2 (Nam Sài Gòn & Miền Tây)',
+    code: 'REG-MN2',
+    regional_director_id: 'aaaaaaaa-8888-1111-1111-111111111111',
+    regional_director_name: 'Phan Minh Đức (Giám Đốc Vùng 2)',
+    status: 'active',
+    description: 'Phụ trách thị trường Quận 7, Nhà Bè, Bình Chánh và các tỉnh Tây Nam Bộ',
+    agency_count: 1,
+    total_members: 6,
+  },
+  {
+    id: '33333333-0000-1111-1111-111111111111',
+    organization_id: '11111111-1111-1111-1111-111111111111',
+    name: 'Vùng Chưa Phân Vùng',
+    code: 'REG-DEFAULT',
+    status: 'active',
+    description: 'Vùng mặc định chuyển tiếp cho các sàn mới thành lập hoặc chưa phân vùng',
+    agency_count: 0,
+    total_members: 0,
+  },
+];
+
+export const INITIAL_DIVISIONS: Division[] = [
+  {
+    id: 'div-sales',
+    code: 'SALES',
+    name: 'Khối Kinh Doanh',
+    ceo_id: 'aaaaaaaa-0000-1111-1111-111111111111',
+    ceo_name: 'Nguyễn Thành Nam (Tổng Giám Đốc)',
+  },
+  {
+    id: 'div-mkt',
+    code: 'MARKETING',
+    name: 'Khối Marketing',
+    head_id: 'aaaaaaaa-3333-1111-1111-111111111111',
+    head_name: 'Lê Thu Hà (Marketing Manager)',
+    ceo_id: 'aaaaaaaa-0000-1111-1111-111111111111',
+    ceo_name: 'Nguyễn Thành Nam (Tổng Giám Đốc)',
+  },
+  {
+    id: 'div-hr',
+    code: 'HR',
+    name: 'Khối Nhân Sự',
+    head_id: 'aaaaaaaa-9999-1111-1111-111111111111',
+    head_name: 'Nguyễn Thị Thu Thủy (Giám Đốc HR)',
+    ceo_id: 'aaaaaaaa-0000-1111-1111-111111111111',
+    ceo_name: 'Nguyễn Thành Nam (Tổng Giám Đốc)',
+  },
+];
+
+export const INITIAL_COMPANY_SETTINGS: CompanySettings = {
+  id: 'settings-default',
+  ceo_id: 'aaaaaaaa-0000-1111-1111-111111111111',
+  ceo_name: 'Nguyễn Thành Nam (Tổng Giám Đốc)',
+  approval_threshold_l1: 5000000000,
+  approval_threshold_l2: 15000000000,
+  approval_threshold_l3: 30000000000,
+  director_global_scope: false,
+  sla_severe_breach_threshold: 5,
+};
+
+export const INITIAL_ORG_POSITIONS: OrgPositionLevel[] = [
+  { id: 'pos-1', code: 'POS_CEO', title: 'Tổng Giám Đốc', track: 'executive', level: 1, description: 'Lãnh đạo tối cao toàn doanh nghiệp' },
+  { id: 'pos-2', code: 'POS_REG_DIR', title: 'Giám Đốc Vùng', track: 'sales', level: 2, description: 'Quản lý toàn bộ sàn thuộc vùng kinh doanh' },
+  { id: 'pos-3', code: 'POS_AGY_DIR', title: 'Giám Đốc Sàn', track: 'sales', level: 3, description: 'Điều hành hoạt động sàn giao dịch' },
+  { id: 'pos-4', code: 'POS_DEPT_HEAD', title: 'Trưởng Phòng Kinh Doanh', track: 'sales', level: 4, description: 'Quản lý phòng kinh doanh' },
+  { id: 'pos-5', code: 'POS_TEAM_LEADER', title: 'Trưởng Nhóm', track: 'sales', level: 5, description: 'Quản lý đội nhóm tư vấn' },
+  { id: 'pos-6', code: 'POS_SALE', title: 'Chuyên Viên Tư Vấn', track: 'sales', level: 6, description: 'Chuyên viên tư vấn & bán hàng' },
+  { id: 'pos-7', code: 'POS_MKT_HEAD', title: 'Giám Đốc Marketing', track: 'marketing', level: 2, description: 'Trực thuộc Tổng giám đốc, lãnh đạo Khối Marketing' },
+  { id: 'pos-8', code: 'POS_MKT_SPEC', title: 'Chuyên Viên Marketing', track: 'marketing', level: 6, description: 'Triển khai chiến dịch & lead generation' },
+  { id: 'pos-9', code: 'POS_HR_HEAD', title: 'Giám Đốc HR', track: 'hr', level: 2, description: 'Trực thuộc Tổng giám đốc, lãnh đạo Khối Nhân sự' },
+  { id: 'pos-10', code: 'POS_HR_SPEC', title: 'Chuyên Viên HR', track: 'hr', level: 6, description: 'Vận hành hồ sơ, tuyển dụng & đào tạo' },
+];
+
 export const INITIAL_AGENCIES: Agency[] = [
   {
     id: '22222222-1111-1111-1111-111111111111',
     organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-1111-1111-1111-111111111111',
+    region_name: 'Vùng Kinh Doanh Miền Nam 1 (Đông Sài Gòn & Thủ Đức)',
     name: 'Sàn Giao Dịch Quận 1 (Trụ Sở)',
     code: 'S1-Q1',
     address: '68 Nguyễn Huệ, Q.1, TP.HCM',
     phone: '0901111111',
     email: 'sanq1@diaocvang.vn',
     status: 'active',
+    director_id: 'aaaaaaaa-2222-1111-1111-111111111111',
+    director_name: 'Trần Hải Nam (Giám Đốc Sàn Q1)',
   },
   {
     id: '22222222-2222-1111-1111-111111111111',
     organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-1111-1111-1111-111111111111',
+    region_name: 'Vùng Kinh Doanh Miền Nam 1 (Đông Sài Gòn & Thủ Đức)',
     name: 'Sàn Giao Dịch Thủ Đức',
     code: 'S2-TD',
     address: '128 Xa Lộ Hà Nội, TP. Thủ Đức',
@@ -79,6 +178,8 @@ export const INITIAL_AGENCIES: Agency[] = [
   {
     id: '22222222-3333-1111-1111-111111111111',
     organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-2222-1111-1111-111111111111',
+    region_name: 'Vùng Kinh Doanh Miền Nam 2 (Nam Sài Gòn & Miền Tây)',
     name: 'Sàn Giao Dịch Nam Sài Gòn',
     code: 'S3-NSG',
     address: '45 Nguyễn Thị Thập, Q.7, TP.HCM',
@@ -218,12 +319,12 @@ export const INITIAL_TEAMS: Team[] = [
   },
 ];
 
-// 6 TÀI KHOẢN ĐẠI DIỆN 6 VAI TRÒ CHUẨN MỰC
+// CÁC TÀI KHOẢN ĐẠI DIỆN CÁC VAI TRÒ CHUẨN MỰC TRONG CƠ CẤU DOANH NGHIỆP
 export const INITIAL_PROFILES: UserProfile[] = [
   {
     id: 'aaaaaaaa-1111-1111-1111-111111111111',
     email: 'admin@diaocvang.vn',
-    full_name: 'Quản Trị Viên Hệ Thống',
+    full_name: 'Quản Trị Viên Kỹ Thuật (Admin)',
     phone: '0911000001',
     role: 'admin',
     organization_id: '11111111-1111-1111-1111-111111111111',
@@ -232,12 +333,52 @@ export const INITIAL_PROFILES: UserProfile[] = [
     totp_enabled: true,
   },
   {
+    id: 'aaaaaaaa-0000-1111-1111-111111111111',
+    email: 'ceo@diaocvang.vn',
+    full_name: 'Nguyễn Thành Nam (Tổng Giám Đốc)',
+    phone: '0911000000',
+    role: 'ceo',
+    organization_id: '11111111-1111-1111-1111-111111111111',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: true,
+    is_sample: true,
+  },
+  {
+    id: 'aaaaaaaa-7777-1111-1111-111111111111',
+    email: 'gdvung1@diaocvang.vn',
+    full_name: 'Đặng Quốc Toàn (Giám Đốc Vùng 1)',
+    phone: '0911000007',
+    role: 'regional_director',
+    organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-1111-1111-1111-111111111111',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: true,
+    is_sample: true,
+  },
+  {
+    id: 'aaaaaaaa-8888-1111-1111-111111111111',
+    email: 'gdvung2@diaocvang.vn',
+    full_name: 'Phan Minh Đức (Giám Đốc Vùng 2)',
+    phone: '0911000008',
+    role: 'regional_director',
+    organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-2222-1111-1111-111111111111',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: true,
+    is_sample: true,
+  },
+  {
     id: 'aaaaaaaa-2222-1111-1111-111111111111',
     email: 'giamdoc@diaocvang.vn',
-    full_name: 'Trần Hải Nam (Tổng Giám Đốc)',
+    full_name: 'Trần Hải Nam (Giám Đốc Sàn Q1)',
     phone: '0911000002',
     role: 'director',
     organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-1111-1111-1111-111111111111',
+    agency_id: '22222222-1111-1111-1111-111111111111',
     status: 'active',
     must_change_password: false,
     totp_enabled: true,
@@ -245,7 +386,7 @@ export const INITIAL_PROFILES: UserProfile[] = [
   {
     id: 'aaaaaaaa-3333-1111-1111-111111111111',
     email: 'marketing@diaocvang.vn',
-    full_name: 'Lê Thu Hà (Marketing Manager)',
+    full_name: 'Lê Thu Hà (Giám Đốc Marketing)',
     phone: '0911000003',
     role: 'marketing_manager',
     organization_id: '11111111-1111-1111-1111-111111111111',
@@ -254,12 +395,25 @@ export const INITIAL_PROFILES: UserProfile[] = [
     totp_enabled: false,
   },
   {
+    id: 'aaaaaaaa-9999-1111-1111-111111111111',
+    email: 'hr@diaocvang.vn',
+    full_name: 'Nguyễn Thị Thu Thủy (Giám Đốc HR)',
+    phone: '0911000009',
+    role: 'hr_admin',
+    organization_id: '11111111-1111-1111-1111-111111111111',
+    status: 'active',
+    must_change_password: false,
+    totp_enabled: false,
+    is_sample: true,
+  },
+  {
     id: 'aaaaaaaa-4444-1111-1111-111111111111',
     email: 'gdsan@diaocvang.vn',
-    full_name: 'Nguyễn Hoàng Long (Giám Đốc Sàn Q1)',
+    full_name: 'Nguyễn Hoàng Long (Trưởng Phòng Kinh Doanh)',
     phone: '0911000004',
     role: 'sales_manager',
     organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-1111-1111-1111-111111111111',
     agency_id: '22222222-1111-1111-1111-111111111111',
     status: 'active',
     must_change_password: false,
@@ -268,10 +422,11 @@ export const INITIAL_PROFILES: UserProfile[] = [
   {
     id: 'aaaaaaaa-5555-1111-1111-111111111111',
     email: 'truongnhom@diaocvang.vn',
-    full_name: 'Vũ Đình Trọng (Team Leader Eagle)',
+    full_name: 'Vũ Đình Trọng (Trưởng Nhóm Eagle)',
     phone: '0911000005',
     role: 'team_leader',
     organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-1111-1111-1111-111111111111',
     agency_id: '22222222-1111-1111-1111-111111111111',
     team_id: '44444444-1111-1111-1111-111111111111',
     status: 'active',
@@ -285,6 +440,7 @@ export const INITIAL_PROFILES: UserProfile[] = [
     phone: '0911000006',
     role: 'sale_agent',
     organization_id: '11111111-1111-1111-1111-111111111111',
+    region_id: '33333333-1111-1111-1111-111111111111',
     agency_id: '22222222-1111-1111-1111-111111111111',
     team_id: '44444444-1111-1111-1111-111111111111',
     status: 'active',

@@ -509,6 +509,12 @@ export class ContractRepository {
       first_installment_paid: Boolean(payload.firstInstallmentPaid),
       payment_method: (payload.paymentMethod as any) || 'bank_transfer',
       status: 'pending', // Chờ duyệt theo Maker-Checker
+      agency_id: payload.currentUser.agency_id || undefined,
+      team_id: payload.currentUser.team_id || undefined,
+      region_id: payload.currentUser.region_id || undefined,
+      requires_l1_approval: dealVal > 5_000_000_000,
+      requires_l2_approval: dealVal > 15_000_000_000,
+      requires_l3_approval: dealVal > 30_000_000_000,
       notes: payload.notes || `Hợp đồng dự án ${payload.projectName || ''} - Căn ${payload.unitCode}`,
       created_by: payload.currentUser.id,
       created_at: new Date().toISOString(),
@@ -685,13 +691,13 @@ export class ContractRepository {
     return false;
   }
 
-  // 4. PHÊ DUYỆT HỢP ĐỒNG / HOA HỒNG (CƯỠNG CHẾ MAKER-CHECKER)
+  // 4. PHÊ DUYỆT HỢP ĐỒNG / HOA HỒNG (CƯỠNG CHẾ MAKER-CHECKER & PHÂN CẤP ĐA TẦNG)
   async approveContractTransaction(txId: string, approverUser: UserProfile): Promise<{ success: boolean; transaction?: Transaction }> {
     if (authRepository.isImpersonating()) {
       authRepository.assertNotImpersonating('phê duyệt hợp đồng');
     }
 
-    if (!['admin', 'director', 'sales_manager'].includes(approverUser.role)) {
+    if (!['admin', 'ceo', 'regional_director', 'director', 'sales_manager'].includes(approverUser.role)) {
       throw new Error(`Từ chối thao tác: Vai trò "${approverUser.role}" không có quyền phê duyệt hợp đồng/hoa hồng.`);
     }
 
@@ -716,6 +722,39 @@ export class ContractRepository {
 
     if (tx.approval_status === 'approved') {
       throw new Error(`Hợp đồng này đã được phê duyệt trước đó vào lúc ${tx.approved_at}.`);
+    }
+
+    // KIỂM TRA PHÂN CẤP PHÊ DUYỆT ĐA TẦNG THEO HẠN MỨC GIÁ TRỊ GIAO DỊCH
+    const dealValue = tx.deal_value || tx.amount || 0;
+
+    // 1. Trưởng phòng (sales_manager): Tối đa 5 tỷ VNĐ và phải cùng sàn
+    if (approverUser.role === 'sales_manager') {
+      if (tx.requires_l1_approval || dealValue > 5_000_000_000) {
+        throw new Error('Hợp đồng trên 5 tỷ VNĐ vượt hạn mức phê duyệt của Trưởng phòng. Yêu cầu Giám đốc Sàn phê duyệt.');
+      }
+      if (tx.agency_id && approverUser.agency_id && tx.agency_id !== approverUser.agency_id) {
+        throw new Error('Trưởng phòng chỉ được phê duyệt hợp đồng thuộc sàn của mình.');
+      }
+    }
+
+    // 2. Giám đốc Sàn (director): Tối đa 15 tỷ VNĐ và phải cùng sàn
+    if (approverUser.role === 'director') {
+      if (tx.requires_l2_approval || dealValue > 15_000_000_000) {
+        throw new Error('Hợp đồng trên 15 tỷ VNĐ vượt hạn mức phê duyệt của Giám đốc Sàn. Yêu cầu Giám đốc Vùng phê duyệt.');
+      }
+      if (tx.agency_id && approverUser.agency_id && tx.agency_id !== approverUser.agency_id) {
+        throw new Error('Giám đốc Sàn chỉ được phê duyệt hợp đồng thuộc sàn của mình.');
+      }
+    }
+
+    // 3. Giám đốc Vùng (regional_director): Tối đa 30 tỷ VNĐ và phải cùng vùng
+    if (approverUser.role === 'regional_director') {
+      if (tx.requires_l3_approval || dealValue > 30_000_000_000) {
+        throw new Error('Hợp đồng trên 30 tỷ VNĐ vượt hạn mức phê duyệt của Giám đốc Vùng. Yêu cầu Tổng Giám Đốc phê duyệt.');
+      }
+      if (tx.region_id && approverUser.region_id && tx.region_id !== approverUser.region_id) {
+        throw new Error('Giám đốc Vùng chỉ được phê duyệt hợp đồng thuộc vùng quản lý của mình.');
+      }
     }
 
     tx.approval_status = 'approved';
@@ -1050,7 +1089,7 @@ export class ContractRepository {
   // Xếp hạng giữa các Sàn, Trưởng phòng, Team, Sale với bộ lọc Dự án hoặc Toàn hệ thống
   // 3 chỉ số thi đua: Doanh số, Số HĐMB, Hoa hồng & % so với kỳ trước
   async getLeaderboard(params: {
-    type: 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+    type: 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
     projectId?: string;
     projectIds?: string[];
     timeFilter?: TimeRangeFilter;
@@ -1101,7 +1140,17 @@ export class ContractRepository {
       const comm = c.commission_amount || 0;
       const saleComm = c.sale_commission_amount || 0;
 
-      if (params.type === 'agency') {
+      if (params.type === 'region') {
+        key = c.region_id || 'reg-mien-nam';
+        name = key === 'reg-mien-bac' ? 'Vùng Kinh Doanh Miền Bắc' : key === 'reg-mien-nam' ? 'Vùng Kinh Doanh Miền Nam' : 'Vùng Chưa Phân';
+        subtitle = `Mã vùng: ${key}`;
+        if (!itemsMap[key]) {
+          itemsMap[key] = { id: key, name, subtitle, revenue: 0, contracts_count: 0, commission: 0 };
+        }
+        itemsMap[key].revenue += rev;
+        itemsMap[key].contracts_count += 1;
+        itemsMap[key].commission += comm;
+      } else if (params.type === 'agency') {
         key = c.agency_id || 'unknown-agency';
         name = c.agency_name || 'Sàn Giao Dịch';
         subtitle = `Mã sàn: ${key.slice(0, 8)}`;
@@ -1174,7 +1223,9 @@ export class ContractRepository {
       const empStatus = profile?.status || 'active';
 
       let memberCount = 1;
-      if (params.type === 'agency') {
+      if (params.type === 'region') {
+        memberCount = profiles.filter(p => p.region_id === item.id).length || 10;
+      } else if (params.type === 'agency') {
         memberCount = profiles.filter(p => p.agency_id === item.id).length || 5;
       } else if (params.type === 'team') {
         memberCount = profiles.filter(p => p.team_id === item.id).length || 3;

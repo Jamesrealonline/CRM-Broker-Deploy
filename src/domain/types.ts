@@ -5,6 +5,8 @@
 
 export type UserRole = 
   | 'admin' 
+  | 'ceo'
+  | 'regional_director'
   | 'director' 
   | 'hr_admin'
   | 'marketing_manager' 
@@ -22,8 +24,10 @@ export interface UserProfile {
   avatar_url?: string;
   role: UserRole;
   employment_type?: EmploymentType;
+  position_code?: string;
   is_sample?: boolean;
   organization_id?: string;
+  region_id?: string;
   agency_id?: string;
   team_id?: string;
   department_id?: string;
@@ -85,9 +89,61 @@ export interface Organization {
   address?: string;
 }
 
+export interface Region {
+  id: string;
+  organization_id?: string;
+  name: string;
+  code: string;
+  regional_director_id?: string;
+  regional_director_name?: string;
+  status: 'active' | 'inactive';
+  description?: string;
+  agency_count?: number;
+  total_members?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Division {
+  id: string;
+  code: 'SALES' | 'MARKETING' | 'HR';
+  name: string;
+  head_id?: string;
+  head_name?: string;
+  ceo_id?: string;
+  ceo_name?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CompanySettings {
+  id?: string;
+  ceo_id?: string;
+  ceo_name?: string;
+  acting_ceo_id?: string;
+  acting_ceo_until?: string;
+  approval_threshold_l1: number;
+  approval_threshold_l2: number;
+  approval_threshold_l3: number;
+  director_global_scope: boolean;
+  sla_severe_breach_threshold: number;
+  updated_at?: string;
+}
+
+export interface OrgPositionLevel {
+  id: string;
+  code: string;
+  title: string;
+  track: 'executive' | 'sales' | 'marketing' | 'hr';
+  level: number;
+  description?: string;
+}
+
 export interface Agency {
   id: string;
   organization_id: string;
+  region_id?: string;
+  region_name?: string;
   name: string;
   code: string;
   address?: string;
@@ -112,6 +168,31 @@ export interface Team {
   deleted_at?: string;
   deleted_by?: string;
   delete_reason?: string;
+
+  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  agency_director_id?: string;
+  agency_director_name?: string;
+  region_id?: string;
+  region_name?: string;
+  regional_director_id?: string;
+  regional_director_name?: string;
+  ceo_id?: string;
+  ceo_name?: string;
+  regional_commission_amount?: number;
+  regional_commission_rate?: number;
+  ceo_commission_amount?: number;
+  ceo_commission_rate?: number;
+
+  // Maker-Checker đa tầng theo ngưỡng hợp đồng (L1: Sàn, L2: Vùng, L3: CEO)
+  requires_l1_approval?: boolean;
+  requires_l2_approval?: boolean;
+  requires_l3_approval?: boolean;
+  l1_approved_by?: string;
+  l1_approved_at?: string;
+  l2_approved_by?: string;
+  l2_approved_at?: string;
+  l3_approved_by?: string;
+  l3_approved_at?: string;
 }
 
 export type RecognitionMilestone = 'deposit' | 'contract' | 'first_installment';
@@ -289,6 +370,31 @@ export interface Lead {
   deleted_by?: string;
   delete_reason?: string;
 
+  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  agency_director_id?: string;
+  agency_director_name?: string;
+  region_id?: string;
+  region_name?: string;
+  regional_director_id?: string;
+  regional_director_name?: string;
+  ceo_id?: string;
+  ceo_name?: string;
+  regional_commission_amount?: number;
+  regional_commission_rate?: number;
+  ceo_commission_amount?: number;
+  ceo_commission_rate?: number;
+
+  // Maker-Checker đa tầng theo ngưỡng hợp đồng (L1: Sàn, L2: Vùng, L3: CEO)
+  requires_l1_approval?: boolean;
+  requires_l2_approval?: boolean;
+  requires_l3_approval?: boolean;
+  l1_approved_by?: string;
+  l1_approved_at?: string;
+  l2_approved_by?: string;
+  l2_approved_at?: string;
+  l3_approved_by?: string;
+  l3_approved_at?: string;
+
   // Joined fields for display
   customer_name?: string;
   customer_phone?: string;
@@ -368,6 +474,31 @@ export interface Transaction {
   deleted_by?: string;
   delete_reason?: string;
 
+  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  agency_director_id?: string;
+  agency_director_name?: string;
+  region_id?: string;
+  region_name?: string;
+  regional_director_id?: string;
+  regional_director_name?: string;
+  ceo_id?: string;
+  ceo_name?: string;
+  regional_commission_amount?: number;
+  regional_commission_rate?: number;
+  ceo_commission_amount?: number;
+  ceo_commission_rate?: number;
+
+  // Maker-Checker đa tầng theo ngưỡng hợp đồng (L1: Sàn, L2: Vùng, L3: CEO)
+  requires_l1_approval?: boolean;
+  requires_l2_approval?: boolean;
+  requires_l3_approval?: boolean;
+  l1_approved_by?: string;
+  l1_approved_at?: string;
+  l2_approved_by?: string;
+  l2_approved_at?: string;
+  l3_approved_by?: string;
+  l3_approved_at?: string;
+
   // Joined fields for display
   customer_id?: string;
   customer_name?: string;
@@ -431,7 +562,7 @@ export interface AgencyPerformanceDetail {
 export interface LeaderboardItem {
   id: string;
   name: string;
-  type: 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+  type: 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
   subtitle?: string;
   avatar?: string;
   employment_type?: EmploymentType;
@@ -1272,6 +1403,8 @@ export interface Department {
 
 export interface MarketingUnit {
   id: string;
+  division_id?: string;
+  division_name?: string;
   name: string;
   manager_id?: string;
   manager_name?: string;
@@ -1284,12 +1417,30 @@ export interface MarketingUnit {
 export interface SaleChain {
   sale_id: string;
   sale_name: string;
+  sale_role?: UserRole;
+  sale_status?: string;
   team_id?: string;
+  team_name?: string;
   leader_id?: string;
+  leader_name?: string;
   department_id?: string;
+  department_name?: string;
   head_id?: string;
+  head_name?: string;
+  agency_id?: string;
+  agency_name?: string;
+  agency_director_id?: string;
+  agency_director_name?: string;
   director_id?: string;
+  director_name?: string;
+  region_id?: string;
+  region_name?: string;
+  regional_director_id?: string;
+  regional_director_name?: string;
+  ceo_id?: string;
+  ceo_name?: string;
   marketing_unit_id?: string;
+  marketing_unit_name?: string;
   marketing_manager_id?: string;
 }
 
@@ -1298,10 +1449,18 @@ export interface StructuralHealthReport {
   teamsWithoutLeaderCount: number;
   departmentsWithoutHeadCount: number;
   marketingUnitsWithoutManagerCount: number;
+  regionsWithoutDirectorCount?: number;
+  agenciesWithoutRegionCount?: number;
+  agenciesWithoutDirectorCount?: number;
   expiredActingCount: number;
   orphanSales: Array<{ id: string; name: string; missingLinks: string[] }>;
   teamsWithoutLeader: Array<{ id: string; name: string }>;
   departmentsWithoutHead: Array<{ id: string; name: string }>;
+  regionsWithoutDirector?: Array<{ id: string; name: string }>;
+  agenciesWithoutRegion?: Array<{ id: string; name: string }>;
+  agenciesWithoutDirector?: Array<{ id: string; name: string }>;
+  actingPositionsExpiring?: Array<{ id: string; name: string }>;
+  hasIssues?: boolean;
 }
 
 // ========================================================

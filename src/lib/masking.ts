@@ -50,24 +50,40 @@ export function maskName(name?: string | null): string {
 
 /**
  * Kiểm tra xem người dùng hiện tại có quyền xem PII (SĐT, CCCD, Email) đầy đủ hay không.
- * - Admin: Toàn hệ thống (không giới hạn, không che, không bắt nhập lý do).
+ * - Admin, CEO: Toàn hệ thống (không giới hạn, không che, không bắt nhập lý do).
+ * - Regional Director (Giám đốc Vùng): Toàn bộ sàn trong vùng của mình.
  * - Director (Giám đốc Sàn): Toàn bộ dữ liệu thuộc sàn của mình.
  *   Nếu bật cờ directorGlobalScope = true thì xem được toàn hệ thống.
- * - Các vai trò khác (sale_agent, team_leader, sales_manager, marketing_manager): Trả về false (luôn che).
+ * - Các vai trò khác (sale_agent, team_leader, sales_manager, marketing_manager, hr_admin): Trả về false (luôn che PII khách hàng).
  */
 export function canViewFullPII(
   user?: UserProfile | null, 
   targetAgencyId?: string, 
+  targetRegionIdOrDirectorGlobalScope?: string | boolean,
   directorGlobalScope = false
 ): boolean {
   if (!user || user.status !== 'active') return false;
   
-  if (user.role === 'admin') {
+  let targetRegionId: string | undefined;
+  let isDirectorGlobalScope = directorGlobalScope;
+
+  if (typeof targetRegionIdOrDirectorGlobalScope === 'boolean') {
+    isDirectorGlobalScope = targetRegionIdOrDirectorGlobalScope;
+  } else if (typeof targetRegionIdOrDirectorGlobalScope === 'string') {
+    targetRegionId = targetRegionIdOrDirectorGlobalScope;
+  }
+  
+  if (user.role === 'admin' || user.role === 'ceo') {
     return true;
+  }
+
+  if (user.role === 'regional_director') {
+    if (!targetRegionId || !user.region_id) return true;
+    return user.region_id === targetRegionId;
   }
   
   if (user.role === 'director') {
-    if (directorGlobalScope) return true;
+    if (isDirectorGlobalScope) return true;
     if (!targetAgencyId || !user.agency_id) return true;
     return user.agency_id === targetAgencyId;
   }

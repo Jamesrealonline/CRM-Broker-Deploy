@@ -57,7 +57,10 @@ import {
   OnboardingTask,
   Agency,
   Team,
-  UserRole
+  UserRole,
+  Region,
+  Division,
+  StructuralHealthReport
 } from '@/domain/types';
 import { USER_ROLES } from '@/domain/constants';
 import { Card } from '@/components/ui/Card';
@@ -82,6 +85,9 @@ export const HRManagementPage: React.FC = () => {
   const [employees, setEmployees] = useState<Array<UserProfile & { record?: EmployeeRecord }>>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [divisions, setDivisions] = useState<Division[]>([]);
+  const [healthReport, setHealthReport] = useState<StructuralHealthReport | null>(null);
   const [metrics, setMetrics] = useState<any>(null);
 
   // Filters
@@ -99,13 +105,6 @@ export const HRManagementPage: React.FC = () => {
   const [activeDrawerTab, setActiveDrawerTab] = useState<
     'overview' | 'contracts' | 'certificates' | 'performance' | 'training' | 'leave' | 'coaching' | 'discipline' | 'events'
   >('overview');
-
-  // Reveal Private Modal State
-  const [revealModalOpen, setRevealModalOpen] = useState(false);
-  const [revealField, setRevealField] = useState<'id_card_number' | 'tax_id' | 'bank_account_number'>('id_card_number');
-  const [revealReason, setRevealReason] = useState('');
-  const [revealedValue, setRevealedValue] = useState<string | null>(null);
-  const [revealError, setRevealError] = useState('');
 
   // Inbox & Actions
   const [pendingTransfers, setPendingTransfers] = useState<PersonnelTransferRequest[]>([]);
@@ -160,7 +159,7 @@ export const HRManagementPage: React.FC = () => {
     if (!currentUser) return;
     setLoading(true);
     try {
-      const [empList, agList, tmList, mtr, trList, lvList, reqList, cndList] = await Promise.all([
+      const [empList, agList, tmList, regList, divList, healthRep, mtr, trList, lvList, reqList, cndList] = await Promise.all([
         hrRepository.getEmployees({
           agencyId: selectedAgency,
           teamId: selectedTeam,
@@ -170,6 +169,9 @@ export const HRManagementPage: React.FC = () => {
         }, currentUser),
         teamRepository.getAgencies(),
         teamRepository.getTeams(),
+        teamRepository.getRegions(),
+        teamRepository.getDivisions(),
+        teamRepository.getStructuralHealthReport(),
         hrRepository.getHRMetrics(undefined, currentUser),
         hrRepository.getTransferRequests(currentUser),
         hrRepository.getLeaveRequests(currentUser),
@@ -179,9 +181,13 @@ export const HRManagementPage: React.FC = () => {
 
       const accessibleAgencies = branchHierarchyService.filterAgencies(currentUser, agList);
       const accessibleTeams = branchHierarchyService.filterTeams(currentUser, tmList);
+      const accessibleRegions = branchHierarchyService.filterRegions(currentUser, regList);
       setEmployees(empList);
       setAgencies(accessibleAgencies);
       setTeams(accessibleTeams);
+      setRegions(accessibleRegions);
+      setDivisions(divList);
+      setHealthReport(healthRep);
       setMetrics(mtr);
       setPendingTransfers(trList.filter(t => t.status === 'pending'));
       setPendingLeaves(lvList.filter(l => l.status === 'pending'));
@@ -213,25 +219,11 @@ export const HRManagementPage: React.FC = () => {
 
   const handleOpen360 = (userId: string) => {
     setSelectedEmployeeId(userId);
-    setRevealedValue(null);
-    setRevealError('');
   };
 
   const handleClose360 = () => {
     setSelectedEmployeeId(null);
     setEmployee360Data(null);
-    setRevealedValue(null);
-  };
-
-  const handleRevealPrivate = async () => {
-    if (!selectedEmployeeId || !currentUser) return;
-    setRevealError('');
-    try {
-      const res = await hrRepository.revealPrivateField(selectedEmployeeId, revealField, revealReason, currentUser);
-      setRevealedValue(res.value);
-    } catch (err: any) {
-      setRevealError(err.message || 'Lỗi tra cứu thông tin bảo mật');
-    }
   };
 
   // Handle Approve Transfer
@@ -621,92 +613,253 @@ export const HRManagementPage: React.FC = () => {
             </div>
           )}
 
-          {/* VIEW: TREE HIERARCHY */}
+          {/* VIEW: TREE HIERARCHY (CƠ CẤU 3 KHỐI BẮT ĐẦU TỪ TỔNG GIÁM ĐỐC) */}
           {viewMode === 'tree' && (
             <div className="bg-white border border-slate-200 rounded-lg p-6 space-y-6 shadow-sm">
-              <div className="text-sm font-semibold text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-indigo-600" />
-                <span>Cây Phân Cấp Cơ Cấu Tổ Chức Bất Động Sản</span>
+              <div className="text-sm font-semibold text-slate-800 border-b border-slate-100 pb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-indigo-600" />
+                  <span>Sơ Đồ Cơ Cấu Điều Hành Toàn Công Ty (3 Khối Chức Năng)</span>
+                </div>
+                <div className="text-xs text-slate-500 font-mono">
+                  {regions.length} Vùng • {agencies.length} Sàn • {teams.length} Nhóm • {employees.length} Nhân Sự
+                </div>
               </div>
 
-              <div className="space-y-6 pl-2">
-                {agencies.map(agency => {
-                  const agencyDirector = employees.find(e => e.id === agency.director_id);
-                  const agencyTeams = teams.filter(t => t.agency_id === agency.id);
-
-                  return (
-                    <div key={agency.id} className="border-l-2 border-indigo-500 pl-4 space-y-4">
-                      {/* Agency Node */}
-                      <div className="flex items-center gap-3 bg-indigo-50/70 p-3 rounded-lg border border-indigo-100">
-                        <Building2 className="h-5 w-5 text-indigo-700" />
-                        <div>
-                          <div className="text-sm font-bold text-indigo-950">{agency.name} ({agency.code})</div>
-                          <div className="text-xs text-indigo-700">
-                            Giám đốc sàn: <span className="font-semibold">{agencyDirector ? agencyDirector.full_name : 'Chưa bổ nhiệm'}</span>
-                          </div>
-                        </div>
+              {/* HỘP VIỆC CẦN XỬ LÝ (STRUCTURAL HEALTH REPORT / ACTION REQUIRED) */}
+              {healthReport && healthReport.hasIssues && (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl space-y-2 text-xs">
+                  <div className="font-bold text-amber-900 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <span>Hộp Việc Cần Xử Lý Cơ Cấu (Phát Hiện {(healthReport.agenciesWithoutRegion?.length || 0) + (healthReport.regionsWithoutDirector?.length || 0) + (healthReport.agenciesWithoutDirector?.length || 0)} Vấn Đề)</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1">
+                    {healthReport.agenciesWithoutRegion && healthReport.agenciesWithoutRegion.length > 0 && (
+                      <div className="bg-white p-2.5 rounded-lg border border-amber-200 text-amber-800">
+                        <span className="font-bold block text-[11px] text-amber-950">Sàn Chưa Thuộc Vùng Nào ({healthReport.agenciesWithoutRegion.length}):</span>
+                        <div className="text-[11px] truncate mt-0.5">{healthReport.agenciesWithoutRegion.map(a => a.name).join(', ')}</div>
                       </div>
+                    )}
+                    {healthReport.regionsWithoutDirector && healthReport.regionsWithoutDirector.length > 0 && (
+                      <div className="bg-white p-2.5 rounded-lg border border-amber-200 text-amber-800">
+                        <span className="font-bold block text-[11px] text-amber-950">Vùng Chưa Có GĐ Vùng ({healthReport.regionsWithoutDirector.length}):</span>
+                        <div className="text-[11px] truncate mt-0.5">{healthReport.regionsWithoutDirector.map(r => r.name).join(', ')}</div>
+                      </div>
+                    )}
+                    {healthReport.agenciesWithoutDirector && healthReport.agenciesWithoutDirector.length > 0 && (
+                      <div className="bg-white p-2.5 rounded-lg border border-amber-200 text-amber-800">
+                        <span className="font-bold block text-[11px] text-amber-950">Sàn Chưa Có GĐ Sàn ({healthReport.agenciesWithoutDirector.length}):</span>
+                        <div className="text-[11px] truncate mt-0.5">{healthReport.agenciesWithoutDirector.map(a => a.name).join(', ')}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
-                      {/* Teams under Agency */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-4">
-                        {agencyTeams.map(team => {
-                          const leader = employees.find(e => e.id === team.leader_id);
-                          const members = employees.filter(e => e.team_id === team.id && e.id !== team.leader_id);
-
-                          return (
-                            <div key={team.id} className="border border-slate-200 rounded-lg p-3 bg-white space-y-2.5 shadow-sm">
-                              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                                <div className="font-semibold text-slate-900 text-xs flex items-center gap-1.5">
-                                  <Users className="h-3.5 w-3.5 text-blue-600" />
-                                  <span>{team.name}</span>
-                                </div>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 font-mono text-slate-600">
-                                  {members.length + (leader ? 1 : 0)} nhân sự
-                                </span>
-                              </div>
-
-                              {leader && (
-                                <div 
-                                  onClick={() => handleOpen360(leader.id)}
-                                  className="p-2 bg-amber-50 rounded border border-amber-200/60 flex items-center justify-between cursor-pointer hover:bg-amber-100/60 transition-colors"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div className="h-6 w-6 rounded-full bg-amber-500 text-white flex items-center justify-center font-bold text-[10px]">
-                                      TL
-                                    </div>
-                                    <div>
-                                      <div className="text-xs font-bold text-amber-950">{leader.full_name}</div>
-                                      <div className="text-[10px] text-amber-700">Trưởng Nhóm</div>
-                                    </div>
-                                  </div>
-                                  <ChevronRight className="h-3.5 w-3.5 text-amber-600" />
-                                </div>
-                              )}
-
-                              <div className="space-y-1.5 pt-1">
-                                {members.map(member => (
-                                  <div 
-                                    key={member.id}
-                                    onClick={() => handleOpen360(member.id)}
-                                    className="p-1.5 rounded hover:bg-slate-50 flex items-center justify-between text-xs cursor-pointer border border-transparent hover:border-slate-200"
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <div className="h-5 w-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[10px] font-semibold">
-                                        {member.full_name.charAt(0)}
-                                      </div>
-                                      <span className="text-slate-800 font-medium">{member.full_name}</span>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400 font-mono">{member.record?.employee_code}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
+              {/* NODE GỐC: TỔNG GIÁM ĐỐC (CEO) */}
+              {(() => {
+                const ceo = employees.find(e => e.role === 'ceo') || employees.find(e => e.role === 'admin');
+                return (
+                  <div className="p-4 bg-gradient-to-r from-indigo-900 to-indigo-800 text-white rounded-xl shadow-md flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center font-black text-sm">
+                        CEO
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-indigo-200 uppercase tracking-wider">Tổng Giám Đốc (CEO)</div>
+                        <div className="text-base font-bold text-white">{ceo ? ceo.full_name : 'Trần Hải Nam'}</div>
+                        <div className="text-xs text-indigo-200 font-mono">{ceo ? ceo.email : 'ceo@diaocvang.vn'} • Quản trị điều hành tối cao</div>
                       </div>
                     </div>
-                  );
-                })}
+                    {ceo && (
+                      <button 
+                        onClick={() => handleOpen360(ceo.id)}
+                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-semibold text-white transition-colors"
+                      >
+                        Hồ sơ 360° →
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* 3 KHỐI TRỰC THUỘC TỔNG GIÁM ĐỐC */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
+                {/* 1. KHỐI KINH DOANH */}
+                <div className="lg:col-span-2 space-y-4 border border-blue-200 rounded-xl p-4 bg-blue-50/20">
+                  <div className="flex items-center justify-between border-b border-blue-200 pb-2">
+                    <div className="font-bold text-sm text-blue-900 flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-blue-600" />
+                      <span>1. Khối Kinh Doanh (Sales Division)</span>
+                    </div>
+                    <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                      {regions.length} Vùng • {agencies.length} Sàn
+                    </span>
+                  </div>
+
+                  <div className="space-y-4 pl-1">
+                    {regions.map(region => {
+                      const regionalDir = employees.find(e => e.id === region.regional_director_id || (e.role === 'regional_director' && e.region_id === region.id));
+                      const regionAgencies = agencies.filter(a => a.region_id === region.id || (!a.region_id && region.id === 'REG-DEFAULT'));
+
+                      return (
+                        <div key={region.id} className="border-l-2 border-blue-500 pl-3 space-y-3">
+                          {/* Region Node */}
+                          <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-blue-200 shadow-xs">
+                            <div className="flex items-center gap-2.5">
+                              <Layers className="h-4 w-4 text-blue-600" />
+                              <div>
+                                <div className="text-xs font-bold text-slate-900">{region.name} ({region.code})</div>
+                                <div className="text-[11px] text-slate-600">
+                                  Giám Đốc Vùng: <span className="font-semibold text-blue-700">{regionalDir ? regionalDir.full_name : 'Chưa bổ nhiệm'}</span>
+                                </div>
+                              </div>
+                            </div>
+                            {regionalDir && (
+                              <button 
+                                onClick={() => handleOpen360(regionalDir.id)}
+                                className="text-[11px] font-semibold text-blue-600 hover:text-blue-800"
+                              >
+                                Xem hồ sơ →
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Agencies in Region */}
+                          <div className="space-y-2.5 pl-3">
+                            {regionAgencies.map(agency => {
+                              const agencyDir = employees.find(e => e.id === agency.director_id);
+                              const agencyTeams = teams.filter(t => t.agency_id === agency.id);
+
+                              return (
+                                <div key={agency.id} className="border border-slate-200 rounded-lg p-3 bg-white space-y-2.5 shadow-xs">
+                                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                    <div>
+                                      <span className="font-bold text-xs text-slate-900">{agency.name}</span>
+                                      <span className="text-[10px] text-slate-500 ml-2">GĐ Sàn: <strong>{agencyDir ? agencyDir.full_name : 'Chưa bổ nhiệm'}</strong></span>
+                                    </div>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 font-mono text-slate-600">
+                                      {agencyTeams.length} đội nhóm
+                                    </span>
+                                  </div>
+
+                                  {/* Teams */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {agencyTeams.map(team => {
+                                      const leader = employees.find(e => e.id === team.leader_id);
+                                      const members = employees.filter(e => e.team_id === team.id && e.id !== team.leader_id);
+
+                                      return (
+                                        <div key={team.id} className="p-2 border border-slate-100 bg-slate-50 rounded-lg space-y-1">
+                                          <div className="flex items-center justify-between text-[11px]">
+                                            <span className="font-semibold text-slate-800 truncate">{team.name}</span>
+                                            <span className="text-[10px] text-slate-500">{members.length + (leader ? 1 : 0)} sale</span>
+                                          </div>
+                                          {leader && (
+                                            <div 
+                                              onClick={() => handleOpen360(leader.id)}
+                                              className="text-[10px] text-amber-700 bg-amber-50 p-1 rounded font-medium cursor-pointer hover:bg-amber-100/70"
+                                            >
+                                              TL: {leader.full_name}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* CỘT PHẢI: KHỐI MARKETING & KHỐI HR */}
+                <div className="space-y-6">
+                  {/* 2. KHỐI MARKETING */}
+                  <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/20 space-y-3">
+                    <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
+                      <div className="font-bold text-sm text-emerald-900 flex items-center gap-2">
+                        <Briefcase className="h-4 w-4 text-emerald-600" />
+                        <span>2. Khối Marketing</span>
+                      </div>
+                      <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                        Trực thuộc CEO
+                      </span>
+                    </div>
+
+                    {(() => {
+                      const mktHead = employees.find(e => e.role === 'marketing_manager');
+                      const mktStaff = employees.filter(e => e.role === 'marketing_manager' || ((e.record as any)?.department === 'marketing'));
+
+                      return (
+                        <div className="space-y-2.5">
+                          <div className="p-3 bg-white border border-emerald-200 rounded-xl flex items-center justify-between">
+                            <div>
+                              <div className="text-xs font-bold text-slate-900">Giám Đốc / Trưởng Marketing</div>
+                              <div className="text-xs text-emerald-700 font-semibold">{mktHead ? mktHead.full_name : 'Lê Thu Hà'}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">{mktHead ? mktHead.email : 'marketing@diaocvang.vn'}</div>
+                            </div>
+                            {mktHead && (
+                              <button 
+                                onClick={() => handleOpen360(mktHead.id)}
+                                className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-800"
+                              >
+                                Hồ sơ 360° →
+                              </button>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
+                            <strong>Đơn Vị Marketing:</strong> Quản lý quảng cáo, Lead Ads, chiến dịch mở bán toàn dự án.
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* 3. KHỐI HR */}
+                  <div className="border border-purple-200 rounded-xl p-4 bg-purple-50/20 space-y-3">
+                    <div className="flex items-center justify-between border-b border-purple-200 pb-2">
+                      <div className="font-bold text-sm text-purple-900 flex items-center gap-2">
+                        <UserCheck className="h-4 w-4 text-purple-600" />
+                        <span>3. Khối Nhân Sự (HR Division)</span>
+                      </div>
+                      <span className="text-xs font-semibold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
+                        Trực thuộc CEO
+                      </span>
+                    </div>
+
+                    {(() => {
+                      const hrHead = employees.find(e => e.role === 'hr_admin');
+
+                      return (
+                        <div className="space-y-2.5">
+                          <div className="p-3 bg-white border border-purple-200 rounded-xl flex items-center justify-between">
+                            <div>
+                              <div className="text-xs font-bold text-slate-900">Giám Đốc / Trưởng HR</div>
+                              <div className="text-xs text-purple-700 font-semibold">{hrHead ? hrHead.full_name : 'Nguyễn Thị HR'}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">{hrHead ? hrHead.email : 'hr@diaocvang.vn'}</div>
+                            </div>
+                            {hrHead && (
+                              <button 
+                                onClick={() => handleOpen360(hrHead.id)}
+                                className="text-[11px] font-semibold text-purple-600 hover:text-purple-800"
+                              >
+                                Hồ sơ 360° →
+                              </button>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
+                            <strong>Phạm Vi Quản Trị:</strong> Quản lý hồ sơ nhân sự 360°, tuyển dụng ATS, điều chuyển phân cấp và đào tạo.
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1279,70 +1432,6 @@ export const HRManagementPage: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* ======================================================== */}
-      {/* 10. MODAL TRA CỨU DỮ LIỆU BẢO MẬT (REVEAL DIALOG) */}
-      {/* ======================================================== */}
-      <Modal
-        isOpen={revealModalOpen}
-        onClose={() => setRevealModalOpen(false)}
-        title="Mở Khóa Tra Cứu Dữ Liệu Nhân Sự Nhạy Cảm"
-      >
-        <div className="space-y-4 text-xs">
-          <p className="text-slate-600">
-            Theo Nghị định 13/2023/NĐ-CP, việc truy cập số CCCD, Mã số thuế và Số tài khoản ngân hàng của nhân sự bắt buộc phải nêu rõ lý do nghiệp vụ và được ghi vết vào hệ thống Audit Log bất biến.
-          </p>
-
-          <div className="space-y-1.5">
-            <label className="font-semibold text-slate-700">Chọn trường cần tra cứu *</label>
-            <select
-              value={revealField}
-              onChange={(e) => {
-                setRevealField(e.target.value as any);
-                setRevealedValue(null);
-              }}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-            >
-              <option value="id_card_number">Số Căn Cước Công Dân (CCCD / CMND)</option>
-              <option value="tax_id">Mã Số Thuế Cá Nhân (MST)</option>
-              <option value="bank_account_number">Số Tài Khoản Ngân Hàng</option>
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="font-semibold text-slate-700">Lý do nghiệp vụ (Bắt buộc) *</label>
-            <textarea
-              rows={2}
-              placeholder="VD: Quyết toán thuế TNCN cuối năm, Đăng ký BHXH..."
-              value={revealReason}
-              onChange={(e) => setRevealReason(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-
-          {revealError && (
-            <div className="p-2.5 bg-rose-50 border border-rose-200 rounded text-rose-700 text-xs">
-              {revealError}
-            </div>
-          )}
-
-          {revealedValue && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-emerald-900 font-mono text-sm font-bold flex items-center justify-between">
-              <span>{revealedValue}</span>
-              <span className="text-[10px] text-emerald-700 font-sans font-normal">Đã ghi nhận Audit</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
-            <Button variant="outline" size="sm" onClick={() => setRevealModalOpen(false)}>
-              Đóng
-            </Button>
-            <Button variant="primary" size="sm" onClick={handleRevealPrivate} className="bg-indigo-600 hover:bg-indigo-700">
-              Xác Nhận & Tra Cứu
-            </Button>
-          </div>
-        </div>
-      </Modal>
 
       {/* ======================================================== */}
       {/* 11. MODAL ĐỀ XUẤT ĐIỀU CHUYỂN / THĂNG GIÁNG */}

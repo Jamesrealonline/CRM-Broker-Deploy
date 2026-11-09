@@ -30,6 +30,7 @@ import {
   MarketingUnit,
   SaleChain,
   StructuralHealthReport,
+  Agency,
   Team,
   HRKpiSummary,
   RecruiterRank,
@@ -549,6 +550,8 @@ export class HRRepository {
   async createTransferRequest(payload: {
     userId: string;
     requestType: 'transfer' | 'promotion' | 'demotion' | 'title_change';
+    fromAgencyId?: string;
+    fromTeamId?: string;
     toAgencyId?: string;
     toTeamId?: string;
     toRole?: string;
@@ -560,7 +563,7 @@ export class HRRepository {
     assertRateLimit(payload.currentUser.id, 'hr/create_transfer_request', 10);
     this.ensureInitialized();
 
-    const isAuthorized = ['admin', 'director', 'sales_manager', 'team_leader', 'hr_admin'].includes(payload.currentUser.role);
+    const isAuthorized = ['admin', 'ceo', 'regional_director', 'director', 'sales_manager', 'team_leader', 'hr_admin'].includes(payload.currentUser.role);
     if (!isAuthorized) {
       throw new Error('forbidden: Bạn không có thẩm quyền tạo đề xuất điều chuyển nhân sự!');
     }
@@ -587,11 +590,11 @@ export class HRRepository {
       user_id: payload.userId,
       user_name: target.full_name,
       request_type: payload.requestType,
-      from_agency_id: target.agency_id,
+      from_agency_id: payload.fromAgencyId || target.agency_id,
       from_agency_name: fromAgency?.name,
       to_agency_id: payload.toAgencyId || target.agency_id,
       to_agency_name: toAgency?.name,
-      from_team_id: target.team_id,
+      from_team_id: payload.fromTeamId || target.team_id,
       from_team_name: fromTeam?.name,
       to_team_id: payload.toTeamId,
       to_team_name: toTeam?.name,
@@ -622,7 +625,7 @@ export class HRRepository {
     assertRateLimit(currentUser.id, 'hr/apply_transfer', 10);
     this.ensureInitialized();
 
-    const isApprover = ['admin', 'director', 'sales_manager', 'hr_admin'].includes(currentUser.role);
+    const isApprover = ['admin', 'ceo', 'regional_director', 'director', 'sales_manager', 'hr_admin'].includes(currentUser.role);
     if (!isApprover) {
       throw new Error('forbidden: Bạn không có quyền phê duyệt điều chuyển nhân sự!');
     }
@@ -641,6 +644,42 @@ export class HRRepository {
     const profiles = await teamRepository.getProfiles();
     const target = profiles.find(p => p.id === req.user_id);
     if (!target) throw new Error('Nhân sự không tồn tại!');
+
+    const fromAgencyId = req.from_agency_id || target.agency_id;
+    const toAgencyId = req.to_agency_id || fromAgencyId;
+    const fromTeamId = req.from_team_id || target.team_id;
+    const toTeamId = req.to_team_id || fromTeamId;
+
+    // KIỂM TRA PHÂN CẤP THẨM QUYỀN ĐIỀU CHUYỂN
+    const agencies: Agency[] = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('crm_agencies') || '[]') : [];
+    const fromAgency = agencies.find(a => a.id === fromAgencyId);
+    const toAgency = agencies.find(a => a.id === toAgencyId);
+    const fromRegionId = fromAgency?.region_id;
+    const toRegionId = toAgency?.region_id;
+
+    const isCrossRegion = fromRegionId && toRegionId && fromRegionId !== toRegionId;
+    const isCrossAgency = fromAgencyId && toAgencyId && fromAgencyId !== toAgencyId;
+    const isCrossTeam = fromTeamId && toTeamId && fromTeamId !== toTeamId;
+
+    if (isCrossRegion) {
+      if (!['admin', 'ceo'].includes(currentUser.role)) {
+        throw new Error('Thẩm quyền không đủ: Điều chuyển nhân sự khác vùng kinh doanh bắt buộc phải do Tổng Giám Đốc (CEO) phê duyệt.');
+      }
+    } else if (isCrossAgency && fromRegionId && toRegionId) {
+      if (!['admin', 'ceo', 'regional_director', 'hr_admin'].includes(currentUser.role)) {
+        throw new Error('Thẩm quyền không đủ: Điều chuyển nhân sự khác sàn giao dịch bắt buộc phải do Giám Đốc Vùng phê duyệt.');
+      }
+      if (currentUser.role === 'regional_director' && currentUser.region_id && fromRegionId !== currentUser.region_id) {
+        throw new Error('Giám đốc Vùng chỉ được phê duyệt điều chuyển nhân sự thuộc các sàn trong vùng của mình.');
+      }
+    } else if (isCrossTeam) {
+      if (!['admin', 'ceo', 'regional_director', 'director', 'sales_manager', 'hr_admin'].includes(currentUser.role)) {
+        throw new Error('Thẩm quyền không đủ: Điều chuyển nhân sự khác đội nhóm trong sàn bắt buộc phải do Giám Đốc Sàn hoặc Trưởng Phòng phê duyệt.');
+      }
+      if (currentUser.role === 'director' && currentUser.agency_id && fromAgencyId !== currentUser.agency_id) {
+        throw new Error('Giám đốc Sàn chỉ được phê duyệt điều chuyển nhân sự thuộc sàn của mình.');
+      }
+    }
 
     const oldValues = {
       agency_id: target.agency_id,
