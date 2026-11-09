@@ -351,8 +351,10 @@ export interface Transaction {
   reversal_reason?: string;
 
   // Joined fields for display
+  customer_id?: string;
   customer_name?: string;
   customer_phone?: string;
+  sign_date?: string;
   project_id?: string;
   project_name?: string;
   agency_id?: string;
@@ -1210,6 +1212,8 @@ export interface CustomerMergeRecord {
 export interface InteractionTimelineItem {
   id: string;
   lead_id: string;
+  customer_id?: string;
+  type?: string;
   channel: 'call' | 'zalo' | 'sms' | 'email';
   direction: 'inbound' | 'outbound';
   content: string;
@@ -1275,4 +1279,97 @@ export interface StructuralHealthReport {
   orphanSales: Array<{ id: string; name: string; missingLinks: string[] }>;
   teamsWithoutLeader: Array<{ id: string; name: string }>;
   departmentsWithoutHead: Array<{ id: string; name: string }>;
+}
+
+// ========================================================
+// PHASE 6: MARKETING, PRIVACY & OPERATIONS
+// ========================================================
+
+export interface Campaign {
+  id: string;
+  name: string;
+  channel: string;
+  budget: number;
+  start_date: string;
+  end_date?: string;
+  utm_source?: string;
+  utm_campaign?: string;
+  status: 'active' | 'paused' | 'completed';
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CampaignDailyCost {
+  id: string;
+  campaign_id: string;
+  cost_date: string;
+  amount: number;
+  notes?: string;
+  created_at?: string;
+}
+
+export interface MarketingMetrics {
+  totalSpent: number;
+  leadsCount: number;
+  contactsCount: number;
+  depositsCount: number;
+  contractsCount: number;
+  totalRevenue: number;
+  cpl: number; // Cost Per Lead = totalSpent / leadsCount
+  cac: number; // Customer Acquisition Cost = totalSpent / depositsCount
+  contactRate: number; // % of leads contacted
+  depositRate: number; // % of leads reaching deposit/contract
+  roi: number; // ROI % = ((grossProfit - totalSpent) / totalSpent) * 100
+}
+
+export type PrivacyRequestType = 'export' | 'anonymize';
+export type PrivacyRequestStatus = 'pending' | 'approved' | 'completed' | 'rejected';
+
+export interface PrivacyRequest {
+  id: string;
+  customer_id: string;
+  request_type: PrivacyRequestType;
+  status: PrivacyRequestStatus;
+  reason?: string;
+  requested_by: string;
+  approved_by?: string;
+  approved_at?: string;
+  completed_at?: string;
+  created_at?: string;
+}
+
+export interface PrivacyExportPackage {
+  exportedAt: string;
+  legalBasis: string;
+  customer: {
+    id: string;
+    full_name: string;
+    phone: string;
+    email?: string;
+    identity_card?: string;
+    address?: string;
+    created_at?: string;
+  };
+  leads: Array<{
+    id: string;
+    status: string;
+    budget_min?: number;
+    budget_max?: number;
+    source?: string;
+    created_at?: string;
+  }>;
+  contracts: Array<{
+    id: string;
+    contract_code?: string;
+    status: string;
+    deal_value?: number;
+    sign_date?: string;
+  }>;
+  interactions: Array<{
+    id: string;
+    type?: string;
+    notes: string;
+    created_at?: string;
+  }>;
 }

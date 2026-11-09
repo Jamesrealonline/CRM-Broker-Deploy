@@ -13,8 +13,8 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | **Giai đoạn 2** | SLA chống gian lận, Lead Pool, giữ căn, giám sát job nền | **Xong** | `0359e43` |
 | **Giai đoạn 3** | Hợp đồng (khách mới + nguồn lead), hoa hồng, vòng đời, công nợ | **Xong** | `d1f4164` |
 | **Giai đoạn 4** | Quy trình bán hàng: lịch hẹn, công cụ tư vấn, nhập lead, quản lý khách | **Xong** | `e3679c2` |
-| **Giai đoạn 5** | Quản trị sàn: cây cấp bậc, thi đua nhân sự, điều chuyển, nhân sự 360° | **Xong** | (chuẩn bị commit) |
-| **Giai đoạn 6** | Marketing, vận hành/CI-CD, quyền riêng tư, thiết kế multi-tenant, PWA | **Chưa làm** | --- |
+| **Giai đoạn 5** | Quản trị sàn: cây cấp bậc, thi đua nhân sự, điều chuyển, nhân sự 360° | **Xong** | `8d17b06` |
+| **Giai đoạn 6** | Marketing, vận hành/CI-CD, quyền riêng tư, thiết kế multi-tenant, PWA | **Xong** | `a094112` |
 | **Giai đoạn 7** | Quản trị dữ liệu: Admin & Giám đốc Sàn sửa/xóa có kiểm soát, Thùng rác | **Chưa làm** | --- |
 | **Giai đoạn 8** | Kho tri thức dự án, thư viện script đa ngữ cảnh, AI script, playbooks | **Chưa làm** | --- |
 | **Giai đoạn 9** | Hoàn thiện UX, tích hợp chéo, hồi quy toàn hệ thống | **Chưa làm** | --- |
@@ -58,6 +58,20 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 - [x] **4.2** Công cụ tư vấn: Máy tính vay/chiết khấu/ân hạn và Báo giá snapshot không lộ hoa hồng.
 - [x] **4.3** Nhập lead tự động qua Webhook (Lead Ads, Landing page) & Nhập Excel/CSV theo lô (`batch_id`) có hoàn tác.
 - [x] **4.4** Hợp nhất khách hàng trùng lặp (Merge/Unmerge), custom fields và sửa hàng loạt có xem trước.
+
+---
+
+### Giai đoạn 5 – Quản trị sàn & Nhân sự đầy đủ vòng đời (HOÀN THÀNH)
+- [x] **5.1 - 5.5** Cơ cấu nhân sự 360°, ATS tuyển dụng, hợp đồng lao động, chứng chỉ môi giới, phân bổ chỉ tiêu KPI.
+- [x] **5.0A** Cây cấp bậc chặt chẽ (`departments`, `marketing_units`, `v_sale_chain`), cấm sale mồ côi, cơ chế kế nhiệm/acting tạm thời và báo cáo sức khỏe cơ cấu (`getStructuralHealthReport`).
+
+---
+
+### Giai đoạn 6 – Marketing, Vận hành, CI/CD, Quyền riêng tư & Multi-tenant (HOÀN THÀNH)
+- [x] **6.1** Quản lý chiến dịch tiếp thị đa kênh (`campaigns`, `campaign_daily_costs`) và tự động tính toán CPL, CAC, ROI, Contact Rate, Deposit Rate. Bảo vệ PII số điện thoại & email cho Marketing.
+- [x] **6.2** Trung tâm Quyền riêng tư theo Nghị định 13/2023/NĐ-CP & GDPR: Xuất trọn gói dữ liệu cá nhân (`requestDataExport`), ẩn danh hóa an toàn (`requestAnonymization`) bảo toàn toàn vẹn hợp đồng & sổ cái hoa hồng, quản lý sự đồng thuận (`updateConsent`).
+- [x] **6.3** Thiết kế kiến trúc Multi-tenant toàn diện (`docs/design/multi-tenant.md`): Phân tích RLS, JWT claims, chia sẻ vs cô lập dữ liệu, kế hoạch di trú không gián đoạn.
+- [x] **6.4** Pipeline CI/CD `.github/workflows/ci.yml`, quản trị cờ tính năng `featureFlags.ts` và từ điển đa ngôn ngữ song ngữ `i18n.ts`.
 - [x] **4.5** Hộp thư đa kênh (Timeline tương tác hợp nhất: Gọi, Zalo, SMS, Email).
 
 ---
