@@ -17,7 +17,7 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | **Giai đoạn 6** | Marketing, vận hành/CI-CD, quyền riêng tư, thiết kế multi-tenant, PWA | **Xong** | `a094112` |
 | **Giai đoạn 7** | Quản trị dữ liệu: Admin & Giám đốc Sàn sửa/xóa có kiểm soát, Thùng rác | **Xong** | `54354f1` |
 | **Giai đoạn 8** | Kho tri thức dự án, thư viện script đa ngữ cảnh, AI script, playbooks | **Xong** | `98bc324` |
-| **Giai đoạn 9** | Hoàn thiện UX, tích hợp chéo, hồi quy toàn hệ thống | **Chưa làm** | --- |
+| **Giai đoạn 9** | Hoàn thiện UX, tích hợp chéo, hồi quy toàn hệ thống | **Xong** | `8b46da7` |
 
 ---
 
@@ -105,6 +105,6 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 
 ---
 
-### Giai đoạn 9 – Hoàn thiện UX & Kiểm thử hồi quy toàn diện
-- [ ] **9.1** Tối ưu Mobile UX, gọi/Zalo 1 chạm, Kanban 7 giai đoạn thu gọn.
-- [ ] **9.2** Chạy toàn bộ 128+ tests, build verification, xuất bản `docs/dev-log/FINAL_REPORT.md`.
+### Giai đoạn 9 – Hoàn thiện UX & Kiểm thử hồi quy toàn diện (HOÀN THÀNH)
+- [x] **9.1** Tối ưu Mobile UX, gọi/Zalo 1 chạm, Kanban 7 giai đoạn thu gọn.
+- [x] **9.2** Chạy toàn bộ 197/197 tests pass 100% trên 25 test files, build verification không lỗi TypeScript, quét bảo mật không lộ secret/PII, xuất bản Báo cáo nghiệm thu tổng thể `docs/dev-log/FINAL_REPORT.md`.
