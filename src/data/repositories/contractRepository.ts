@@ -19,7 +19,9 @@ import {
   BankStatement,
   DebtAgingReport,
   MultiTierCommissionSnapshot,
-  Team
+  Team,
+  Agency,
+  Region
 } from '@/domain/types';
 import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES, INITIAL_LEAD_SOURCES } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
@@ -39,6 +41,7 @@ const STORAGE_KEY_CONTRACT_REVISIONS = 'crm_contract_revisions';
 const STORAGE_KEY_BANK_STATEMENTS = 'crm_bank_statements';
 
 export interface ContractFilters {
+  regionId?: string;
   projectId?: string;
   agencyId?: string;
   teamId?: string;
@@ -202,11 +205,16 @@ export class ContractRepository {
         });
 
         // Áp dụng filters
+        if (filters.regionId && filters.regionId !== 'all') {
+          const agencies: Agency[] = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('crm_agencies') || '[]') : [];
+          const agencyIdsInRegion = new Set(agencies.filter(a => a.region_id === filters.regionId).map(a => a.id));
+          mapped = mapped.filter(t => (t.region_id && t.region_id === filters.regionId) || (t.agency_id && agencyIdsInRegion.has(t.agency_id)));
+        }
         if (filters.leadId) mapped = mapped.filter(t => t.lead_id === filters.leadId);
-        if (filters.projectId) mapped = mapped.filter(t => t.project_id === filters.projectId);
-        if (filters.agencyId) mapped = mapped.filter(t => t.agency_id === filters.agencyId);
-        if (filters.teamId) mapped = mapped.filter(t => t.team_id === filters.teamId);
-        if (filters.saleId) mapped = mapped.filter(t => t.sale_id === filters.saleId);
+        if (filters.projectId && filters.projectId !== 'all') mapped = mapped.filter(t => t.project_id === filters.projectId);
+        if (filters.agencyId && filters.agencyId !== 'all') mapped = mapped.filter(t => t.agency_id === filters.agencyId);
+        if (filters.teamId && filters.teamId !== 'all') mapped = mapped.filter(t => t.team_id === filters.teamId);
+        if (filters.saleId && filters.saleId !== 'all') mapped = mapped.filter(t => t.sale_id === filters.saleId);
         if (filters.type) mapped = mapped.filter(t => t.type === filters.type);
         if (filters.status) mapped = mapped.filter(t => t.status === filters.status);
         if (filters.includeSample === false) mapped = mapped.filter(t => !t.is_sample);
@@ -236,11 +244,16 @@ export class ContractRepository {
     const raw = localStorage.getItem(STORAGE_KEY_TRANSACTIONS);
     let list: Transaction[] = raw ? JSON.parse(raw) : INITIAL_TRANSACTIONS;
 
+    if (filters.regionId && filters.regionId !== 'all') {
+      const agencies: Agency[] = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('crm_agencies') || '[]') : [];
+      const agencyIdsInRegion = new Set(agencies.filter(a => a.region_id === filters.regionId).map(a => a.id));
+      list = list.filter(t => (t.region_id && t.region_id === filters.regionId) || (t.agency_id && agencyIdsInRegion.has(t.agency_id)));
+    }
     if (filters.leadId) list = list.filter(t => t.lead_id === filters.leadId);
-    if (filters.projectId) list = list.filter(t => t.project_id === filters.projectId);
-    if (filters.agencyId) list = list.filter(t => t.agency_id === filters.agencyId);
-    if (filters.teamId) list = list.filter(t => t.team_id === filters.teamId);
-    if (filters.saleId) list = list.filter(t => t.sale_id === filters.saleId || t.created_by === filters.saleId);
+    if (filters.projectId && filters.projectId !== 'all') list = list.filter(t => t.project_id === filters.projectId);
+    if (filters.agencyId && filters.agencyId !== 'all') list = list.filter(t => t.agency_id === filters.agencyId);
+    if (filters.teamId && filters.teamId !== 'all') list = list.filter(t => t.team_id === filters.teamId);
+    if (filters.saleId && filters.saleId !== 'all') list = list.filter(t => t.sale_id === filters.saleId || t.created_by === filters.saleId);
     if (filters.type) list = list.filter(t => t.type === filters.type);
     if (filters.status) list = list.filter(t => t.status === filters.status);
     if (filters.includeSample === false) list = list.filter(t => !t.is_sample);

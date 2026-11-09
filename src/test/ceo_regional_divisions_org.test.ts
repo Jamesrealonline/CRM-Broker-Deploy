@@ -7,10 +7,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { teamRepository } from '@/data/repositories/teamRepository';
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { hrRepository } from '@/data/repositories/hrRepository';
+import { leadRepository } from '@/data/repositories/leadRepository';
 import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { controlledDataService } from '@/domain/services/controlledDataService';
 import { canViewFullPII } from '@/lib/masking';
-import { UserProfile, Agency, Team, Region, Transaction } from '@/domain/types';
+import { UserProfile, Agency, Team, Region, Transaction, Lead } from '@/domain/types';
 
 describe('CEO, Regional Directors, Divisions & Org Restructure Suite', () => {
   // Người dùng mẫu cho 9 vai trò
@@ -478,6 +479,133 @@ describe('CEO, Regional Directors, Divisions & Org Restructure Suite', () => {
       expect(() => {
         controlledDataService.assertScopeAndPermission(userAdmin, undefined, userCeo);
       }).toThrow('Không thể khóa hoặc xóa Tổng Giám Đốc (CEO) duy nhất còn lại');
+    });
+  });
+
+  describe('6. Phân Quyền View Theo Nhánh & Bộ Lọc Phân Cấp (Hierarchical Branch Scoping & Cascading Filters)', () => {
+    const sampleRegions: Region[] = [
+      { id: 'reg-north', name: 'Vùng Miền Bắc', code: 'REG-NORTH', regional_director_id: 'user-rd-north', status: 'active', created_at: new Date().toISOString() },
+      { id: 'reg-south', name: 'Vùng Miền Nam', code: 'REG-SOUTH', regional_director_id: 'user-rd-south', status: 'active', created_at: new Date().toISOString() },
+    ];
+
+    it('Marketing và HR có quyền xem toàn bộ Giám đốc Vùng và toàn bộ hệ thống như CEO', () => {
+      expect(branchHierarchyService.isGlobalViewer(userCeo)).toBe(true);
+      expect(branchHierarchyService.isGlobalViewer(userMarketingHead)).toBe(true);
+      expect(branchHierarchyService.isGlobalViewer(userHrHead)).toBe(true);
+      expect(branchHierarchyService.isGlobalViewer(userAdmin)).toBe(true);
+
+      // Xem tất cả các Vùng
+      const regionsViewByCeo = branchHierarchyService.filterRegions(userCeo, sampleRegions);
+      const regionsViewByMkt = branchHierarchyService.filterRegions(userMarketingHead, sampleRegions);
+      const regionsViewByHr = branchHierarchyService.filterRegions(userHrHead, sampleRegions);
+      expect(regionsViewByCeo).toHaveLength(2);
+      expect(regionsViewByMkt).toHaveLength(2);
+      expect(regionsViewByHr).toHaveLength(2);
+
+      // Xem tất cả các Sàn
+      const agenciesViewByMkt = branchHierarchyService.filterAgencies(userMarketingHead, sampleAgencies);
+      const agenciesViewByHr = branchHierarchyService.filterAgencies(userHrHead, sampleAgencies);
+      expect(agenciesViewByMkt).toHaveLength(sampleAgencies.length);
+      expect(agenciesViewByHr).toHaveLength(sampleAgencies.length);
+    });
+
+    it('Giám đốc Vùng chỉ xem được các Sàn và Đội Nhóm thuộc Vùng của mình', () => {
+      expect(branchHierarchyService.isGlobalViewer(userRegDirNorth)).toBe(false);
+
+      // Vùng Bắc chỉ thấy Sàn Miền Bắc (agency-01, agency-02)
+      const agenciesNorth = branchHierarchyService.filterAgencies(userRegDirNorth, sampleAgencies);
+      expect(agenciesNorth.every(a => a.region_id === 'reg-north')).toBe(true);
+      expect(agenciesNorth.some(a => a.id === 'agency-03')).toBe(false);
+
+      // Vùng Bắc chỉ thấy Vùng Bắc trong dropdown
+      const regionsNorth = branchHierarchyService.filterRegions(userRegDirNorth, sampleRegions);
+      expect(regionsNorth).toHaveLength(1);
+      expect(regionsNorth[0].id).toBe('reg-north');
+    });
+
+    it('Cưỡng chế phân cấp cây nhân sự: canAccessUser từ CEO -> Giám Đốc Vùng -> Giám Đốc Sàn -> Trưởng Nhóm -> Sale', () => {
+      // 1. CEO truy cập được mọi cấp
+      expect(branchHierarchyService.canAccessUser(userCeo, userRegDirNorth)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userCeo, userDirectorAgency1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userCeo, userTeamLeader1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userCeo, userSaleAgent1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userCeo, userMarketingHead)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userCeo, userHrHead)).toBe(true);
+
+      // 2. Giám đốc Vùng Miền Bắc xem được nhân sự thuộc Vùng Bắc, KHÔNG xem được Admin, CEO, HR, Marketing hay GĐ Vùng Nam
+      expect(branchHierarchyService.canAccessUser(userRegDirNorth, userDirectorAgency1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userRegDirNorth, userTeamLeader1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userRegDirNorth, userSaleAgent1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userRegDirNorth, userAdmin)).toBe(false);
+      expect(branchHierarchyService.canAccessUser(userRegDirNorth, userCeo)).toBe(false);
+      expect(branchHierarchyService.canAccessUser(userRegDirNorth, userMarketingHead)).toBe(false);
+      expect(branchHierarchyService.canAccessUser(userRegDirNorth, userHrHead)).toBe(false);
+      expect(branchHierarchyService.canAccessUser(userRegDirNorth, userRegDirSouth)).toBe(false);
+
+      // 3. Giám đốc Sàn 1 xem được Trưởng phòng, Trưởng nhóm và Sale thuộc Sàn 1, KHÔNG xem được GĐ Vùng, CEO, hay sàn khác
+      expect(branchHierarchyService.canAccessUser(userDirectorAgency1, userSalesManager1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userDirectorAgency1, userTeamLeader1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userDirectorAgency1, userSaleAgent1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userDirectorAgency1, userRegDirNorth)).toBe(false);
+      expect(branchHierarchyService.canAccessUser(userDirectorAgency1, userCeo)).toBe(false);
+
+      // 4. Trưởng nhóm chỉ xem được Sale thuộc team của mình
+      expect(branchHierarchyService.canAccessUser(userTeamLeader1, userSaleAgent1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userTeamLeader1, userDirectorAgency1)).toBe(false);
+
+      // 5. Chuyên viên Sale chỉ xem được chính mình
+      expect(branchHierarchyService.canAccessUser(userSaleAgent1, userSaleAgent1)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userSaleAgent1, userTeamLeader1)).toBe(false);
+    });
+
+    it('Lọc danh sách Lead theo nhánh (filterLeads): đúng phạm vi phân cấp', () => {
+      const mockLeads = [
+        { id: 'lead-1', customer_name: 'Khách 1', region_id: 'reg-north', agency_id: 'agency-01', team_id: 'team-01', assigned_to: 'user-sale-01' },
+        { id: 'lead-2', customer_name: 'Khách 2', region_id: 'reg-north', agency_id: 'agency-01', team_id: 'team-01', assigned_to: 'other-sale' },
+        { id: 'lead-3', customer_name: 'Khách 3', region_id: 'reg-north', agency_id: 'agency-02', team_id: 'team-02', assigned_to: 'sale-ag2' },
+        { id: 'lead-4', customer_name: 'Khách 4', region_id: 'reg-south', agency_id: 'agency-03', team_id: 'team-03', assigned_to: 'sale-south' },
+      ];
+
+      // CEO, HR, Marketing xem toàn bộ
+      expect(branchHierarchyService.filterLeads(userCeo, mockLeads)).toHaveLength(4);
+      expect(branchHierarchyService.filterLeads(userHrHead, mockLeads)).toHaveLength(4);
+      expect(branchHierarchyService.filterLeads(userMarketingHead, mockLeads)).toHaveLength(4);
+
+      // GĐ Vùng Bắc xem 3 leads thuộc Vùng Bắc
+      const leadsNorth = branchHierarchyService.filterLeads(userRegDirNorth, mockLeads);
+      expect(leadsNorth).toHaveLength(3);
+      expect(leadsNorth.map(l => l.id)).toEqual(['lead-1', 'lead-2', 'lead-3']);
+
+      // GĐ Sàn 1 xem 2 leads thuộc Sàn 1
+      const leadsAgency1 = branchHierarchyService.filterLeads(userDirectorAgency1, mockLeads);
+      expect(leadsAgency1).toHaveLength(2);
+      expect(leadsAgency1.map(l => l.id)).toEqual(['lead-1', 'lead-2']);
+
+      // Trưởng nhóm 1 xem 2 leads thuộc Team 1
+      const leadsTeam1 = branchHierarchyService.filterLeads(userTeamLeader1, mockLeads);
+      expect(leadsTeam1).toHaveLength(2);
+      expect(leadsTeam1.map(l => l.id)).toEqual(['lead-1', 'lead-2']);
+
+      // Sale 1 chỉ xem 1 lead được giao cho mình
+      const leadsSale1 = branchHierarchyService.filterLeads(userSaleAgent1, mockLeads);
+      expect(leadsSale1).toHaveLength(1);
+      expect(leadsSale1[0].id).toBe('lead-1');
+    });
+
+    it('Lọc Hợp Đồng Giao Dịch theo regionId trong repository', async () => {
+      const allTx = await contractRepository.getTransactions({ currentUser: userCeo });
+      expect(Array.isArray(allTx)).toBe(true);
+
+      const filteredTx = await contractRepository.getTransactions({
+        regionId: 'reg-north',
+        currentUser: userCeo
+      });
+      expect(Array.isArray(filteredTx)).toBe(true);
+    });
+
+    it('Lọc Nhân Sự HR theo regionId trong repository', async () => {
+      const empsNorth = await hrRepository.getEmployees({ regionId: 'reg-north' }, userCeo);
+      expect(Array.isArray(empsNorth)).toBe(true);
     });
   });
 });

@@ -122,12 +122,29 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 
 ---
 
-### Giai đoạn 11 – Tái Cấu Trúc Cơ Cấu Tổ Chức & Phân Quyền: Tổng Giám Đốc, Giám Đốc Vùng & 3 Khối Chức Năng (HOÀN THÀNH)
-- [x] **11.1** Bổ sung vai trò `ceo` (Tổng Giám Đốc) và `regional_director` (Giám Đốc Vùng); Giữ nguyên mã vai trò `director` cho Giám Đốc Sàn; Khối Marketing (`marketing_manager`) và Khối HR (`hr_admin`) trực thuộc trực tiếp CEO ngang hàng Khối Kinh Doanh.
-- [x] **11.2** Migration SQL additive `027_ceo_regional_divisions_and_org_restructure.sql` & rollback script: Bảng `regions`, `divisions`, `company_settings`, `org_position_levels`, thêm cột `region_id` vào `agencies`, `division_id` vào `marketing_units`, các cột đa tầng và snapshot vào `transactions`, backfill Vùng mặc định `REG-DEFAULT`.
-- [x] **11.3** Phân cấp phê duyệt hợp đồng đa tầng (Multi-tier Maker-Checker): $\le$ 5 tỷ (Trưởng phòng/GĐ sàn), > 5 tỷ (GĐ Sàn), > 15 tỷ (GĐ Vùng), > 30 tỷ (CEO/Admin). Chặn tự phê duyệt.
-- [x] **11.4** Phân cấp điều chuyển nhân sự: Cùng phòng (Trưởng phòng), khác phòng cùng sàn (GĐ Sàn), khác sàn cùng vùng (GĐ Vùng), khác vùng kinh doanh (CEO). Chặn tự phê duyệt.
-- [x] **11.5** Cập nhật Giao diện Cây Tổ Chức 3 Khối bắt đầu từ CEO tại `/hr`, tích hợp Hộp Việc Cần Xử Lý (Action Required Banner) phát hiện sàn thiếu vùng, vùng thiếu GĐ vùng, sàn thiếu GĐ sàn.
-- [x] **11.6** Chuẩn hóa Bảng Thi Đua `/leaderboard`: Bổ sung tab Thi Đua Các Vùng (`region`), các tiêu chí xếp hạng Doanh Số / Số HĐMB / Hoa Hồng / Tuyển Dụng & Nhân Sự. Hiển thị thông tin định danh nhân sự nội bộ trực tiếp đầy đủ, bỏ modal tra cứu nhạy cảm rườm rà.
-- [x] **11.7** Kiểm thử tự động toàn diện: Đạt 247/247 tests passed 100% trên 28 test files, `npx tsc --noEmit` 0 lỗi, `npm run build` thành công xuất sắc.
+---
+
+### Giai đoạn 12 – Bộ Lọc Phân Cấp 4 Cấp (Vùng -> Sàn -> Nhóm -> Sale) & Cưỡng Chế Quyền View Theo Nhánh (HOÀN THÀNH)
+- [x] **12.1** Cưỡng chế phân quyền cây phân cấp nhánh (Branch Subtree Scoping) trong `branchHierarchyService`:
+  - `ceo`: Toàn quyền xem và quản lý toàn công ty.
+  - `regional_director`: Cưỡng chế theo `user.region_id`, chỉ xem các sàn, đội nhóm, sale, lead và hợp đồng trong vùng của mình. Không xem được Admin, CEO, HR, Marketing, hay GĐ Vùng khác.
+  - `director` / `sales_manager`: Cưỡng chế theo `user.agency_id`.
+  - `team_leader`: Cưỡng chế theo `user.team_id`.
+  - `sale_agent`: Chỉ xem được chính bản thân mình và lead/hợp đồng được phân bổ.
+  - `marketing_manager` và `hr_admin`: Trực thuộc trực tiếp CEO, được xem toàn bộ tất cả các Giám Đốc Vùng và dữ liệu toàn hệ thống như CEO (`isGlobalViewer = true`).
+- [x] **12.2** Tích hợp Bộ lọc Cascading 4 Cấp (Vùng / Giám Đốc Vùng $\rightarrow$ Sàn / Giám Đốc Sàn $\rightarrow$ Đội Nhóm $\rightarrow$ Nhân Viên Sale) trên 4 màn hình cốt lõi:
+  - Khách Hàng (`LeadsPage.tsx`): Lọc cascading 4 cấp kết hợp tìm kiếm, dự án, trạng thái và khoảng thời gian.
+  - Giao Dịch & Hợp Đồng (`TransactionsPage.tsx`): Lọc cascading 4 cấp kết hợp dự án, loại giao dịch, tiến độ đợt 1 và tìm kiếm.
+  - Quản Trị Nhân Sự (`HRManagementPage.tsx`): Lọc cascading 4 cấp kết hợp vai trò, trạng thái làm việc và tìm kiếm.
+  - Tổng Quan (`DashboardPage.tsx`): Lọc cascading 4 cấp tính toán KPI real-time theo đúng nhánh quản lý.
+- [x] **12.3** Cập nhật Repositories:
+  - `leadRepository.ts`: Bổ sung `regionId`, cưỡng chế subtree scoping bằng `branchHierarchyService.filterLeads`.
+  - `contractRepository.ts`: Bổ sung `regionId` vào `ContractFilters`, áp dụng lọc theo vùng cả trên live Supabase và offline fallback.
+  - `hrRepository.ts`: Bổ sung `regionId`, `saleId` vào `EmployeeFilters`.
+- [x] **12.4** Kiểm thử tự động & Build:
+  - Viết bộ kiểm thử chuyên sâu mới tại `src/test/ceo_regional_divisions_org.test.ts` (Section 6).
+  - Đạt 253/253 tests pass 100% trên toàn bộ 28 test files.
+  - `npx tsc --noEmit` đạt 0 lỗi.
+  - `npm run build` thành công xuất sắc.
+
 

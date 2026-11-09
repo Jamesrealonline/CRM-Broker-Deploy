@@ -6,7 +6,7 @@
 // Kỷ luật & Khen thưởng -> Nghỉ việc (Offboarding)
 // ========================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, 
   Building2, 
@@ -91,12 +91,40 @@ export const HRManagementPage: React.FC = () => {
   const [metrics, setMetrics] = useState<any>(null);
 
   // Filters
+  const [selectedRegion, setSelectedRegion] = useState('all');
   const [selectedAgency, setSelectedAgency] = useState('all');
   const [selectedTeam, setSelectedTeam] = useState('all');
+  const [selectedSale, setSelectedSale] = useState('all');
   const [selectedRole, setSelectedRole] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'tree' | 'table'>('table');
+
+  const visibleAgencies = useMemo(() => {
+    if (selectedRegion === 'all') return agencies;
+    return agencies.filter(a => a.region_id === selectedRegion);
+  }, [agencies, selectedRegion]);
+
+  const visibleTeams = useMemo(() => {
+    if (selectedAgency === 'all') {
+      if (selectedRegion === 'all') return teams;
+      const agencyIds = new Set(visibleAgencies.map(a => a.id));
+      return teams.filter(t => t.agency_id && agencyIds.has(t.agency_id));
+    }
+    return teams.filter(t => t.agency_id === selectedAgency);
+  }, [teams, selectedAgency, selectedRegion, visibleAgencies]);
+
+  const visibleSales = useMemo(() => {
+    if (selectedTeam === 'all') {
+      if (selectedAgency === 'all') {
+        if (selectedRegion === 'all') return employees;
+        const agencyIds = new Set(visibleAgencies.map(a => a.id));
+        return employees.filter(s => s.agency_id && agencyIds.has(s.agency_id));
+      }
+      return employees.filter(s => s.agency_id === selectedAgency);
+    }
+    return employees.filter(s => s.team_id === selectedTeam);
+  }, [employees, selectedTeam, selectedAgency, selectedRegion, visibleAgencies]);
 
   // Drawer 360 State
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(initialUserId);
@@ -161,8 +189,10 @@ export const HRManagementPage: React.FC = () => {
     try {
       const [empList, agList, tmList, regList, divList, healthRep, mtr, trList, lvList, reqList, cndList] = await Promise.all([
         hrRepository.getEmployees({
+          regionId: selectedRegion,
           agencyId: selectedAgency,
           teamId: selectedTeam,
+          saleId: selectedSale,
           role: selectedRole,
           status: selectedStatus,
           search: searchTerm,
@@ -202,7 +232,7 @@ export const HRManagementPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [currentUser, selectedAgency, selectedTeam, selectedRole, selectedStatus, searchTerm]);
+  }, [currentUser, selectedRegion, selectedAgency, selectedTeam, selectedSale, selectedRole, selectedStatus, searchTerm]);
 
   // Load 360 profile when selectedEmployeeId changes
   useEffect(() => {
@@ -472,22 +502,54 @@ export const HRManagementPage: React.FC = () => {
                 />
               </div>
 
+              {regions.length > 0 && (
+                <select
+                  value={selectedRegion}
+                  onChange={(e) => {
+                    setSelectedRegion(e.target.value);
+                    setSelectedAgency('all');
+                    setSelectedTeam('all');
+                    setSelectedSale('all');
+                  }}
+                  className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white font-medium text-slate-700"
+                >
+                  <option value="all">Tất cả Vùng (GĐ Vùng)</option>
+                  {regions.map(r => <option key={r.id} value={r.id}>{r.name} ({r.code})</option>)}
+                </select>
+              )}
+
               <select
                 value={selectedAgency}
-                onChange={(e) => setSelectedAgency(e.target.value)}
-                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                onChange={(e) => {
+                  setSelectedAgency(e.target.value);
+                  setSelectedTeam('all');
+                  setSelectedSale('all');
+                }}
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white font-medium text-slate-700"
               >
                 <option value="all">Tất cả Sàn Giao Dịch</option>
-                {agencies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {visibleAgencies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
 
               <select
                 value={selectedTeam}
-                onChange={(e) => setSelectedTeam(e.target.value)}
+                onChange={(e) => {
+                  setSelectedTeam(e.target.value);
+                  setSelectedSale('all');
+                }}
                 className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
               >
                 <option value="all">Tất cả Đội Nhóm</option>
-                {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {visibleTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+
+              <select
+                value={selectedSale}
+                onChange={(e) => setSelectedSale(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              >
+                <option value="all">Tất cả Nhân Viên</option>
+                {visibleSales.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
               </select>
 
               <select

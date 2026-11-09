@@ -122,9 +122,19 @@
     - Khác sàn, cùng vùng: Giám đốc Vùng (`regional_director`) duyệt.
     - Khác vùng kinh doanh / toàn công ty: Tổng Giám Đốc (`ceo`) hoặc Admin duyệt.
 
-- **Quyết định 7.9: Trực Quan Hóa Bảng Thi Đua & Bỏ Ẩn Thông Tin Định Danh Nhân Sự Nội Bộ**
-  - *Bối cảnh:* Chủ hệ thống yêu cầu thông tin định danh nhân sự nội bộ (CCCD, MST, STK ngân hàng) được hiển thị trực tiếp cho cấp quản lý để thuận tiện đối soát hoa hồng và chi trả lương, không bắt nhập lý do hoặc bấm mở khóa. Đối với khách hàng bên ngoài, vẫn tiếp tục duy trì bảo vệ PII nghiêm ngặt theo Nghị định 13/2023/NĐ-CP.
+- **Quyết định 7.10: Bộ Lọc Phân Cấp 4 Cấp (Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale) & Cưỡng Chế Quyền View Theo Nhánh**
+  - *Bối cảnh:* Hệ thống mở rộng quy mô cần hỗ trợ lọc đa tầng theo chuỗi chỉ huy trên các trang quản trị: Khách Hàng (Leads), Hợp Đồng (Transactions), Nhân Sự (HR), và Tổng Quan (Dashboard). Đồng thời cưỡng chế quyền xem dữ liệu theo đúng cây phân cấp nhánh được gán:
+    `ceo` $\rightarrow$ `giám đốc vùng` (`regional_director`) $\rightarrow$ `giám đốc sàn` (`director`) $\rightarrow$ `trưởng nhóm` (`team_leader`) $\rightarrow$ `nhân viên sale` (`sale_agent`).
+    Khối Marketing (`marketing_manager`) và Khối HR (`hr_admin`) trực thuộc trực tiếp Tổng Giám Đốc (`ceo`), được xem toàn bộ tất cả các Giám Đốc Vùng và dữ liệu toàn hệ thống như `ceo`.
   - *Phương án:*
-    - Bảng thi đua hỗ trợ tab Vùng (`region`), Sàn (`agency`), Trưởng phòng/GĐ sàn (`sales_manager`), Team (`team`), Chuyên viên (`sale_agent`).
-    - Tiêu chí xếp hạng linh hoạt gồm: Doanh Số, Số HĐMB, Hoa Hồng, và Tuyển Dụng & Nhân Sự.
-    - Giao diện Hồ sơ 360° nhân sự hiển thị đầy đủ thông tin định danh không cần che.
+    - Cập nhật `branchHierarchyService`: `isGlobalViewer` mở rộng cho `ceo`, `admin`, `hr_admin`, `marketing_manager`.
+    - Cưỡng chế `canAccessUser` và `filterLeads`, `filterTransactions`, `filterProfiles`, `filterAgencies`, `filterTeams`, `filterSales`:
+      - Giám đốc Vùng chỉ thấy dữ liệu và nhân sự thuộc các sàn trong vùng được gán, không thấy CEO, Admin, HR, Marketing, hay GĐ Vùng khác.
+      - Giám đốc Sàn chỉ thấy dữ liệu trong sàn mình.
+      - Trưởng nhóm chỉ thấy nhân sự và dữ liệu trong nhóm mình.
+      - Chuyên viên Sale chỉ xem được bản thân và dữ liệu được phân bổ.
+    - Bộ lọc giao diện Cascading Filters 4 cấp trên 4 màn hình chính:
+      - Khi chọn Vùng (Giám đốc Vùng), dropdown Sàn tự động thu gọn theo vùng đó.
+      - Khi chọn Sàn, dropdown Đội nhóm tự động thu gọn theo sàn đó.
+      - Khi chọn Đội nhóm, dropdown Nhân viên Sale tự động thu gọn theo nhóm đó.
+    - Repositories (`leadRepository`, `contractRepository`, `hrRepository`, `dashboardRepository`) đều tích hợp tham số `regionId` và cưỡng chế subtree scoping.

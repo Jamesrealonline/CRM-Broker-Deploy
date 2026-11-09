@@ -3,7 +3,7 @@
 // Phân tích KPI, Doanh số, Phễu chuyển đổi từ DỮ LIỆU THẬT
 // ========================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Users, 
@@ -46,7 +46,8 @@ import { dashboardRepository, DashboardKpiData } from '@/data/repositories/dashb
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
 import { hrRepository } from '@/data/repositories/hrRepository';
-import { Project, Agency, HRKpiSummary } from '@/domain/types';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
+import { Project, Agency, Region, Team, UserProfile, HRKpiSummary } from '@/domain/types';
 import { EMPLOYMENT_TYPES, EMPLOYMENT_STATUSES } from '@/domain/constants';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -69,11 +70,18 @@ export const DashboardPage: React.FC = () => {
   const [includeSample, setIncludeSample] = useState(true);
   const [hrKpi, setHrKpi] = useState<HRKpiSummary | null>(null);
 
-  // Bộ lọc
+  // Bộ lọc 4 cấp phân cấp: Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale
   const [projectId, setProjectId] = useState<string>('');
+  const [regionId, setRegionId] = useState<string>('');
   const [agencyId, setAgencyId] = useState<string>('');
+  const [teamId, setTeamId] = useState<string>('');
+  const [saleId, setSaleId] = useState<string>('');
+
   const [projects, setProjects] = useState<Project[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [sales, setSales] = useState<UserProfile[]>([]);
 
   // Modal hiệu suất sàn
   const [perfAgencyId, setPerfAgencyId] = useState<string | null>(null);
@@ -81,15 +89,48 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     const loadDropdowns = async () => {
-      const [pList, aList] = await Promise.all([
+      const [pList, rList, aList, tList, profList] = await Promise.all([
         projectRepository.getProjects(),
+        teamRepository.getRegions(),
         teamRepository.getAgencies(),
+        teamRepository.getTeams(),
+        teamRepository.getProfiles(),
       ]);
       setProjects(pList);
-      setAgencies(aList);
+      setRegions(branchHierarchyService.filterRegions(currentUser, rList));
+      setAgencies(branchHierarchyService.filterAgencies(currentUser, aList));
+      setTeams(branchHierarchyService.filterTeams(currentUser, tList));
+      const activeSales = profList.filter(p => (p.role === 'sale_agent' || p.role === 'team_leader') && p.status === 'active');
+      setSales(branchHierarchyService.filterSales(currentUser, activeSales));
     };
     loadDropdowns();
-  }, []);
+  }, [currentUser]);
+
+  const visibleAgencies = useMemo(() => {
+    if (!regionId) return agencies;
+    return agencies.filter(a => a.region_id === regionId);
+  }, [agencies, regionId]);
+
+  const visibleTeams = useMemo(() => {
+    if (!agencyId) {
+      if (!regionId) return teams;
+      const agencyIds = new Set(visibleAgencies.map(a => a.id));
+      return teams.filter(t => t.agency_id && agencyIds.has(t.agency_id));
+    }
+    return teams.filter(t => t.agency_id === agencyId);
+  }, [teams, agencyId, regionId, visibleAgencies]);
+
+  const visibleSales = useMemo(() => {
+    if (!teamId) {
+      if (!agencyId) {
+        if (!regionId) return sales;
+        const agencyIds = new Set(visibleAgencies.map(a => a.id));
+        return sales.filter(s => s.agency_id && agencyIds.has(s.agency_id));
+      }
+      return sales.filter(s => s.agency_id === agencyId);
+    }
+    return sales.filter(s => s.team_id === teamId);
+  }, [sales, teamId, agencyId, regionId, visibleAgencies]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -98,7 +139,16 @@ export const DashboardPage: React.FC = () => {
       try {
         const [kpi, hrData] = await Promise.all([
           dashboardRepository.getDashboardKpi(
-            { projectId: projectId || undefined, agencyId: agencyId || undefined },
+            { 
+              projectId: projectId || undefined, 
+              regionId: regionId || undefined,
+              agencyId: agencyId || undefined,
+              teamId: teamId || undefined,
+              assignedTo: saleId || undefined,
+              dateFrom: dateRange.from,
+              dateTo: dateRange.to,
+              includeSample
+            },
             currentUser
           ),
           hrRepository.getComprehensiveHRKpiSummary(dateRange, currentUser)
@@ -112,7 +162,7 @@ export const DashboardPage: React.FC = () => {
       }
     };
     fetchData();
-  }, [currentUser, projectId, agencyId, dateRange, includeSample]);
+  }, [currentUser, projectId, regionId, agencyId, teamId, saleId, dateRange, includeSample]);
 
   return (
     <div className="space-y-6">
@@ -135,6 +185,71 @@ export const DashboardPage: React.FC = () => {
             onChange={(val) => updateRange(val.preset || 'custom', val.from, val.to, val.compare)}
           />
 
+          {/* Bộ lọc 4 cấp: Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale */}
+          {regions.length > 0 && (
+            <select
+              value={regionId}
+              onChange={(e) => {
+                setRegionId(e.target.value);
+                setAgencyId('');
+                setTeamId('');
+                setSaleId('');
+              }}
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700"
+            >
+              <option value="">Tất cả Vùng (GĐ Vùng)</option>
+              {regions.map((r) => (
+                <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
+              ))}
+            </select>
+          )}
+
+          {visibleAgencies.length > 0 && (
+            <select
+              value={agencyId}
+              onChange={(e) => {
+                setAgencyId(e.target.value);
+                setTeamId('');
+                setSaleId('');
+              }}
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700"
+            >
+              <option value="">Tất cả Sàn (GĐ Sàn)</option>
+              {visibleAgencies.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          )}
+
+          {visibleTeams.length > 0 && (
+            <select
+              value={teamId}
+              onChange={(e) => {
+                setTeamId(e.target.value);
+                setSaleId('');
+              }}
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 text-slate-700"
+            >
+              <option value="">Tất cả Đội Nhóm</option>
+              {visibleTeams.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          )}
+
+          {visibleSales.length > 0 && (
+            <select
+              value={saleId}
+              onChange={(e) => setSaleId(e.target.value)}
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 text-slate-700"
+            >
+              <option value="">Tất cả Sale</option>
+              {visibleSales.map((s) => (
+                <option key={s.id} value={s.id}>{s.full_name}</option>
+              ))}
+            </select>
+          )}
+
           <select
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
@@ -144,19 +259,6 @@ export const DashboardPage: React.FC = () => {
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={agencyId}
-            onChange={(e) => setAgencyId(e.target.value)}
-            className="text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700"
-          >
-            <option value="">Tất cả sàn giao dịch</option>
-            {agencies.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
               </option>
             ))}
           </select>

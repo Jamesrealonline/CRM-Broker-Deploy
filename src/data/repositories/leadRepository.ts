@@ -14,7 +14,8 @@ import {
   LeadAssignmentHistory,
   AssignmentReason,
   CustomerConsent,
-  LeadSource
+  LeadSource,
+  Agency
 } from '@/domain/types';
 import { normalizePhone } from '@/lib/utils';
 import { maskPhone, maskName, computePhoneHash } from '@/lib/masking';
@@ -22,6 +23,7 @@ import { assertNoMockPIIInProduction } from '@/lib/storageGuard';
 import { INITIAL_PROJECTS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_LEAD_SOURCES } from '../mockData';
 import { notificationService } from '@/domain/services/notificationService';
 import { autoTransferService } from '@/domain/services/autoTransferService';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { findTransitionRule, STOP_CLOCK_STATUSES } from '@/domain/leadTransitions';
 import { authRepository } from './authRepository';
 import { assertRateLimit } from '@/lib/rateLimiter';
@@ -40,6 +42,7 @@ const STORAGE_KEY_SOURCES = 'crm_lead_sources';
 export interface LeadFilters {
   search?: string;
   projectId?: string;
+  regionId?: string;
   agencyId?: string;
   teamId?: string;
   assignedTo?: string;
@@ -183,8 +186,15 @@ export class LeadRepository {
         query = query.eq('team_id', currentUser.team_id);
       } else if (currentUser.role === 'sales_manager' && currentUser.agency_id) {
         query = query.eq('agency_id', currentUser.agency_id);
+      } else if (currentUser.role === 'director' && currentUser.agency_id) {
+        query = query.eq('agency_id', currentUser.agency_id);
+      } else if (currentUser.role === 'regional_director' && currentUser.region_id) {
+        query = query.eq('region_id', currentUser.region_id);
       }
 
+      if (filters.regionId && filters.regionId !== 'all') {
+        query = query.eq('region_id', filters.regionId);
+      }
       if (filters.projectId) query = query.eq('project_id', filters.projectId);
       if (filters.agencyId) query = query.eq('agency_id', filters.agencyId);
       if (filters.teamId) query = query.eq('team_id', filters.teamId);
@@ -205,7 +215,7 @@ export class LeadRepository {
 
       if (error) throw new Error(error.message);
 
-      const mapped = (data || []).map((item: any) => ({
+      let mapped = (data || []).map((item: any) => ({
         ...item,
         customer_name: item.customer?.full_name,
         customer_phone: item.customer?.phone,
@@ -218,6 +228,8 @@ export class LeadRepository {
         team_name: item.team?.name,
         source_name: item.source?.name,
       }));
+
+      mapped = branchHierarchyService.filterLeads(currentUser, mapped);
 
       return { leads: mapped, total: count || 0 };
     }
@@ -232,20 +244,19 @@ export class LeadRepository {
       allLeads = allLeads.filter(l => !l.organization_id || l.organization_id === currentUser.organization_id);
     }
 
-    // Áp dụng quyền theo vai trò
-    if (currentUser.role === 'sale_agent') {
-      allLeads = allLeads.filter(l => l.assigned_to === currentUser.id);
-    } else if (currentUser.role === 'team_leader' && currentUser.team_id) {
-      allLeads = allLeads.filter(l => l.team_id === currentUser.team_id);
-    } else if (currentUser.role === 'sales_manager' && currentUser.agency_id) {
-      allLeads = allLeads.filter(l => l.agency_id === currentUser.agency_id);
-    }
+    // Áp dụng quyền theo cây phân cấp nhánh (Branch Subtree Scoping)
+    allLeads = branchHierarchyService.filterLeads(currentUser, allLeads);
 
     // Lọc theo bộ lọc người dùng
+    if (filters.regionId && filters.regionId !== 'all') {
+      const agencies: Agency[] = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('crm_agencies') || '[]') : [];
+      const agencyIdsInRegion = new Set(agencies.filter(a => a.region_id === filters.regionId).map(a => a.id));
+      allLeads = allLeads.filter(l => (l.region_id && l.region_id === filters.regionId) || (l.agency_id && agencyIdsInRegion.has(l.agency_id)));
+    }
     if (filters.projectId) allLeads = allLeads.filter(l => l.project_id === filters.projectId);
-    if (filters.agencyId) allLeads = allLeads.filter(l => l.agency_id === filters.agencyId);
-    if (filters.teamId) allLeads = allLeads.filter(l => l.team_id === filters.teamId);
-    if (filters.assignedTo) allLeads = allLeads.filter(l => l.assigned_to === filters.assignedTo);
+    if (filters.agencyId && filters.agencyId !== 'all') allLeads = allLeads.filter(l => l.agency_id === filters.agencyId);
+    if (filters.teamId && filters.teamId !== 'all') allLeads = allLeads.filter(l => l.team_id === filters.teamId);
+    if (filters.assignedTo && filters.assignedTo !== 'all') allLeads = allLeads.filter(l => l.assigned_to === filters.assignedTo);
     if (filters.status) allLeads = allLeads.filter(l => l.status === filters.status);
     if (filters.includeSample === false) allLeads = allLeads.filter(l => !l.is_sample);
     if (filters.dateFrom) allLeads = allLeads.filter(l => l.created_at.slice(0, 10) >= filters.dateFrom!);

@@ -70,8 +70,10 @@ const STORAGE_KEY_DEPARTMENTS = 'crm_departments';
 const STORAGE_KEY_MARKETING_UNITS = 'crm_marketing_units';
 
 export interface EmployeeFilters {
+  regionId?: string;
   agencyId?: string;
   teamId?: string;
+  saleId?: string;
   role?: string;
   status?: string;
   employmentType?: string;
@@ -371,11 +373,19 @@ export class HRRepository {
 
     // Lọc theo bộ lọc giao diện
     let filtered = permittedProfiles;
+    if (filters.regionId && filters.regionId !== 'all') {
+      const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
+      const agencyIdsInRegion = new Set(agencies.filter(a => a.region_id === filters.regionId).map(a => a.id));
+      filtered = filtered.filter(p => (p.region_id && p.region_id === filters.regionId) || (p.agency_id && agencyIdsInRegion.has(p.agency_id)));
+    }
     if (filters.agencyId && filters.agencyId !== 'all') {
       filtered = filtered.filter(p => p.agency_id === filters.agencyId);
     }
     if (filters.teamId && filters.teamId !== 'all') {
       filtered = filtered.filter(p => p.team_id === filters.teamId);
+    }
+    if (filters.saleId && filters.saleId !== 'all') {
+      filtered = filtered.filter(p => p.id === filters.saleId);
     }
     if (filters.role && filters.role !== 'all') {
       filtered = filtered.filter(p => p.role === filters.role);

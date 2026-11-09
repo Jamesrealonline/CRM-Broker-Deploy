@@ -4,7 +4,7 @@
 // Cọc, Ký HĐMB, Đóng tiền Đợt 1, Giá trị giao dịch, Hoa hồng Sàn & Hoa hồng Sale
 // ========================================================
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
@@ -43,7 +43,9 @@ import {
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { leadRepository } from '@/data/repositories/leadRepository';
-import { Transaction, Project, Lead, ProjectUnit, LeadSource } from '@/domain/types';
+import { teamRepository } from '@/data/repositories/teamRepository';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
+import { Transaction, Project, Lead, ProjectUnit, LeadSource, Region, Agency, Team, UserProfile } from '@/domain/types';
 import { useAuthStore } from '@/app/useAuthStore';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -72,6 +74,59 @@ export const TransactionsPage: React.FC = () => {
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedPaidFilter, setSelectedPaidFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Bộ lọc phân cấp 4 cấp: Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale
+  const [allRegions, setAllRegions] = useState<Region[]>([]);
+  const [allAgencies, setAllAgencies] = useState<Agency[]>([]);
+  const [allTeams, setAllTeams] = useState<Team[]>([]);
+  const [allSales, setAllSales] = useState<UserProfile[]>([]);
+
+  const [selectedRegionId, setSelectedRegionId] = useState<string>('all');
+  const [selectedAgencyId, setSelectedAgencyId] = useState<string>('all');
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('all');
+  const [selectedSaleId, setSelectedSaleId] = useState<string>('all');
+
+  useEffect(() => {
+    teamRepository.getRegions().then((regs) => {
+      setAllRegions(branchHierarchyService.filterRegions(currentUser, regs));
+    });
+    teamRepository.getAgencies().then((ags) => {
+      setAllAgencies(branchHierarchyService.filterAgencies(currentUser, ags));
+    });
+    teamRepository.getTeams().then((tms) => {
+      setAllTeams(branchHierarchyService.filterTeams(currentUser, tms));
+    });
+    teamRepository.getProfiles().then((profs) => {
+      const activeSales = profs.filter(p => (p.role === 'sale_agent' || p.role === 'team_leader') && p.status === 'active');
+      setAllSales(branchHierarchyService.filterSales(currentUser, activeSales));
+    });
+  }, [currentUser]);
+
+  const visibleAgencies = useMemo(() => {
+    if (selectedRegionId === 'all') return allAgencies;
+    return allAgencies.filter(a => a.region_id === selectedRegionId);
+  }, [allAgencies, selectedRegionId]);
+
+  const visibleTeams = useMemo(() => {
+    if (selectedAgencyId === 'all') {
+      if (selectedRegionId === 'all') return allTeams;
+      const agencyIds = new Set(visibleAgencies.map(a => a.id));
+      return allTeams.filter(t => t.agency_id && agencyIds.has(t.agency_id));
+    }
+    return allTeams.filter(t => t.agency_id === selectedAgencyId);
+  }, [allTeams, selectedAgencyId, selectedRegionId, visibleAgencies]);
+
+  const visibleSales = useMemo(() => {
+    if (selectedTeamId === 'all') {
+      if (selectedAgencyId === 'all') {
+        if (selectedRegionId === 'all') return allSales;
+        const agencyIds = new Set(visibleAgencies.map(a => a.id));
+        return allSales.filter(s => s.agency_id && agencyIds.has(s.agency_id));
+      }
+      return allSales.filter(s => s.agency_id === selectedAgencyId);
+    }
+    return allSales.filter(s => s.team_id === selectedTeamId);
+  }, [allSales, selectedTeamId, selectedAgencyId, selectedRegionId, visibleAgencies]);
 
   // Modal tạo giao dịch mới
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -167,6 +222,10 @@ export const TransactionsPage: React.FC = () => {
     try {
       const [txList, prjList] = await Promise.all([
         contractRepository.getTransactions({
+          regionId: selectedRegionId === 'all' ? undefined : selectedRegionId,
+          agencyId: selectedAgencyId === 'all' ? undefined : selectedAgencyId,
+          teamId: selectedTeamId === 'all' ? undefined : selectedTeamId,
+          saleId: selectedSaleId === 'all' ? undefined : selectedSaleId,
           projectId: selectedProjectId === 'all' ? undefined : selectedProjectId,
           type: selectedType === 'all' ? undefined : selectedType,
           search: searchQuery,
@@ -188,7 +247,7 @@ export const TransactionsPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [selectedProjectId, selectedType, searchQuery, includeSample, dateRange.from, dateRange.to]);
+  }, [selectedRegionId, selectedAgencyId, selectedTeamId, selectedSaleId, selectedProjectId, selectedType, searchQuery, includeSample, dateRange.from, dateRange.to]);
 
   // Mở modal tạo hợp đồng mới và tải dữ liệu dự án & giỏ hàng
   const handleOpenCreateModal = async () => {
@@ -748,6 +807,71 @@ export const TransactionsPage: React.FC = () => {
               className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+
+          {/* Bộ lọc 4 cấp: Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale */}
+          {allRegions.length > 0 && (
+            <select
+              value={selectedRegionId}
+              onChange={(e) => {
+                setSelectedRegionId(e.target.value);
+                setSelectedAgencyId('all');
+                setSelectedTeamId('all');
+                setSelectedSaleId('all');
+              }}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-700"
+            >
+              <option value="all">Tất cả Vùng (GĐ Vùng)</option>
+              {allRegions.map((r) => (
+                <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
+              ))}
+            </select>
+          )}
+
+          {visibleAgencies.length > 0 && (
+            <select
+              value={selectedAgencyId}
+              onChange={(e) => {
+                setSelectedAgencyId(e.target.value);
+                setSelectedTeamId('all');
+                setSelectedSaleId('all');
+              }}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-700"
+            >
+              <option value="all">Tất cả Sàn (GĐ Sàn)</option>
+              {visibleAgencies.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          )}
+
+          {visibleTeams.length > 0 && (
+            <select
+              value={selectedTeamId}
+              onChange={(e) => {
+                setSelectedTeamId(e.target.value);
+                setSelectedSaleId('all');
+              }}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+            >
+              <option value="all">Tất cả Đội Nhóm</option>
+              {visibleTeams.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          )}
+
+          {visibleSales.length > 0 && (
+            <select
+              value={selectedSaleId}
+              onChange={(e) => setSelectedSaleId(e.target.value)}
+              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+            >
+              <option value="all">Tất cả Nhân Viên Sale</option>
+              {visibleSales.map((s) => (
+                <option key={s.id} value={s.id}>{s.full_name}</option>
+              ))}
+            </select>
+          )}
 
           <select
             value={selectedProjectId}
