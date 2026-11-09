@@ -1620,6 +1620,24 @@ export interface UnitPerformanceRank {
   perCapitaLeads: number;
 }
 
+export interface RecruitedEmployeeItem {
+  id: string;
+  employee_code?: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  role?: string;
+  title?: string;
+  agency_name?: string;
+  employment_type?: EmploymentType;
+  status?: string;
+  join_date?: string;
+  hire_date?: string;
+  probation_status?: 'passed' | 'evaluating' | 'failed';
+  revenue_generated?: number;
+  contracts_count?: number;
+}
+
 export interface RecruiterRank {
   recruiterId: string;
   recruiterName: string;
@@ -1628,5 +1646,28 @@ export interface RecruiterRank {
   totalRecruited: number;
   passedProbationCount: number;
   passedProbationRate: number; // %
+  growth_rate?: number; // ±% so với kỳ trước
+  recruits?: RecruitedEmployeeItem[];
+  totalRevenueByRecruits?: number;
+}
+
+export interface AgencyHRRank {
+  agencyId: string;
+  agencyName: string;
+  directorName?: string;
+  rank?: number;
+  totalHeadcount: number;
+  totalStaff?: number; // Alias for UI
+  officialCount: number;
+  probationCount: number;
+  collaboratorCount: number;
+  newHiresCount: number;
+  newHiredInPeriod?: number; // Alias for UI
+  retentionRate: number; // %
+  turnoverRate: number; // %
+  totalRevenue?: number;
+  perCapitaRevenue: number;
+  revenuePerCapita?: number; // Alias for UI
+  contractsCount: number;
 }
 

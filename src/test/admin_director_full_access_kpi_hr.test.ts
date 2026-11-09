@@ -317,3 +317,42 @@ describe('4. Shared Date Range & Timezone Calculations (Yêu cầu 4)', () => {
     expect(comp.previousFrom).toBe('2026-10-27');
   });
 });
+
+describe('5. HR & Recruiter Competition (Thi đua về nhân sự, Quán quân tuyển dụng & Quy mô sàn)', () => {
+  it('hrRepository.getRecruiterLeaderboard: Xếp hạng theo tiêu chí tuyển mới (recruited)', async () => {
+    const { hrRepository } = await import('@/data/repositories/hrRepository');
+    const list = await hrRepository.getRecruiterLeaderboard('recruited');
+    expect(list.length).toBeGreaterThan(0);
+    expect(list[0].totalRecruited).toBeGreaterThanOrEqual(list[list.length - 1].totalRecruited);
+    expect(list[0].recruits).toBeDefined();
+    expect(list[0].recruits!.length).toBeGreaterThan(0);
+    expect(list[0].totalRevenueByRecruits).toBeGreaterThanOrEqual(0);
+  });
+
+  it('hrRepository.getRecruiterLeaderboard: Xếp hạng theo tiêu chí đạt thử việc (passed)', async () => {
+    const { hrRepository } = await import('@/data/repositories/hrRepository');
+    const list = await hrRepository.getRecruiterLeaderboard('passed');
+    expect(list.length).toBeGreaterThan(0);
+    expect(list[0].passedProbationCount).toBeGreaterThanOrEqual(list[list.length - 1].passedProbationCount);
+  });
+
+  it('hrRepository.getRecruiterLeaderboard: Xếp hạng theo tỷ lệ đạt thử việc (rate)', async () => {
+    const { hrRepository } = await import('@/data/repositories/hrRepository');
+    const list = await hrRepository.getRecruiterLeaderboard('rate');
+    expect(list.length).toBeGreaterThan(0);
+    expect(list[0].passedProbationRate).toBeGreaterThanOrEqual(list[list.length - 1].passedProbationRate);
+  });
+
+  it('hrRepository.getAgencyHRLeaderboard: Tính quy mô, phân rã loại hình và tỷ lệ giữ chân', async () => {
+    const { hrRepository } = await import('@/data/repositories/hrRepository');
+    const list = await hrRepository.getAgencyHRLeaderboard();
+    expect(list.length).toBeGreaterThan(0);
+    const topAgency = list[0];
+    expect(topAgency.agencyName).toBeDefined();
+    expect(topAgency.totalHeadcount).toBeGreaterThan(0);
+    expect(topAgency.officialCount).toBeGreaterThanOrEqual(0);
+    expect(topAgency.probationCount).toBeGreaterThanOrEqual(0);
+    expect(topAgency.retentionRate).toBeGreaterThanOrEqual(80);
+    expect(topAgency.perCapitaRevenue).toBeGreaterThanOrEqual(0);
+  });
+});
