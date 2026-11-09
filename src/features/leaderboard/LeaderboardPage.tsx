@@ -31,6 +31,7 @@ import {
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { hrRepository } from '@/data/repositories/hrRepository';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { TimeRangeFilter } from '@/domain/services/financialCalculationService';
 import { 
   LeaderboardItem, 
@@ -115,8 +116,8 @@ export const LeaderboardPage: React.FC = () => {
     setLoading(true);
     if (rankingMetric === 'recruitment') {
       Promise.all([
-        hrRepository.getRecruiterLeaderboard(recruiterMetric, dateRange.from, dateRange.to),
-        hrRepository.getAgencyHRLeaderboard()
+        hrRepository.getRecruiterLeaderboard(recruiterMetric, dateRange.from, dateRange.to, currentUser || undefined),
+        hrRepository.getAgencyHRLeaderboard(currentUser || undefined)
       ])
         .then(([recData, agData]) => {
           setRecruiters(recData);
@@ -136,28 +137,25 @@ export const LeaderboardPage: React.FC = () => {
       metric: rankingMetric as 'revenue' | 'contracts_count' | 'commission',
       employmentTypes: selectedEmploymentTypes.length > 0 ? selectedEmploymentTypes : undefined,
       employmentStatuses: selectedStatuses.length > 0 ? selectedStatuses : undefined,
+      currentUser: currentUser || undefined,
     })
       .then(setLeaderboardData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [activeTab, selectedProjectId, dateRange, includeSample, rankingMetric, selectedEmploymentTypes, selectedStatuses, recruiterMetric]);
+  }, [activeTab, selectedProjectId, dateRange, includeSample, rankingMetric, selectedEmploymentTypes, selectedStatuses, recruiterMetric, currentUser]);
 
-  // Lọc danh sách tuyển dụng nhân sự tương ứng theo cấp bậc tab đang chọn
+  // Lọc danh sách tuyển dụng nhân sự tương ứng theo cấp bậc tab đang chọn và cây phân cấp nhánh
   const filteredRecruiters = React.useMemo(() => {
+    let list = recruiters;
     if (activeTab === 'sales_manager') {
-      const list = recruiters.filter(r => ['director', 'sales_manager', 'admin'].includes(r.recruiterRole));
-      return list.length > 0 ? list : recruiters;
+      list = recruiters.filter(r => ['director', 'sales_manager', 'admin'].includes(r.recruiterRole));
+    } else if (activeTab === 'team') {
+      list = recruiters.filter(r => r.recruiterRole === 'team_leader');
+    } else if (activeTab === 'sale_agent') {
+      list = recruiters.filter(r => r.recruiterRole === 'sale_agent');
     }
-    if (activeTab === 'team') {
-      const list = recruiters.filter(r => r.recruiterRole === 'team_leader');
-      return list.length > 0 ? list : recruiters;
-    }
-    if (activeTab === 'sale_agent') {
-      const list = recruiters.filter(r => r.recruiterRole === 'sale_agent');
-      return list.length > 0 ? list : recruiters;
-    }
-    return recruiters;
-  }, [recruiters, activeTab]);
+    return branchHierarchyService.filterRecruiterRanks(currentUser, list);
+  }, [recruiters, activeTab, currentUser]);
 
   const toggleEmploymentType = (type: EmploymentType) => {
     setSelectedEmploymentTypes(prev => 
@@ -447,11 +445,33 @@ export const LeaderboardPage: React.FC = () => {
                 ? 'Bảng Thi Đua Tuyển Dụng & Phát Triển Nhân Sự Toàn Hệ Thống' 
                 : 'Bảng Thi Đua Doanh Số, HĐMB & Hoa Hồng Toàn Hệ Thống'}
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {rankingMetric === 'recruitment'
-                ? 'Thi đua thu hút nhân tài, tỷ lệ vượt thử việc và quy mô nhân sự theo từng cấp bậc.'
-                : 'Thi đua thời gian thực giữa các Sàn, Trưởng phòng kinh doanh, Team và Chuyên viên tư vấn.'}
-            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <p className="text-xs text-slate-500">
+                {rankingMetric === 'recruitment'
+                  ? 'Thi đua thu hút nhân tài, tỷ lệ vượt thử việc và quy mô nhân sự theo từng cấp bậc.'
+                  : 'Thi đua thời gian thực giữa các Sàn, Trưởng phòng kinh doanh, Team và Chuyên viên tư vấn.'}
+              </p>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                currentUser?.role === 'admin' || currentUser?.role === 'director' || currentUser?.role === 'hr_admin' || currentUser?.role === 'marketing_manager'
+                  ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                  : currentUser?.role === 'sales_manager'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                  : currentUser?.role === 'team_leader'
+                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              }`}>
+                <ShieldCheck className="h-3 w-3" />
+                {currentUser?.role === 'admin'
+                  ? 'Toàn Hệ Thống (Admin)'
+                  : currentUser?.role === 'director' || currentUser?.role === 'hr_admin' || currentUser?.role === 'marketing_manager'
+                  ? 'Khối Giám Đốc / Toàn Sàn'
+                  : currentUser?.role === 'sales_manager'
+                  ? 'Nhánh Sàn Quản Lý'
+                  : currentUser?.role === 'team_leader'
+                  ? 'Nhánh Đội Nhóm Quản Lý'
+                  : 'Dữ Liệu Cá Nhân'}
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

@@ -46,6 +46,7 @@ import { normalizePhone } from '@/lib/utils';
 import { maskPhone, maskName, computePhoneHash } from '@/lib/masking';
 import { assertRateLimit } from '@/lib/rateLimiter';
 import { authRepository } from './authRepository';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 
 const STORAGE_KEY_EMPLOYEE_RECORDS = 'crm_employee_records';
 const STORAGE_KEY_EMPLOYEE_PRIVATE = 'crm_employee_private';
@@ -356,7 +357,7 @@ export class HRRepository {
     }
   }
 
-  // 1. LẤY DANH SÁCH NHÂN SỰ KÈM PHÂN QUYỀN
+  // 1. LẤY DANH SÁCH NHÂN SỰ KÈM PHÂN QUYỀN THEO NHÁNH
   async getEmployees(filters: EmployeeFilters = {}, currentUser: UserProfile): Promise<Array<UserProfile & { record?: EmployeeRecord }>> {
     assertRateLimit(currentUser.id, 'hr/get_employees', 60);
 
@@ -364,24 +365,8 @@ export class HRRepository {
     this.ensureInitialized();
     const records: EmployeeRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_RECORDS) || '[]');
 
-    // Phân quyền dữ liệu theo vai trò
-    let permittedProfiles = allProfiles;
-    const role = currentUser.role;
-
-    if (role === 'sale_agent') {
-      // Sale chỉ xem được chính mình và các đồng đội trong cùng team
-      permittedProfiles = allProfiles.filter(p => p.id === currentUser.id || (currentUser.team_id && p.team_id === currentUser.team_id));
-    } else if (role === 'team_leader') {
-      // Team leader xem được thành viên trong team của mình
-      permittedProfiles = allProfiles.filter(p => p.id === currentUser.id || p.team_id === currentUser.team_id);
-    } else if (role === 'sales_manager') {
-      // Sales manager xem được toàn bộ nhân sự trong sàn mình phụ trách
-      permittedProfiles = allProfiles.filter(p => p.id === currentUser.id || p.agency_id === currentUser.agency_id);
-    } else if (role === 'marketing_manager') {
-      // Marketing manager xem danh sách cơ bản để phối hợp chiến dịch
-      permittedProfiles = allProfiles;
-    }
-    // admin, director, hr_admin: Toàn quyền xem tất cả
+    // Phân quyền dữ liệu theo cây phân cấp nhánh (Branch Scoping)
+    const permittedProfiles = branchHierarchyService.filterProfiles(currentUser, allProfiles);
 
     // Lọc theo bộ lọc giao diện
     let filtered = permittedProfiles;
@@ -437,6 +422,11 @@ export class HRRepository {
     const profiles = await teamRepository.getProfiles();
     const target = profiles.find(p => p.id === userId);
     if (!target) throw new Error('Không tìm thấy nhân sự!');
+
+    // Cưỡng chế phân quyền cây nhánh: Dữ liệu của nhánh nào chỉ được xem nhánh đó
+    if (!branchHierarchyService.canAccessUser(currentUser, target)) {
+      throw new Error('Từ chối truy cập: Nhân sự này không thuộc nhánh quản lý của bạn.');
+    }
 
     const isSelf = currentUser.id === userId;
     const isHrOrAdmin = ['admin', 'director', 'hr_admin'].includes(currentUser.role);
@@ -1062,7 +1052,10 @@ export class HRRepository {
     pendingLeavesCount: number;
   }> {
     this.ensureInitialized();
-    const profiles = await teamRepository.getProfiles();
+    let profiles = await teamRepository.getProfiles();
+    if (currentUser) {
+      profiles = branchHierarchyService.filterProfiles(currentUser, profiles);
+    }
     const records: EmployeeRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_RECORDS) || '[]');
     const certs: BrokerCertificate[] = JSON.parse(localStorage.getItem(STORAGE_KEY_BROKER_CERTS) || '[]');
     const reqs: JobRequisition[] = JSON.parse(localStorage.getItem(STORAGE_KEY_REQUISITIONS) || '[]');
@@ -1071,13 +1064,13 @@ export class HRRepository {
 
     return {
       headcount: profiles.length,
-      officialCount: records.filter(r => r.employment_type === 'official').length,
-      probationCount: records.filter(r => r.employment_type === 'probation').length,
-      collaboratorCount: records.filter(r => r.employment_type === 'collaborator').length,
-      expiringCertsCount: certs.filter(c => c.status === 'expiring_soon' || c.status === 'expired').length,
+      officialCount: records.filter(r => r.employment_type === 'official' && profiles.some(p => p.id === r.user_id)).length,
+      probationCount: records.filter(r => r.employment_type === 'probation' && profiles.some(p => p.id === r.user_id)).length,
+      collaboratorCount: records.filter(r => r.employment_type === 'collaborator' && profiles.some(p => p.id === r.user_id)).length,
+      expiringCertsCount: certs.filter(c => (c.status === 'expiring_soon' || c.status === 'expired') && profiles.some(p => p.id === (c as any).user_id)).length,
       openRequisitionsCount: reqs.filter(r => r.status === 'open').length,
-      pendingTransfersCount: transfers.filter(t => t.status === 'pending').length,
-      pendingLeavesCount: leaves.filter(l => l.status === 'pending').length,
+      pendingTransfersCount: transfers.filter(t => t.status === 'pending' && profiles.some(p => p.id === t.user_id)).length,
+      pendingLeavesCount: leaves.filter(l => l.status === 'pending' && profiles.some(p => p.id === l.user_id)).length,
     };
   }
 
@@ -1089,11 +1082,18 @@ export class HRRepository {
     currentUser?: UserProfile
   ): Promise<HRKpiSummary> {
     this.ensureInitialized();
-    const profiles = await teamRepository.getProfiles();
+    let profiles = await teamRepository.getProfiles();
+    if (currentUser) {
+      profiles = branchHierarchyService.filterProfiles(currentUser, profiles);
+    }
     const records: EmployeeRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_RECORDS) || '[]');
     const events: PersonnelEvent[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PERSONNEL_EVENTS) || '[]');
-    const leads: Lead[] = JSON.parse(localStorage.getItem('crm_leads') || '[]');
-    const contracts: Transaction[] = JSON.parse(localStorage.getItem('crm_transactions') || '[]');
+    let leads: Lead[] = JSON.parse(localStorage.getItem('crm_leads') || '[]');
+    let contracts: Transaction[] = JSON.parse(localStorage.getItem('crm_transactions') || '[]');
+
+    if (currentUser) {
+      contracts = branchHierarchyService.filterTransactions(currentUser, contracts);
+    }
 
     const officialCount = records.filter(r => r.employment_type === 'official').length || profiles.filter(p => p.employment_type === 'official' || (!p.employment_type && p.role !== 'marketing_manager')).length;
     const probationCount = records.filter(r => r.employment_type === 'probation').length || profiles.filter(p => p.employment_type === 'probation').length;
@@ -1179,7 +1179,8 @@ export class HRRepository {
   async getRecruiterLeaderboard(
     metric: 'recruited' | 'passed' | 'rate' = 'recruited',
     dateFrom?: string,
-    dateTo?: string
+    dateTo?: string,
+    currentUser?: UserProfile
   ): Promise<RecruiterRank[]> {
     this.ensureInitialized();
     const records: EmployeeRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_RECORDS) || '[]');
@@ -1273,15 +1274,17 @@ export class HRRepository {
       });
     }
 
-    const result = Object.entries(recruiterMap).map(([recruiterId, stats]) => {
+    let result: RecruiterRank[] = Object.entries(recruiterMap).map(([recruiterId, stats]) => {
       const p = profiles.find(pr => pr.id === recruiterId);
       const agency = agencies.find(a => a.id === p?.agency_id);
       const passedRate = stats.total > 0 ? Math.round((stats.passed / stats.total) * 100) : 0;
       return {
         recruiterId,
         recruiterName: p?.full_name || 'Quản lý tuyển dụng',
-        recruiterRole: p?.role || 'team_leader',
+        recruiterRole: (p?.role || 'team_leader') as string,
+        agencyId: p?.agency_id,
         agencyName: agency?.name || 'Khối Kinh Doanh',
+        teamId: p?.team_id,
         totalRecruited: stats.total,
         passedProbationCount: stats.passed,
         passedProbationRate: passedRate,
@@ -1291,6 +1294,10 @@ export class HRRepository {
       };
     });
 
+    if (currentUser) {
+      result = branchHierarchyService.filterRecruiterRanks(currentUser, result, profiles);
+    }
+
     if (metric === 'passed') {
       return result.sort((a, b) => b.passedProbationCount - a.passedProbationCount || b.passedProbationRate - a.passedProbationRate);
     } else if (metric === 'rate') {
@@ -1299,16 +1306,19 @@ export class HRRepository {
     return result.sort((a, b) => b.totalRecruited - a.totalRecruited || b.passedProbationRate - a.passedProbationRate);
   }
 
-  async getAgencyHRLeaderboard(): Promise<AgencyHRRank[]> {
+  async getAgencyHRLeaderboard(currentUser?: UserProfile): Promise<AgencyHRRank[]> {
     this.ensureInitialized();
     const records: EmployeeRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_RECORDS) || '[]');
     const profiles = await teamRepository.getProfiles();
-    const agencies = await teamRepository.getAgencies();
+    let agencies = await teamRepository.getAgencies();
+    if (currentUser) {
+      agencies = branchHierarchyService.filterAgencies(currentUser, agencies);
+    }
     const contracts: Transaction[] = JSON.parse(
       localStorage.getItem('crm_contracts') || localStorage.getItem('crm_transactions') || '[]'
     );
 
-    return agencies.map((agency, idx) => {
+    const sorted: AgencyHRRank[] = agencies.map((agency, idx) => {
       const agencyProfiles = profiles.filter(p => p.agency_id === agency.id);
       const director = agencyProfiles.find(p => p.role === 'director' || p.id === agency.director_id);
       const agencyRecords = records.filter(r => agencyProfiles.some(p => p.id === (r.user_id || (r as any).profile_id)));
@@ -1343,6 +1353,11 @@ export class HRRepository {
         contractsCount: confirmedContracts.length || 8,
       };
     }).sort((a, b) => b.totalHeadcount - a.totalHeadcount || b.perCapitaRevenue - a.perCapitaRevenue);
+
+    if (currentUser) {
+      return branchHierarchyService.filterAgencyHRRanks(currentUser, sorted);
+    }
+    return sorted;
   }
   // ========================================================
   // PHASE 5.0A: CHUỖI CẤP BẬC BẮT BUỘC & KẾ NHIỆM (NO ORPHAN SALE)

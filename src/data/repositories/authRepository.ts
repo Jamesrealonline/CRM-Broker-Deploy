@@ -55,12 +55,15 @@ export class AuthRepository {
     // Chỉ tài khoản có vai trò thực tế là 'admin' mới được phép chuyển góc nhìn
     if (realProfile.role === 'admin') {
       const session = this.getImpersonationSession();
-      if (session) {
-        return { ...realProfile, role: session.effective_role };
-      }
-      const impersonated = localStorage.getItem(STORAGE_KEY_IMPERSONATED_ROLE) as UserRole | null;
-      if (impersonated && impersonated !== 'admin') {
-        return { ...realProfile, role: impersonated };
+      const targetRole = session?.effective_role || (localStorage.getItem(STORAGE_KEY_IMPERSONATED_ROLE) as UserRole | null);
+      if (targetRole && targetRole !== 'admin') {
+        const sampleForRole = INITIAL_PROFILES.find(p => p.role === targetRole);
+        return { 
+          ...realProfile, 
+          role: targetRole,
+          agency_id: sampleForRole?.agency_id || realProfile.agency_id,
+          team_id: sampleForRole?.team_id || realProfile.team_id,
+        };
       }
     } else {
       // Nếu không phải admin mà localStorage có sót cờ impersonate thì xóa bỏ ngay

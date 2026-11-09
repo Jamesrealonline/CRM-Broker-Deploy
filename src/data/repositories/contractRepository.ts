@@ -18,7 +18,8 @@ import {
   ContractRevision,
   BankStatement,
   DebtAgingReport,
-  MultiTierCommissionSnapshot
+  MultiTierCommissionSnapshot,
+  Team
 } from '@/domain/types';
 import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES, INITIAL_LEAD_SOURCES } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
@@ -28,6 +29,7 @@ import { assertRateLimit } from '@/lib/rateLimiter';
 import { checkOrStartIdempotency, completeIdempotency } from '@/lib/idempotency';
 import { normalizePhone } from '@/lib/utils';
 import { assertNoMockPIIInProduction } from '@/lib/storageGuard';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 
 const STORAGE_KEY_TRANSACTIONS = 'crm_transactions';
 const STORAGE_KEY_LEADS = 'crm_leads';
@@ -48,6 +50,7 @@ export interface ContractFilters {
   includeSample?: boolean;
   dateFrom?: string;
   dateTo?: string;
+  currentUser?: UserProfile;
 }
 
 export interface CreateContractWithCustomerPayload {
@@ -220,6 +223,10 @@ export class ContractRepository {
           );
         }
 
+        if (filters.currentUser) {
+          mapped = branchHierarchyService.filterTransactions(filters.currentUser, mapped);
+        }
+
         return mapped;
       }
     }
@@ -248,6 +255,10 @@ export class ContractRepository {
         (t.customer_name && t.customer_name.toLowerCase().includes(q)) ||
         (t.sale_name && t.sale_name.toLowerCase().includes(q))
       );
+    }
+
+    if (filters.currentUser) {
+      list = branchHierarchyService.filterTransactions(filters.currentUser, list);
     }
 
     return list;
@@ -1049,6 +1060,7 @@ export class ContractRepository {
     includeSample?: boolean;
     employmentTypes?: string[];
     employmentStatuses?: string[];
+    currentUser?: UserProfile;
   }): Promise<LeaderboardItem[]> {
     let contracts = await this.getTransactions({
       type: 'contract',
@@ -1056,6 +1068,7 @@ export class ContractRepository {
       includeSample: params.includeSample,
       dateFrom: params.dateFrom,
       dateTo: params.dateTo,
+      currentUser: params.currentUser,
     });
 
     // Lọc theo 1 hoặc nhiều dự án
@@ -1152,7 +1165,7 @@ export class ContractRepository {
     const metric = params.metric || 'revenue';
 
     // Đọc danh sách profiles để gắn employment_type, status và tính per capita
-    const rawProfiles = typeof window !== 'undefined' ? localStorage.getItem('crm_profiles') : null;
+    const rawProfiles = typeof localStorage !== 'undefined' ? localStorage.getItem('crm_profiles') : null;
     const profiles: UserProfile[] = rawProfiles ? JSON.parse(rawProfiles) : INITIAL_PROFILES;
 
     let result: LeaderboardItem[] = Object.values(itemsMap).map(item => {
@@ -1203,6 +1216,19 @@ export class ContractRepository {
       if (params.employmentStatuses && params.employmentStatuses.length > 0) {
         result = result.filter(item => item.employment_status && params.employmentStatuses!.includes(item.employment_status));
       }
+    }
+
+    // Cưỡng chế phân quyền theo cây phân cấp nhánh (Branch Scoping)
+    if (params.currentUser) {
+      const teamsRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('crm_teams') : null;
+      const allTeams: Team[] = teamsRaw ? JSON.parse(teamsRaw) : INITIAL_TEAMS;
+      result = branchHierarchyService.filterLeaderboardItems(
+        params.currentUser,
+        params.type,
+        result,
+        allTeams,
+        profiles
+      );
     }
 
     // Sắp xếp thứ hạng linh hoạt theo chỉ số thi đua được chọn

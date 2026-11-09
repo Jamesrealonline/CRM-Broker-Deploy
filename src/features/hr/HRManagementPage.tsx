@@ -43,6 +43,7 @@ import {
 import { useAuthStore } from '@/app/useAuthStore';
 import { hrRepository, EmployeeFilters } from '@/data/repositories/hrRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { 
   UserProfile, 
   EmployeeRecord, 
@@ -176,9 +177,11 @@ export const HRManagementPage: React.FC = () => {
         hrRepository.getCandidates(),
       ]);
 
+      const accessibleAgencies = branchHierarchyService.filterAgencies(currentUser, agList);
+      const accessibleTeams = branchHierarchyService.filterTeams(currentUser, tmList);
       setEmployees(empList);
-      setAgencies(agList);
-      setTeams(tmList);
+      setAgencies(accessibleAgencies);
+      setTeams(accessibleTeams);
       setMetrics(mtr);
       setPendingTransfers(trList.filter(t => t.status === 'pending'));
       setPendingLeaves(lvList.filter(l => l.status === 'pending'));

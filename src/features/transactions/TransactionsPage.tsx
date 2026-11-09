@@ -173,6 +173,7 @@ export const TransactionsPage: React.FC = () => {
           includeSample: includeSample,
           dateFrom: dateRange.from,
           dateTo: dateRange.to,
+          currentUser: currentUser || undefined,
         }),
         projectRepository.getProjects(),
       ]);

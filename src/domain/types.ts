@@ -1642,7 +1642,9 @@ export interface RecruiterRank {
   recruiterId: string;
   recruiterName: string;
   recruiterRole: string;
+  agencyId?: string;
   agencyName?: string;
+  teamId?: string;
   totalRecruited: number;
   passedProbationCount: number;
   passedProbationRate: number; // %
