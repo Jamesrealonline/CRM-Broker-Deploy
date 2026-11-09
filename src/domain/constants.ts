@@ -55,4 +55,14 @@ export const LEAD_SOURCES_DEFAULT = [
   { code: 'khac', name: 'Khác', requires_detail: true },
 ];
 
+export const LEAD_LOSS_REASONS_DEFAULT = [
+  { code: 'gia_cao', name: 'Giá vượt quá ngân sách khách hàng', is_active: true, sort_order: 1 },
+  { code: 'vi_tri', name: 'Vị trí dự án không phù hợp nhu cầu', is_active: true, sort_order: 2 },
+  { code: 'phap_ly', name: 'Lo ngại về tiến độ pháp lý dự án', is_active: true, sort_order: 3 },
+  { code: 'tai_chinh', name: 'Không vay được ngân hàng / Không đủ vốn tự có', is_active: true, sort_order: 4 },
+  { code: 'mua_noi_khac', name: 'Khách đã mua dự án bất động sản khác', is_active: true, sort_order: 5 },
+  { code: 'khong_nhu_cau', name: 'Khách không còn nhu cầu mua BĐS', is_active: true, sort_order: 6 },
+  { code: 'khac', name: 'Lý do khác (Bắt buộc ghi chú chi tiết)', is_active: true, sort_order: 7 },
+];
+
 export const STAGE_CONFIG_MAP = new Map(JOURNEY_STAGES.map(s => [s.id, s]));

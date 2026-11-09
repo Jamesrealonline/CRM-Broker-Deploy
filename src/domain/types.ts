@@ -34,6 +34,7 @@ export interface UserProfile {
   session_expires_at?: string;
   last_login_at?: string;
   created_at?: string;
+  reporting_to?: string;
   accepts_leads?: boolean;
   on_leave?: boolean;
   email_notifications_enabled?: boolean;
@@ -257,6 +258,13 @@ export interface Lead {
   customer_phone_hash?: string;
   extended_until?: string;
   extension_reason?: string;
+
+  // Giai đoạn 2: Chống lách SLA, hẹn ảo, lý do đóng thất bại & nuôi lại
+  loss_reason_code?: string;
+  loss_reason_detail?: string;
+  nurture_reminder_date?: string;
+  sla_reset_count?: number;
+  sla_flags?: string[];
 
   // Joined fields for display
   customer_name?: string;
@@ -526,7 +534,8 @@ export type AssignmentReason =
   | 'auto_overdue'
   | 'bulk_assign'
   | 'round_robin'
-  | 'pool_reclaim';
+  | 'pool_reclaim'
+  | 'pool_claimed';
 
 export interface LeadAssignmentHistory {
   id: string;
@@ -908,5 +917,92 @@ export interface OnboardingTask {
   due_date?: string;
   is_completed: boolean;
   completed_at?: string;
+  created_at: string;
+}
+
+// ========================================================
+// PHASE 2: SLA ANTI-CHEAT, UNIT HOLDS & JOB RUNS
+// ========================================================
+
+export interface LeadAppointment {
+  id: string;
+  lead_id: string;
+  sale_id: string;
+  appointment_type?: 'consulting' | 'site_visit' | 'online_call' | 'sign_contract';
+  appointment_date?: string;
+  scheduled_at: string;
+  location?: string;
+  purpose?: string;
+  status: 'scheduled' | 'confirmed' | 'completed' | 'missed' | 'cancelled' | 'no_result_overdue';
+  result_summary?: string;
+  completed_at?: string;
+  flags?: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface LeadLossReason {
+  code: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface UnitHold {
+  id: string;
+  project_id: string;
+  project_name?: string;
+  unit_code: string;
+  lead_id?: string;
+  customer_name?: string;
+  sale_id: string;
+  sale_name?: string;
+  hold_start_at: string;
+  hold_expires_at: string;
+  status: 'active' | 'expired' | 'converted' | 'cancelled';
+  extension_count: number;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UnitWaitlist {
+  id: string;
+  project_id: string;
+  unit_code: string;
+  lead_id: string;
+  customer_name?: string;
+  sale_id: string;
+  sale_name?: string;
+  priority_order: number;
+  status: 'waiting' | 'notified' | 'expired' | 'converted';
+  notified_at?: string;
+  created_at?: string;
+}
+
+export interface JobRun {
+  id: string;
+  job_name: string;
+  started_at: string;
+  finished_at?: string;
+  status: 'running' | 'success' | 'failed' | 'timeout';
+  rows_affected?: number;
+  error_message?: string;
+  error_detail?: string;
+  server_host?: string;
+  created_at?: string;
+}
+
+export interface DeadLetterMessage {
+  id: string;
+  source_table: string;
+  original_id?: string;
+  record_id?: string;
+  payload: any;
+  error_reason?: string;
+  error_type?: string;
+  error_message?: string;
+  retry_count: number;
+  status: 'unresolved' | 'resolved' | 'discarded' | 'dead';
   created_at: string;
 }

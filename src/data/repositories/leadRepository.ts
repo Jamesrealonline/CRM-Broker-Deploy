@@ -908,6 +908,9 @@ export class LeadRepository {
     unitCode?: string;
     dealValue?: number;
     contractCode?: string;
+    lossReasonCode?: string;
+    lossReasonDetail?: string;
+    nurtureReminderDate?: string;
     idempotencyKey?: string;
   }): Promise<{ success: boolean; error?: string }> {
     // CHẶN KHI ĐANG Ở CHẾ ĐỘ GIẢ LẬP GÓC NHÌN (CHẾ ĐỘ CHỈ ĐỌC)
@@ -973,6 +976,16 @@ export class LeadRepository {
         await completeIdempotency(payload.idempotencyKey, 'leads/change-status', { success: true });
       }
       return { success: true };
+    }
+
+    // 1.5 Kiểm tra bắt buộc lý do mất khách / không hợp lệ khi đóng Lead
+    if (['lost', 'invalid'].includes(payload.newStatus)) {
+      if (payload.lossReasonCode === '' || (payload.lossReasonCode === undefined && payload.currentUser.role !== 'admin')) {
+        return {
+          success: false,
+          error: 'Bắt buộc chọn lý do mất khách / không hợp lệ khi đóng Lead!',
+        };
+      }
     }
 
     // 2. Kiểm tra ràng buộc tài chính bắt buộc trước (Financial Milestones Validation)
@@ -1057,13 +1070,17 @@ export class LeadRepository {
     const isStopClock = STOP_CLOCK_STATUSES.includes(payload.newStatus);
     const newDeadline = isStopClock ? undefined : autoTransferService.computeCareDeadline(nowIso, 24);
 
-    // 7. Cập nhật Lead trong Storage
+    // 7. CẬP NHẬT LEAD TRONG STORAGE
     leads[leadIdx].status = payload.newStatus;
     if (payload.notes) leads[leadIdx].notes = payload.notes;
     leads[leadIdx].updated_at = nowIso;
     leads[leadIdx].last_action_at = nowIso;
     leads[leadIdx].last_care_updated_at = nowIso;
     leads[leadIdx].care_deadline_at = newDeadline;
+    leads[leadIdx].sla_reset_count = 0; // Chuyển giai đoạn hợp lệ -> reset bộ đếm reset SLA
+    if (payload.lossReasonCode) leads[leadIdx].loss_reason_code = payload.lossReasonCode;
+    if (payload.lossReasonDetail) leads[leadIdx].loss_reason_detail = payload.lossReasonDetail;
+    if (payload.nurtureReminderDate) leads[leadIdx].nurture_reminder_date = payload.nurtureReminderDate;
 
     localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(leads));
 
