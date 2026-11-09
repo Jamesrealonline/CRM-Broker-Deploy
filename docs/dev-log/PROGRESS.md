@@ -11,8 +11,8 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | :--- | :--- | :---: | :---: |
 | **Giai đoạn 1** | Nền tảng an toàn: bảo mật, toàn vẹn dữ liệu, AI/Edge | **Xong** | `35d33c3` |
 | **Giai đoạn 2** | SLA chống gian lận, Lead Pool, giữ căn, giám sát job nền | **Xong** | `0359e43` |
-| **Giai đoạn 3** | Hợp đồng (khách mới + nguồn lead), hoa hồng, vòng đời, công nợ | **Xong** | (chuẩn bị commit) |
-| **Giai đoạn 4** | Quy trình bán hàng: lịch hẹn, công cụ tư vấn, nhập lead, quản lý khách | **Chưa làm** | --- |
+| **Giai đoạn 3** | Hợp đồng (khách mới + nguồn lead), hoa hồng, vòng đời, công nợ | **Xong** | `d1f4164` |
+| **Giai đoạn 4** | Quy trình bán hàng: lịch hẹn, công cụ tư vấn, nhập lead, quản lý khách | **Xong** | (chuẩn bị commit) |
 | **Giai đoạn 5** | Quản trị sàn: cây cấp bậc, thi đua nhân sự, điều chuyển, nhân sự 360° | **Xong một phần** | `35da8c3` |
 | **Giai đoạn 6** | Marketing, vận hành/CI-CD, quyền riêng tư, thiết kế multi-tenant, PWA | **Chưa làm** | --- |
 | **Giai đoạn 7** | Quản trị dữ liệu: Admin & Giám đốc Sàn sửa/xóa có kiểm soát, Thùng rác | **Chưa làm** | --- |
@@ -53,12 +53,12 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 
 ---
 
-### Giai đoạn 4 – Quy trình bán hàng (CHUẨN BỊ)
-- [ ] **4.1** Quản lý lịch hẹn `appointments`, xem thực địa, nhắc hẹn tự động, check-in QR/GPS dự án.
-- [ ] **4.2** Công cụ tư vấn: Máy tính vay/chiết khấu/ân hạn và Báo giá PDF snapshot không lộ hoa hồng.
-- [ ] **4.3** Nhập lead tự động qua Webhook (Lead Ads, Landing page) & Nhập Excel/CSV theo lô (`batch_id`) có hoàn tác.
-- [ ] **4.4** Hợp nhất khách hàng trùng lặp (Merge), custom fields và sửa hàng loạt có xem trước.
-- [ ] **4.5** Hộp thư đa kênh (Timeline tương tác hợp nhất: Gọi, Zalo, SMS, Email).
+### Giai đoạn 4 – Quy trình bán hàng (HOÀN THÀNH)
+- [x] **4.1** Quản lý lịch hẹn `appointments`, xem thực địa, nhắc hẹn tự động, check-in QR/GPS dự án (geofence 500m).
+- [x] **4.2** Công cụ tư vấn: Máy tính vay/chiết khấu/ân hạn và Báo giá snapshot không lộ hoa hồng.
+- [x] **4.3** Nhập lead tự động qua Webhook (Lead Ads, Landing page) & Nhập Excel/CSV theo lô (`batch_id`) có hoàn tác.
+- [x] **4.4** Hợp nhất khách hàng trùng lặp (Merge/Unmerge), custom fields và sửa hàng loạt có xem trước.
+- [x] **4.5** Hộp thư đa kênh (Timeline tương tác hợp nhất: Gọi, Zalo, SMS, Email).
 
 ---
 

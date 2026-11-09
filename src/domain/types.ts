@@ -259,10 +259,11 @@ export interface Lead {
   extended_until?: string;
   extension_reason?: string;
 
-  // Giai đoạn 2: Chống lách SLA, hẹn ảo, lý do đóng thất bại & nuôi lại
+  // Giai đoạn 2 & 4: Chống lách SLA, hẹn ảo, lý do đóng thất bại, nuôi lại & nhập theo lô
   loss_reason_code?: string;
   loss_reason_detail?: string;
   nurture_reminder_date?: string;
+  import_batch_id?: string;
   sla_reset_count?: number;
   sla_flags?: string[];
 
@@ -1116,4 +1117,99 @@ export interface DebtAgingReport {
   remainingAmount: number;
   aging: DebtAgingBucket;
   installments: ContractInstallment[];
+}
+
+// ========================================================
+// PHASE 4: SALES WORKFLOW TOOLS, QUOTATIONS & CUSTOMER MERGE
+// ========================================================
+
+export interface MortgageCalculationParams {
+  loanAmount: number; // Số tiền vay (VND)
+  loanTermMonths: number; // Thời hạn vay (tháng), ví dụ: 240, 300, 420
+  preferentialRateYear: number; // Lãi suất ưu đãi (%/năm), ví dụ: 6.5
+  preferentialMonths: number; // Thời gian ưu đãi (tháng), ví dụ: 12, 24, 36
+  floatingRateYear: number; // Lãi suất sau ưu đãi (%/năm), ví dụ: 10.5
+  gracePeriodMonths?: number; // Ân hạn nợ gốc (tháng)
+}
+
+export interface MortgageScheduleRow {
+  month: number;
+  beginningBalance: number;
+  principalPayment: number;
+  interestPayment: number;
+  totalPayment: number;
+  endingBalance: number;
+  isGracePeriod: boolean;
+  isPreferentialRate: boolean;
+  interestRate: number;
+}
+
+export interface MortgageCalculationResult {
+  monthlyPaymentFirstMonth: number;
+  monthlyPaymentMax: number;
+  totalInterestPaid: number;
+  totalPrincipalAndInterest: number;
+  schedule: MortgageScheduleRow[];
+}
+
+export interface Quotation {
+  id: string;
+  code: string; // BG-YYYY-XXXX
+  lead_id?: string;
+  project_id: string;
+  project_name?: string;
+  unit_code: string;
+  deal_value: number;
+  discount_amount: number;
+  final_price: number;
+  payment_plan_summary?: Record<string, any>;
+  valid_until: string;
+  created_by: string;
+  created_by_name?: string;
+  status: 'draft' | 'sent' | 'accepted' | 'expired';
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ImportBatch {
+  id: string;
+  file_name: string;
+  total_rows: number;
+  success_rows: number;
+  error_rows: number;
+  status: 'imported' | 'reverted';
+  created_by: string;
+  created_at: string;
+  reverted_at?: string;
+}
+
+export interface CustomerMergeRecord {
+  id: string;
+  primary_customer_id: string;
+  merged_customer_id: string;
+  merged_by: string;
+  merged_at: string;
+  status: 'active' | 'reverted';
+  reverted_at?: string;
+  audit_snapshot: Record<string, any>;
+}
+
+export interface InteractionTimelineItem {
+  id: string;
+  lead_id: string;
+  channel: 'call' | 'zalo' | 'sms' | 'email';
+  direction: 'inbound' | 'outbound';
+  content: string;
+  metadata?: Record<string, any>;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface AppointmentCheckInResult {
+  success: boolean;
+  isWithinGeofence: boolean;
+  distanceMeters?: number;
+  qrVerified?: boolean;
+  flaggedOutside?: boolean;
+  appointment: LeadAppointment;
 }
