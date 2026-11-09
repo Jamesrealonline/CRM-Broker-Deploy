@@ -24,6 +24,10 @@ export interface UserProfile {
   organization_id?: string;
   agency_id?: string;
   team_id?: string;
+  department_id?: string;
+  marketing_unit_id?: string;
+  is_acting?: boolean;
+  acting_until?: string;
   status: UserStatus;
   must_change_password: boolean;
   totp_enabled: boolean;
@@ -95,6 +99,7 @@ export interface Agency {
 export interface Team {
   id: string;
   agency_id: string;
+  department_id?: string;
   name: string;
   code: string;
   leader_id?: string;
@@ -230,6 +235,10 @@ export interface Lead {
   project_id: string;
   agency_id?: string;
   team_id?: string;
+  department_id?: string;
+  marketing_unit_id?: string;
+  is_acting?: boolean;
+  acting_until?: string;
   assigned_to?: string;
   source_id?: string;
   source_detail?: string;
@@ -861,6 +870,10 @@ export interface PerformanceTarget {
   period: string; // '2026-11', '2026-Q4'
   agency_id?: string;
   team_id?: string;
+  department_id?: string;
+  marketing_unit_id?: string;
+  is_acting?: boolean;
+  acting_until?: string;
   user_id?: string;
   revenue_target: number;
   contracts_target: number;
@@ -1212,4 +1225,54 @@ export interface AppointmentCheckInResult {
   qrVerified?: boolean;
   flaggedOutside?: boolean;
   appointment: LeadAppointment;
+}
+
+// ========================================================
+// PHASE 5.0A: STRICT SALE CHAIN & HIERARCHY
+// ========================================================
+
+export interface Department {
+  id: string;
+  agency_id: string;
+  name: string;
+  head_id?: string;
+  head_name?: string;
+  director_id?: string;
+  director_name?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface MarketingUnit {
+  id: string;
+  name: string;
+  manager_id?: string;
+  manager_name?: string;
+  director_id?: string;
+  director_name?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SaleChain {
+  sale_id: string;
+  sale_name: string;
+  team_id?: string;
+  leader_id?: string;
+  department_id?: string;
+  head_id?: string;
+  director_id?: string;
+  marketing_unit_id?: string;
+  marketing_manager_id?: string;
+}
+
+export interface StructuralHealthReport {
+  orphanSalesCount: number;
+  teamsWithoutLeaderCount: number;
+  departmentsWithoutHeadCount: number;
+  marketingUnitsWithoutManagerCount: number;
+  expiredActingCount: number;
+  orphanSales: Array<{ id: string; name: string; missingLinks: string[] }>;
+  teamsWithoutLeader: Array<{ id: string; name: string }>;
+  departmentsWithoutHead: Array<{ id: string; name: string }>;
 }

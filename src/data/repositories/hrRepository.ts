@@ -25,7 +25,12 @@ import {
   PerformanceReview, 
   DisciplinaryRecord, 
   OnboardingTask,
-  UserRole
+  UserRole,
+  Department,
+  MarketingUnit,
+  SaleChain,
+  StructuralHealthReport,
+  Team
 } from '@/domain/types';
 import { teamRepository, CreateUserInput } from './teamRepository';
 import { auditRepository } from './auditRepository';
@@ -52,6 +57,8 @@ const STORAGE_KEY_TARGETS = 'crm_performance_targets';
 const STORAGE_KEY_REVIEWS = 'crm_performance_reviews';
 const STORAGE_KEY_DISCIPLINARY = 'crm_disciplinary_records';
 const STORAGE_KEY_ONBOARDING = 'crm_onboarding_tasks';
+const STORAGE_KEY_DEPARTMENTS = 'crm_departments';
+const STORAGE_KEY_MARKETING_UNITS = 'crm_marketing_units';
 
 export interface EmployeeFilters {
   agencyId?: string;
@@ -289,6 +296,56 @@ export class HRRepository {
         }
       ];
       localStorage.setItem(STORAGE_KEY_PERSONNEL_EVENTS, JSON.stringify(events));
+    }
+
+    if (!localStorage.getItem(STORAGE_KEY_DEPARTMENTS)) {
+      const depts: Department[] = [
+        {
+          id: 'dept-01',
+          agency_id: 'agency-1',
+          name: 'Phòng Kinh Doanh 1',
+          head_id: 'aaaaaaaa-4444-1111-1111-111111111111',
+          head_name: 'Nguyễn Hoàng Long',
+          director_id: 'aaaaaaaa-3333-1111-1111-111111111111',
+          director_name: 'Trần Thị Thu Thảo',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'dept-02',
+          agency_id: 'agency-1',
+          name: 'Phòng Kinh Doanh 2',
+          head_id: 'aaaaaaaa-4444-2222-1111-111111111111',
+          head_name: 'Lê Văn Trưởng Phòng 2',
+          director_id: 'aaaaaaaa-3333-1111-1111-111111111111',
+          director_name: 'Trần Thị Thu Thảo',
+          created_at: new Date().toISOString(),
+        }
+      ];
+      localStorage.setItem(STORAGE_KEY_DEPARTMENTS, JSON.stringify(depts));
+    }
+
+    if (!localStorage.getItem(STORAGE_KEY_MARKETING_UNITS)) {
+      const units: MarketingUnit[] = [
+        {
+          id: 'mkt-01',
+          name: 'Đơn Vị Marketing Kỹ Thuật Số (Digital)',
+          manager_id: 'aaaaaaaa-2222-1111-1111-111111111111',
+          manager_name: 'Lê Văn Marketing',
+          director_id: 'aaaaaaaa-3333-1111-1111-111111111111',
+          director_name: 'Trần Thị Thu Thảo',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'mkt-02',
+          name: 'Đơn Vị Marketing Truyền Thống & Sự Kiện',
+          manager_id: 'aaaaaaaa-2222-2222-1111-111111111111',
+          manager_name: 'Đặng Mai Phương',
+          director_id: 'aaaaaaaa-3333-1111-1111-111111111111',
+          director_name: 'Trần Thị Thu Thảo',
+          created_at: new Date().toISOString(),
+        }
+      ];
+      localStorage.setItem(STORAGE_KEY_MARKETING_UNITS, JSON.stringify(units));
     }
   }
 
@@ -1006,6 +1063,330 @@ export class HRRepository {
       openRequisitionsCount: reqs.filter(r => r.status === 'open').length,
       pendingTransfersCount: transfers.filter(t => t.status === 'pending').length,
       pendingLeavesCount: leaves.filter(l => l.status === 'pending').length,
+    };
+  }
+  // ========================================================
+  // PHASE 5.0A: CHUỖI CẤP BẬC BẮT BUỘC & KẾ NHIỆM (NO ORPHAN SALE)
+  // ========================================================
+
+  async getDepartments(): Promise<Department[]> {
+    this.ensureInitialized();
+    const raw = localStorage.getItem(STORAGE_KEY_DEPARTMENTS);
+    return raw ? JSON.parse(raw) : [];
+  }
+
+  async getMarketingUnits(): Promise<MarketingUnit[]> {
+    this.ensureInitialized();
+    const raw = localStorage.getItem(STORAGE_KEY_MARKETING_UNITS);
+    return raw ? JSON.parse(raw) : [];
+  }
+
+  async createDepartment(payload: {
+    agencyId: string;
+    name: string;
+    headId?: string;
+    headName?: string;
+    directorId?: string;
+    directorName?: string;
+  }): Promise<Department> {
+    this.ensureInitialized();
+    const depts = await this.getDepartments();
+    const newDept: Department = {
+      id: crypto.randomUUID(),
+      agency_id: payload.agencyId,
+      name: payload.name.trim(),
+      head_id: payload.headId,
+      head_name: payload.headName,
+      director_id: payload.directorId,
+      director_name: payload.directorName,
+      created_at: new Date().toISOString(),
+    };
+    depts.unshift(newDept);
+    localStorage.setItem(STORAGE_KEY_DEPARTMENTS, JSON.stringify(depts));
+    return newDept;
+  }
+
+  async createMarketingUnit(payload: {
+    name: string;
+    managerId?: string;
+    managerName?: string;
+    directorId?: string;
+    directorName?: string;
+  }): Promise<MarketingUnit> {
+    this.ensureInitialized();
+    const units = await this.getMarketingUnits();
+    const newUnit: MarketingUnit = {
+      id: crypto.randomUUID(),
+      name: payload.name.trim(),
+      manager_id: payload.managerId,
+      manager_name: payload.managerName,
+      director_id: payload.directorId,
+      director_name: payload.directorName,
+      created_at: new Date().toISOString(),
+    };
+    units.unshift(newUnit);
+    localStorage.setItem(STORAGE_KEY_MARKETING_UNITS, JSON.stringify(units));
+    return newUnit;
+  }
+
+  /**
+   * 10. XÁC THỰC CHUỖI QUẢN LÝ (VALIDATE SALE CHAIN - CHỐNG SALE MỒ CÔI)
+   * Chuyên viên phải có Trưởng nhóm -> Trưởng phòng -> Giám đốc và Đơn vị Marketing
+   */
+  async validateSaleChain(saleId: string): Promise<{
+    valid: boolean;
+    missingLinks: string[];
+    chain?: SaleChain;
+  }> {
+    this.ensureInitialized();
+    const profiles = await teamRepository.getProfiles();
+    const sale = profiles.find(p => p.id === saleId);
+    if (!sale) throw new Error('user_not_found: Không tìm thấy nhân sự chỉ định.');
+
+    if (sale.role !== 'sale_agent') {
+      return { valid: true, missingLinks: [] };
+    }
+
+    const missingLinks: string[] = [];
+    const teams = await teamRepository.getTeams();
+    const depts = await this.getDepartments();
+    const mktUnits = await this.getMarketingUnits();
+
+    // 1. Kiểm tra Nhóm (Team)
+    if (!sale.team_id) {
+      missingLinks.push('missing_team');
+    }
+
+    // 2. Kiểm tra Trưởng nhóm (Team Leader)
+    const team = teams.find(t => t.id === sale.team_id);
+    if (!team || !team.leader_id) {
+      missingLinks.push('team_without_leader');
+    }
+
+    // 3. Kiểm tra Phòng kinh doanh & Trưởng phòng (Department & Head)
+    const deptId = sale.department_id || team?.department_id;
+    if (!deptId) {
+      missingLinks.push('department_without_head');
+    } else {
+      const dept = depts.find(d => d.id === deptId);
+      if (!dept || !dept.head_id) {
+        missingLinks.push('department_without_head');
+      }
+    }
+
+    // 4. Kiểm tra Đơn vị Marketing
+    if (!sale.marketing_unit_id) {
+      missingLinks.push('missing_marketing_unit');
+    } else {
+      const mkt = mktUnits.find(m => m.id === sale.marketing_unit_id);
+      if (!mkt || !mkt.manager_id) {
+        missingLinks.push('missing_marketing_unit');
+      }
+    }
+
+    const dept = depts.find(d => d.id === deptId);
+    const mkt = mktUnits.find(m => m.id === sale.marketing_unit_id);
+
+    const chain: SaleChain = {
+      sale_id: sale.id,
+      sale_name: sale.full_name,
+      team_id: sale.team_id,
+      leader_id: team?.leader_id,
+      department_id: deptId,
+      head_id: dept?.head_id,
+      director_id: dept?.director_id || mkt?.director_id,
+      marketing_unit_id: sale.marketing_unit_id,
+      marketing_manager_id: mkt?.manager_id,
+    };
+
+    return {
+      valid: missingLinks.length === 0,
+      missingLinks,
+      chain,
+    };
+  }
+
+  /**
+   * 11. CHỈ ĐỊNH NGƯỜI KẾ NHIỆM HOẶC PHỤ TRÁCH TẠM THỜI (ACTING)
+   */
+  async assignSuccessorOrActing(params: {
+    positionType: 'team_leader' | 'department_head' | 'marketing_manager';
+    currentUserId: string;
+    successorUserId: string;
+    isActing?: boolean;
+    actingDays?: number;
+    reason: string;
+    currentUser: UserProfile;
+  }): Promise<{ success: boolean; event: PersonnelEvent }> {
+    const isManager = ['admin', 'director', 'sales_manager'].includes(params.currentUser.role);
+    if (!isManager) {
+      throw new Error('forbidden: Chỉ Quản lý sàn, Giám đốc hoặc Admin mới có quyền chỉ định kế nhiệm!');
+    }
+    if (params.currentUserId === params.successorUserId) {
+      throw new Error('invalid_successor: Người kế nhiệm không thể trùng với người đang giữ vị trí!');
+    }
+
+    this.ensureInitialized();
+    const profiles = await teamRepository.getProfiles();
+    const successor = profiles.find(p => p.id === params.successorUserId);
+    if (!successor) throw new Error('successor_not_found: Người kế nhiệm không tồn tại!');
+
+    const actingUntil = params.isActing 
+      ? new Date(Date.now() + (params.actingDays || 30) * 86400000).toISOString()
+      : undefined;
+
+    // 1. Cập nhật vị trí lãnh đạo tương ứng
+    if (params.positionType === 'team_leader') {
+      const teams = await teamRepository.getTeams();
+      const team = teams.find(t => t.leader_id === params.currentUserId);
+      if (team) {
+        team.leader_id = params.successorUserId;
+        team.leader_name = successor.full_name;
+        localStorage.setItem('crm_teams', JSON.stringify(teams));
+      }
+    } else if (params.positionType === 'department_head') {
+      const depts = await this.getDepartments();
+      const dept = depts.find(d => d.head_id === params.currentUserId);
+      if (dept) {
+        dept.head_id = params.successorUserId;
+        dept.head_name = successor.full_name;
+        localStorage.setItem(STORAGE_KEY_DEPARTMENTS, JSON.stringify(depts));
+      }
+    } else if (params.positionType === 'marketing_manager') {
+      const units = await this.getMarketingUnits();
+      const unit = units.find(u => u.manager_id === params.currentUserId);
+      if (unit) {
+        unit.manager_id = params.successorUserId;
+        unit.manager_name = successor.full_name;
+        localStorage.setItem(STORAGE_KEY_MARKETING_UNITS, JSON.stringify(units));
+      }
+    }
+
+    // 2. Cập nhật quyền acting cho người kế nhiệm
+    successor.is_acting = Boolean(params.isActing);
+    successor.acting_until = actingUntil;
+    localStorage.setItem('crm_profiles', JSON.stringify(profiles));
+
+    // 3. Ghi sự kiện nhân sự
+    const events: PersonnelEvent[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PERSONNEL_EVENTS) || '[]');
+    const event: PersonnelEvent = {
+      id: crypto.randomUUID(),
+      user_id: params.successorUserId,
+      event_type: params.isActing ? 'transfer_acting' as any : 'promoted',
+      effective_date: new Date().toISOString().slice(0, 10),
+      actor_id: params.currentUser.id,
+      actor_name: params.currentUser.full_name,
+      reason: `Chỉ định ${params.isActing ? 'phụ trách tạm thời (acting)' : 'kế nhiệm'} cho vị trí ${params.positionType}: ${params.reason}`,
+      created_at: new Date().toISOString(),
+      metadata: {
+        positionType: params.positionType,
+        replacedUserId: params.currentUserId,
+        isActing: params.isActing,
+        actingUntil,
+      },
+    };
+    events.unshift(event);
+    localStorage.setItem(STORAGE_KEY_PERSONNEL_EVENTS, JSON.stringify(events));
+
+    return { success: true, event };
+  }
+
+  /**
+   * 12. CHẶN KHÓA/CHO NGHỈ QUẢN LÝ KHI CHƯA CHỈ ĐỊNH NGƯỜI KẾ NHIỆM
+   */
+  async deactivateOrTransferManager(params: {
+    managerId: string;
+    newManagerId?: string;
+    currentUser: UserProfile;
+  }): Promise<{ success: boolean }> {
+    this.ensureInitialized();
+    const teams = await teamRepository.getTeams();
+    const depts = await this.getDepartments();
+    const profiles = await teamRepository.getProfiles();
+
+    const isTeamLeader = teams.some(t => t.leader_id === params.managerId);
+    const isDeptHead = depts.some(d => d.head_id === params.managerId);
+
+    if (isTeamLeader || isDeptHead) {
+      // Kiểm tra xem còn cấp dưới hoạt động không
+      const subordinates = profiles.filter(p => 
+        p.status === 'active' && 
+        (p.reporting_to === params.managerId || 
+         teams.some(t => t.leader_id === params.managerId && t.id === p.team_id))
+      );
+
+      if (subordinates.length > 0 && !params.newManagerId) {
+        throw new Error('subordinates_exist: Không thể khóa/cho nghỉ quản lý khi còn cấp dưới chưa được gán người kế nhiệm!');
+      }
+
+      // Nếu có newManagerId thì tự động chuyển giao
+      if (params.newManagerId) {
+        if (isTeamLeader) {
+          await this.assignSuccessorOrActing({
+            positionType: 'team_leader',
+            currentUserId: params.managerId,
+            successorUserId: params.newManagerId,
+            reason: 'Bàn giao vị trí trước khi điều chuyển/khóa tài khoản quản lý cũ',
+            currentUser: params.currentUser,
+          });
+        }
+        if (isDeptHead) {
+          await this.assignSuccessorOrActing({
+            positionType: 'department_head',
+            currentUserId: params.managerId,
+            successorUserId: params.newManagerId,
+            reason: 'Bàn giao vị trí trước khi điều chuyển/khóa tài khoản quản lý cũ',
+            currentUser: params.currentUser,
+          });
+        }
+      }
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * 13. BÁO CÁO SỨC KHỎE CẤU TRÚC TỔ CHỨC (STRUCTURAL HEALTH REPORT)
+   */
+  async getStructuralHealthReport(): Promise<StructuralHealthReport> {
+    this.ensureInitialized();
+    const profiles = await teamRepository.getProfiles();
+    const teams = await teamRepository.getTeams();
+    const depts = await this.getDepartments();
+    const units = await this.getMarketingUnits();
+    const now = Date.now();
+
+    const orphanSales: Array<{ id: string; name: string; missingLinks: string[] }> = [];
+    for (const p of profiles.filter(u => u.role === 'sale_agent' && u.status === 'active')) {
+      const check = await this.validateSaleChain(p.id);
+      if (!check.valid) {
+        orphanSales.push({ id: p.id, name: p.full_name, missingLinks: check.missingLinks });
+      }
+    }
+
+    const teamsWithoutLeader = teams
+      .filter(t => !t.leader_id)
+      .map(t => ({ id: t.id, name: t.name }));
+
+    const departmentsWithoutHead = depts
+      .filter(d => !d.head_id)
+      .map(d => ({ id: d.id, name: d.name }));
+
+    const marketingUnitsWithoutManagerCount = units.filter(u => !u.manager_id).length;
+
+    const expiredActingCount = profiles.filter(p => 
+      p.is_acting && p.acting_until && new Date(p.acting_until).getTime() < now
+    ).length;
+
+    return {
+      orphanSalesCount: orphanSales.length,
+      teamsWithoutLeaderCount: teamsWithoutLeader.length,
+      departmentsWithoutHeadCount: departmentsWithoutHead.length,
+      marketingUnitsWithoutManagerCount,
+      expiredActingCount,
+      orphanSales,
+      teamsWithoutLeader,
+      departmentsWithoutHead,
     };
   }
 }

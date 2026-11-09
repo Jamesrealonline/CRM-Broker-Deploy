@@ -12,8 +12,8 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | **Giai đoạn 1** | Nền tảng an toàn: bảo mật, toàn vẹn dữ liệu, AI/Edge | **Xong** | `35d33c3` |
 | **Giai đoạn 2** | SLA chống gian lận, Lead Pool, giữ căn, giám sát job nền | **Xong** | `0359e43` |
 | **Giai đoạn 3** | Hợp đồng (khách mới + nguồn lead), hoa hồng, vòng đời, công nợ | **Xong** | `d1f4164` |
-| **Giai đoạn 4** | Quy trình bán hàng: lịch hẹn, công cụ tư vấn, nhập lead, quản lý khách | **Xong** | (chuẩn bị commit) |
-| **Giai đoạn 5** | Quản trị sàn: cây cấp bậc, thi đua nhân sự, điều chuyển, nhân sự 360° | **Xong một phần** | `35da8c3` |
+| **Giai đoạn 4** | Quy trình bán hàng: lịch hẹn, công cụ tư vấn, nhập lead, quản lý khách | **Xong** | `e3679c2` |
+| **Giai đoạn 5** | Quản trị sàn: cây cấp bậc, thi đua nhân sự, điều chuyển, nhân sự 360° | **Xong** | (chuẩn bị commit) |
 | **Giai đoạn 6** | Marketing, vận hành/CI-CD, quyền riêng tư, thiết kế multi-tenant, PWA | **Chưa làm** | --- |
 | **Giai đoạn 7** | Quản trị dữ liệu: Admin & Giám đốc Sàn sửa/xóa có kiểm soát, Thùng rác | **Chưa làm** | --- |
 | **Giai đoạn 8** | Kho tri thức dự án, thư viện script đa ngữ cảnh, AI script, playbooks | **Chưa làm** | --- |
@@ -62,9 +62,9 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 
 ---
 
-### Giai đoạn 5 – Quản trị Sàn & Nhân sự đầy đủ (HOÀN THIỆN CHUỖI 5.0A)
+### Giai đoạn 5 – Quản trị Sàn & Nhân sự đầy đủ (HOÀN THÀNH)
 - [x] **5.1 - 5.6** Mô hình nhân sự 360°, `employee_records`, `employee_private`, `personnel_events`, `broker_certificates`, `leave_requests`, ATS Tuyển dụng, Atomic Hire. `commit 35da8c3`
-- [ ] **5.0A** Cưỡng chế Chuỗi cấp bậc bắt buộc (`departments`, `v_sale_chain`, `marketing_units`, không tồn tại sale mồ côi), ngăn chặn vòng lặp, kế nhiệm khi quản lý vắng mặt.
+- [x] **5.0A** Cưỡng chế Chuỗi cấp bậc bắt buộc (`departments`, `v_sale_chain`, `marketing_units`, không tồn tại sale mồ côi), ngăn chặn vòng lặp, kế nhiệm khi quản lý vắng mặt.
 
 ---
 
