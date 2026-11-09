@@ -426,12 +426,27 @@ export class BranchHierarchyService {
    */
   filterLeaderboardItems(
     user: UserProfile | null | undefined,
-    type: 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent',
+    type: 'ceo' | 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent',
     items: LeaderboardItem[],
     allTeams?: Team[],
     allProfiles?: UserProfile[]
   ): LeaderboardItem[] {
     if (!user || this.isGlobalViewer(user)) return items;
+
+    if (type === 'ceo') {
+      // CEO chỉ xem được chính mình (không xem CEO khác)
+      if (user.role === 'ceo') {
+        return items.filter(it => it.id === user.id);
+      }
+      // Các cấp dưới chỉ xem CEO thuộc tổ chức của mình
+      if (user.organization_id && allProfiles) {
+        const myCeoIds = new Set(allProfiles.filter(p => p.role === 'ceo' && p.organization_id === user.organization_id).map(p => p.id));
+        if (myCeoIds.size > 0) {
+          return items.filter(it => myCeoIds.has(it.id));
+        }
+      }
+      return items;
+    }
 
     if (type === 'region') {
       if (user.role === 'regional_director' && user.region_id) {

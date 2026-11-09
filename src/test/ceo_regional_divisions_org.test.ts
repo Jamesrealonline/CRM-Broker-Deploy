@@ -11,7 +11,7 @@ import { leadRepository } from '@/data/repositories/leadRepository';
 import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { controlledDataService } from '@/domain/services/controlledDataService';
 import { canViewFullPII } from '@/lib/masking';
-import { UserProfile, Agency, Team, Region, Transaction, Lead } from '@/domain/types';
+import { UserProfile, Agency, Team, Region, Transaction, Lead, LeaderboardItem } from '@/domain/types';
 
 describe('CEO, Regional Directors, Divisions & Org Restructure Suite', () => {
   // Người dùng mẫu cho 9 vai trò
@@ -627,6 +627,59 @@ describe('CEO, Regional Directors, Divisions & Org Restructure Suite', () => {
     it('Lọc Nhân Sự HR theo regionId trong repository', async () => {
       const empsNorth = await hrRepository.getEmployees({ regionId: 'reg-north' }, userCeo);
       expect(Array.isArray(empsNorth)).toBe(true);
+    });
+
+    it('Thi đua các CEO (CEO Leaderboard): Admin xem tất cả các CEO, CEO chỉ thấy mình và không thấy CEO khác', async () => {
+      const userCeo2: UserProfile = {
+        ...userCeo,
+        id: 'user-ceo-2',
+        full_name: 'CEO Đối Thủ',
+        email: 'ceo2@system.vn',
+        organization_id: 'org-competitor',
+      };
+
+      const mockLeaderboardItems: LeaderboardItem[] = [
+        {
+          id: userCeo.id,
+          name: userCeo.full_name,
+          type: 'ceo',
+          revenue: 100000000000,
+          contracts_count: 50,
+          commission: 3000000000,
+        },
+        {
+          id: userCeo2.id,
+          name: userCeo2.full_name,
+          type: 'ceo',
+          revenue: 80000000000,
+          contracts_count: 40,
+          commission: 2400000000,
+        },
+      ];
+
+      // Admin xem tất cả CEO
+      const adminView = branchHierarchyService.filterLeaderboardItems(userAdmin, 'ceo', mockLeaderboardItems, [], [userCeo, userCeo2]);
+      expect(adminView).toHaveLength(2);
+
+      // CEO 1 chỉ thấy chính mình, không thấy CEO 2
+      const ceo1View = branchHierarchyService.filterLeaderboardItems(userCeo, 'ceo', mockLeaderboardItems, [], [userCeo, userCeo2]);
+      expect(ceo1View).toHaveLength(1);
+      expect(ceo1View[0].id).toBe(userCeo.id);
+
+      // CEO 2 chỉ thấy chính mình, không thấy CEO 1
+      const ceo2View = branchHierarchyService.filterLeaderboardItems(userCeo2, 'ceo', mockLeaderboardItems, [], [userCeo, userCeo2]);
+      expect(ceo2View).toHaveLength(1);
+      expect(ceo2View[0].id).toBe(userCeo2.id);
+
+      // Contract repository getLeaderboard({ type: 'ceo' }) chạy thành công
+      const leaderboard = await contractRepository.getLeaderboard({
+        type: 'ceo',
+        currentUser: userAdmin,
+        includeSample: true,
+      });
+      expect(Array.isArray(leaderboard)).toBe(true);
+      expect(leaderboard.length).toBeGreaterThan(0);
+      expect(leaderboard.every(item => item.type === 'ceo')).toBe(true);
     });
   });
 });

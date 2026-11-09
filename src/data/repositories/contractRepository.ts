@@ -1102,7 +1102,7 @@ export class ContractRepository {
   // Xếp hạng giữa các Sàn, Trưởng phòng, Team, Sale với bộ lọc Dự án hoặc Toàn hệ thống
   // 3 chỉ số thi đua: Doanh số, Số HĐMB, Hoa hồng & % so với kỳ trước
   async getLeaderboard(params: {
-    type: 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+    type: 'ceo' | 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
     projectId?: string;
     projectIds?: string[];
     timeFilter?: TimeRangeFilter;
@@ -1135,6 +1135,10 @@ export class ContractRepository {
       contracts = financialCalculationService.filterTransactionsByTime(contracts, params.timeFilter);
     }
 
+    // Đọc danh sách profiles để đối chiếu CEO, gắn employment_type, status và tính per capita
+    const rawProfiles = typeof localStorage !== 'undefined' ? localStorage.getItem('crm_profiles') : null;
+    const profiles: UserProfile[] = rawProfiles ? JSON.parse(rawProfiles) : INITIAL_PROFILES;
+
     const itemsMap: Record<string, {
       id: string;
       name: string;
@@ -1153,7 +1157,25 @@ export class ContractRepository {
       const comm = c.commission_amount || 0;
       const saleComm = c.sale_commission_amount || 0;
 
-      if (params.type === 'region') {
+      if (params.type === 'ceo') {
+        const ceoProfiles = profiles.filter(p => p.role === 'ceo');
+        let matchedCeo = ceoProfiles.find(ceo => (
+          (c.ceo_id && ceo.id === c.ceo_id) ||
+          (c.organization_id && ceo.organization_id === c.organization_id)
+        ));
+        if (!matchedCeo && ceoProfiles.length > 0) {
+          matchedCeo = ceoProfiles[0];
+        }
+        key = matchedCeo?.id || c.ceo_id || c.organization_id || 'ceo-default';
+        name = matchedCeo?.full_name || c.ceo_name || 'Tổng Giám Đốc (CEO)';
+        subtitle = matchedCeo?.email ? `Tổng Giám Đốc • ${matchedCeo.email}` : 'Khối Điều Hành Toàn Hệ Thống';
+        if (!itemsMap[key]) {
+          itemsMap[key] = { id: key, name, subtitle, revenue: 0, contracts_count: 0, commission: 0 };
+        }
+        itemsMap[key].revenue += rev;
+        itemsMap[key].contracts_count += 1;
+        itemsMap[key].commission += comm;
+      } else if (params.type === 'region') {
         key = c.region_id || 'reg-mien-nam';
         name = key === 'reg-mien-bac' ? 'Vùng Kinh Doanh Miền Bắc' : key === 'reg-mien-nam' ? 'Vùng Kinh Doanh Miền Nam' : 'Vùng Chưa Phân';
         subtitle = `Mã vùng: ${key}`;
@@ -1207,8 +1229,22 @@ export class ContractRepository {
       }
     }
 
-    // Nếu không có hợp đồng nào cho 1 sàn/team, vẫn lấy danh sách gốc để bảng thi đua đầy đủ
-    if (params.type === 'agency') {
+    // Nếu không có hợp đồng nào cho 1 sàn/team/ceo, vẫn lấy danh sách gốc để bảng thi đua đầy đủ
+    if (params.type === 'ceo') {
+      const ceoProfiles = profiles.filter(p => p.role === 'ceo');
+      ceoProfiles.forEach(ceo => {
+        if (!itemsMap[ceo.id]) {
+          itemsMap[ceo.id] = {
+            id: ceo.id,
+            name: ceo.full_name,
+            subtitle: `Tổng Giám Đốc • ${ceo.email || 'Hệ thống'}`,
+            revenue: 0,
+            contracts_count: 0,
+            commission: 0,
+          };
+        }
+      });
+    } else if (params.type === 'agency') {
       const agencies = INITIAL_AGENCIES;
       agencies.forEach(a => {
         if (!itemsMap[a.id]) {
@@ -1226,17 +1262,15 @@ export class ContractRepository {
 
     const metric = params.metric || 'revenue';
 
-    // Đọc danh sách profiles để gắn employment_type, status và tính per capita
-    const rawProfiles = typeof localStorage !== 'undefined' ? localStorage.getItem('crm_profiles') : null;
-    const profiles: UserProfile[] = rawProfiles ? JSON.parse(rawProfiles) : INITIAL_PROFILES;
-
     let result: LeaderboardItem[] = Object.values(itemsMap).map(item => {
       const profile = profiles.find(p => p.id === item.id);
       const empType = profile?.employment_type || (item.id.includes('ctv') ? 'collaborator' : 'official');
       const empStatus = profile?.status || 'active';
 
       let memberCount = 1;
-      if (params.type === 'region') {
+      if (params.type === 'ceo') {
+        memberCount = profiles.filter(p => !p.organization_id || p.organization_id === profile?.organization_id).length || 20;
+      } else if (params.type === 'region') {
         memberCount = profiles.filter(p => p.region_id === item.id).length || 10;
       } else if (params.type === 'agency') {
         memberCount = profiles.filter(p => p.agency_id === item.id).length || 5;

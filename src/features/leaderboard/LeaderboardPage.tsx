@@ -26,7 +26,8 @@ import {
   Download,
   Lock,
   Layers,
-  ArrowUpDown
+  ArrowUpDown,
+  Crown
 } from 'lucide-react';
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
@@ -62,7 +63,7 @@ import {
   UserPlus
 } from 'lucide-react';
 
-type CompetitionTab = 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+type CompetitionTab = 'ceo' | 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
 type RankingMetric = 'revenue' | 'contracts_count' | 'commission' | 'recruitment';
 
 export const LeaderboardPage: React.FC = () => {
@@ -147,7 +148,11 @@ export const LeaderboardPage: React.FC = () => {
   // Lọc danh sách tuyển dụng nhân sự tương ứng theo cấp bậc tab đang chọn và cây phân cấp nhánh
   const filteredRecruiters = React.useMemo(() => {
     let list = recruiters;
-    if (activeTab === 'sales_manager') {
+    if (activeTab === 'ceo') {
+      list = recruiters.filter(r => ['ceo', 'director', 'admin'].includes(r.recruiterRole));
+    } else if (activeTab === 'region') {
+      list = recruiters.filter(r => ['regional_director', 'director', 'admin'].includes(r.recruiterRole));
+    } else if (activeTab === 'sales_manager') {
       list = recruiters.filter(r => ['director', 'sales_manager', 'admin'].includes(r.recruiterRole));
     } else if (activeTab === 'team') {
       list = recruiters.filter(r => r.recruiterRole === 'team_leader');
@@ -257,6 +262,7 @@ export const LeaderboardPage: React.FC = () => {
       }
 
       const tabTitle = 
+        activeTab === 'ceo' ? 'TỔNG GIÁM ĐỐC (CEO)' :
         activeTab === 'sales_manager' ? 'TRƯỞNG PHÒNG & GIÁM ĐỐC SÀN' :
         activeTab === 'team' ? 'ĐỘI NHÓM KINH DOANH' : 'CHUYÊN VIÊN TƯ VẤN (SALE)';
 
@@ -302,6 +308,7 @@ export const LeaderboardPage: React.FC = () => {
     }
 
     const tabName = 
+      activeTab === 'ceo' ? 'Cac_CEO' :
       activeTab === 'region' ? 'Cac_Vung' :
       activeTab === 'agency' ? 'Các_San' :
       activeTab === 'sales_manager' ? 'Truong_Phong' :
@@ -310,6 +317,7 @@ export const LeaderboardPage: React.FC = () => {
     exportToExcel({
       filename: `Bang_Thi_Dua_${tabName}_${new Date().toISOString().slice(0, 10)}`,
       title: `BẢNG XẾP HẠNG THI ĐUA - ${
+        activeTab === 'ceo' ? 'TỔNG GIÁM ĐỐC (CEO)' :
         activeTab === 'region' ? 'CÁC VÙNG KINH DOANH' :
         activeTab === 'agency' ? 'CÁC SÀN GIAO DỊCH' :
         activeTab === 'sales_manager' ? 'TRƯỞNG PHÒNG & GIÁM ĐỐC SÀN' :
@@ -665,8 +673,20 @@ export const LeaderboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* 2. CÁC TABS THI ĐUA (VÙNG, SÀN, TRƯỞNG PHÒNG, TEAM, SALE) */}
+      {/* 2. CÁC TABS THI ĐUA (CEO, VÙNG, SÀN, TRƯỞNG PHÒNG, TEAM, SALE) */}
       <div className="flex flex-wrap items-center gap-2 bg-slate-200/70 p-1.5 rounded-2xl w-fit">
+        <button
+          onClick={() => setActiveTab('ceo')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'ceo'
+              ? 'bg-white text-indigo-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Crown className="h-4 w-4 text-amber-500" />
+          <span>Thi Đua Các CEO</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('region')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -860,6 +880,7 @@ export const LeaderboardPage: React.FC = () => {
             };
 
             const podiumTitle = 
+              activeTab === 'ceo' ? '🏆 Quán Quân Tuyển Dụng & Phát Triển (CEO)' :
               activeTab === 'sales_manager' ? '🏆 Quán Quân Tuyển Dụng (GĐ Sàn / Trưởng Phòng)' :
               activeTab === 'team' ? '🏆 Quán Quân Phát Triển Đội Nhóm' :
               '🏆 Quán Quân Tuyển Dụng & Phát Triển';

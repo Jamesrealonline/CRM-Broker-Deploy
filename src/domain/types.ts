@@ -170,6 +170,7 @@ export interface Team {
   delete_reason?: string;
 
   // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  organization_id?: string;
   agency_director_id?: string;
   agency_director_name?: string;
   region_id?: string;
@@ -319,7 +320,6 @@ export interface LeadSource {
 
 export interface Lead {
   id: string;
-  organization_id?: string;
   customer_id: string;
   project_id: string;
   agency_id?: string;
@@ -371,6 +371,7 @@ export interface Lead {
   delete_reason?: string;
 
   // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  organization_id?: string;
   agency_director_id?: string;
   agency_director_name?: string;
   region_id?: string;
@@ -475,6 +476,7 @@ export interface Transaction {
   delete_reason?: string;
 
   // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  organization_id?: string;
   agency_director_id?: string;
   agency_director_name?: string;
   region_id?: string;
@@ -562,7 +564,7 @@ export interface AgencyPerformanceDetail {
 export interface LeaderboardItem {
   id: string;
   name: string;
-  type: 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+  type: 'ceo' | 'region' | 'agency' | 'sales_manager' | 'team' | 'sale_agent';
   subtitle?: string;
   avatar?: string;
   employment_type?: EmploymentType;
