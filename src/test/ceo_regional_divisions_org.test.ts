@@ -218,9 +218,28 @@ describe('CEO, Regional Directors, Divisions & Org Restructure Suite', () => {
   });
 
   describe('1. Ma Trận Vai Trò & Phạm Vi Xem Dữ Liệu (Role Scoping)', () => {
-    it('Admin và CEO có quyền xem toàn hệ thống (isGlobalViewer = true)', () => {
+    it('Quản Trị Viên (admin) có quyền xem toàn hệ thống (isGlobalViewer = true) bao gồm tất cả các ceo; CEO chỉ xem hệ thống bên dưới mình (isGlobalViewer = false)', () => {
       expect(branchHierarchyService.isGlobalViewer(userAdmin)).toBe(true);
-      expect(branchHierarchyService.isGlobalViewer(userCeo)).toBe(true);
+      expect(branchHierarchyService.isGlobalViewer(userCeo)).toBe(false);
+    });
+
+    it('CEO chỉ xem được giám đốc vùng và nhân sự bên dưới, các CEO khác nhau không xem được hệ thống của nhau', () => {
+      const userCeo2: UserProfile = {
+        ...userCeo,
+        id: 'user-ceo-2',
+        email: 'ceo2@system.vn',
+        organization_id: 'org-competitor',
+      };
+      // Admin xem được cả 2 CEO
+      expect(branchHierarchyService.canAccessUser(userAdmin, userCeo)).toBe(true);
+      expect(branchHierarchyService.canAccessUser(userAdmin, userCeo2)).toBe(true);
+
+      // CEO 1 không xem được CEO 2 và ngược lại
+      expect(branchHierarchyService.canAccessUser(userCeo, userCeo2)).toBe(false);
+      expect(branchHierarchyService.canAccessUser(userCeo2, userCeo)).toBe(false);
+
+      // CEO 1 xem được nhân sự thuộc hệ thống mình
+      expect(branchHierarchyService.canAccessUser(userCeo, userRegDirNorth)).toBe(true);
     });
 
     it('Giám đốc Vùng chỉ xem được dữ liệu trong vùng của mình', () => {
@@ -232,8 +251,10 @@ describe('CEO, Regional Directors, Divisions & Org Restructure Suite', () => {
     });
 
     it('Marketing và HR trực thuộc CEO, xem được dữ liệu tổng quan các sàn như directors', () => {
-      expect(branchHierarchyService.isGlobalViewer(userMarketingHead)).toBe(true);
-      expect(branchHierarchyService.isGlobalViewer(userHrHead)).toBe(true);
+      expect(branchHierarchyService.isGlobalViewer(userMarketingHead)).toBe(false);
+      expect(branchHierarchyService.isGlobalViewer(userHrHead)).toBe(false);
+      expect(branchHierarchyService.canAccessAgency(userMarketingHead, 'agency-01')).toBe(true);
+      expect(branchHierarchyService.canAccessAgency(userHrHead, 'agency-01')).toBe(true);
     });
 
     it('Sale chỉ xem được dữ liệu cá nhân, Trưởng nhóm xem dữ liệu team mình', () => {
@@ -489,10 +510,10 @@ describe('CEO, Regional Directors, Divisions & Org Restructure Suite', () => {
     ];
 
     it('Marketing và HR có quyền xem toàn bộ Giám đốc Vùng và toàn bộ hệ thống như CEO', () => {
-      expect(branchHierarchyService.isGlobalViewer(userCeo)).toBe(true);
-      expect(branchHierarchyService.isGlobalViewer(userMarketingHead)).toBe(true);
-      expect(branchHierarchyService.isGlobalViewer(userHrHead)).toBe(true);
       expect(branchHierarchyService.isGlobalViewer(userAdmin)).toBe(true);
+      expect(branchHierarchyService.isGlobalViewer(userCeo)).toBe(false);
+      expect(branchHierarchyService.isGlobalViewer(userMarketingHead)).toBe(false);
+      expect(branchHierarchyService.isGlobalViewer(userHrHead)).toBe(false);
 
       // Xem tất cả các Vùng
       const regionsViewByCeo = branchHierarchyService.filterRegions(userCeo, sampleRegions);

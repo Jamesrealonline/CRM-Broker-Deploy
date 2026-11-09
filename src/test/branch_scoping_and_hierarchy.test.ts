@@ -175,11 +175,11 @@ describe('Branch Hierarchy & Data Scoping Test Suite', () => {
   });
 
   describe('1. Kiểm tra quyền truy cập theo cấp bậc cây phân cấp (BranchHierarchyService)', () => {
-    it('Admin, Directors, HR và Marketing có quyền xem tất cả các sàn như nhau', () => {
+    it('Chỉ Quản Trị Viên (admin) có isGlobalViewer = true; HR và Marketing xem được các sàn trong phạm vi', () => {
       expect(branchHierarchyService.isGlobalViewer(userAdmin)).toBe(true);
-      expect(branchHierarchyService.isGlobalViewer(userDirector)).toBe(true);
-      expect(branchHierarchyService.isGlobalViewer(userHR)).toBe(true);
-      expect(branchHierarchyService.isGlobalViewer(userMarketing)).toBe(true);
+      expect(branchHierarchyService.isGlobalViewer(userDirector)).toBe(false);
+      expect(branchHierarchyService.isGlobalViewer(userHR)).toBe(false);
+      expect(branchHierarchyService.isGlobalViewer(userMarketing)).toBe(false);
 
       expect(branchHierarchyService.canAccessAgency(userHR, 'agency-A')).toBe(true);
       expect(branchHierarchyService.canAccessAgency(userHR, 'agency-B')).toBe(true);
