@@ -296,4 +296,102 @@ describe('Module 5: Comprehensive HR Lifecycle & Personnel Management', () => {
     const certs = await hrRepository.getBrokerCertificates(mockSaleAgent1.id);
     expect(certs.length).toBeGreaterThan(0);
   });
+
+  it('9. HR Quyền Tạo Cơ Cấu: HR Admin có quyền tạo Vùng, tạo Sàn, tạo Đội nhóm và tạo Sale Account với quan hệ 4 tầng CEO / Vùng / Sàn / Team', async () => {
+    // 1. HR tạo Vùng kinh doanh mới
+    const regionRes = await teamRepository.createRegion({
+      name: 'Vùng Duyên Hải Miền Trung',
+      code: 'REG-CENTRAL',
+      organization_id: 'org-1',
+      description: 'Phụ trách Đà Nẵng, Nha Trang, Quy Nhơn',
+    });
+    expect(regionRes.success).toBe(true);
+    expect(regionRes.region?.id).toBeDefined();
+    expect(regionRes.region?.code).toBe('REG-CENTRAL');
+
+    // 2. HR tạo Sàn giao dịch mới thuộc Vùng
+    const agencyRes = await teamRepository.createAgency({
+      name: 'Sàn Giao Dịch Đà Nẵng Riverside',
+      code: 'S9-DN',
+      organization_id: 'org-1',
+      region_id: regionRes.region!.id,
+      address: 'Bạch Đằng, Q. Hải Châu, Đà Nẵng',
+    });
+    expect(agencyRes.success).toBe(true);
+    expect(agencyRes.agency?.id).toBeDefined();
+    expect(agencyRes.agency?.region_id).toBe(regionRes.region!.id);
+
+    // 3. HR tạo Đội nhóm mới thuộc Sàn
+    const teamRes = await teamRepository.createTeam({
+      name: 'Team Sông Hàn',
+      code: 'TM-SHAN',
+      agency_id: agencyRes.agency!.id,
+    });
+    expect(teamRes.success).toBe(true);
+    expect(teamRes.team?.id).toBeDefined();
+    expect(teamRes.team?.agency_id).toBe(agencyRes.agency!.id);
+
+    // 4. HR tạo Sale Account mới liên kết đầy đủ 4 tầng
+    const saleAccRes = await hrRepository.createEmployeeAccount({
+      email: 'sale.danang@diaocvang.vn',
+      full_name: 'Lê Văn Miền Trung',
+      phone: '0905999888',
+      role: 'sale_agent',
+      organization_id: 'org-1',
+      region_id: regionRes.region!.id,
+      agency_id: agencyRes.agency!.id,
+      team_id: teamRes.team!.id,
+      employment_type: 'official',
+      title: 'Chuyên viên tư vấn BĐS Biển',
+    }, mockHrAdmin);
+
+    expect(saleAccRes.success).toBe(true);
+    expect(saleAccRes.userProfile).toBeDefined();
+    expect(saleAccRes.userProfile?.organization_id).toBe('org-1');
+    expect(saleAccRes.userProfile?.region_id).toBe(regionRes.region!.id);
+    expect(saleAccRes.userProfile?.agency_id).toBe(agencyRes.agency!.id);
+    expect(saleAccRes.userProfile?.team_id).toBe(teamRes.team!.id);
+    expect(saleAccRes.employeeRecord?.employee_code).toBeDefined();
+    expect(saleAccRes.employeeRecord?.employment_type).toBe('official');
+  });
+
+  it('10. Khóa / Inactive tài khoản khi nhân sự nghỉ việc: HR Admin có quyền khóa tài khoản (Inactive), ghi nhận sự kiện nghỉ việc (resigned) và mở khóa lại', async () => {
+    // 1. Tạo nhân sự thử nghiệm
+    const createRes = await hrRepository.createEmployeeAccount({
+      email: 'sale.quitter@diaocvang.vn',
+      full_name: 'Nguyễn Văn Nghỉ Việc',
+      phone: '0909111222',
+      role: 'sale_agent',
+      employment_type: 'official',
+    }, mockHrAdmin);
+    expect(createRes.success).toBe(true);
+    const targetUserId = createRes.userProfile!.id;
+
+    // 2. HR Admin thực hiện Khóa tài khoản do nghỉ việc
+    const lockRes = await hrRepository.toggleLockEmployee(
+      targetUserId,
+      'locked',
+      'Nhân sự nộp đơn thôi việc và đã hoàn tất thủ tục bàn giao khách hàng',
+      mockHrAdmin
+    );
+    expect(lockRes.success).toBe(true);
+
+    // 3. Kiểm tra trạng thái UserProfile đã chuyển sang locked
+    const profiles = await teamRepository.getProfiles();
+    const lockedUser = profiles.find(p => p.id === targetUserId);
+    expect(lockedUser?.status).toBe('locked');
+
+    // 4. Nhân sự quay lại làm việc -> HR mở khóa tài khoản
+    const unlockRes = await hrRepository.toggleLockEmployee(
+      targetUserId,
+      'active',
+      'Nhân sự tái ký hợp đồng làm việc',
+      mockHrAdmin
+    );
+    expect(unlockRes.success).toBe(true);
+
+    const updatedProfiles = await teamRepository.getProfiles();
+    const activeUser = updatedProfiles.find(p => p.id === targetUserId);
+    expect(activeUser?.status).toBe('active');
+  });
 });

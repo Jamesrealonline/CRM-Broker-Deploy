@@ -1045,6 +1045,156 @@ export class HRRepository {
     };
   }
 
+  // 7b. TẠO TÀI KHOẢN NHÂN SỰ / SALE ACCOUNT BỞI HR (VỚI CƠ CẤU CEO / VÙNG / SÀN / TEAM)
+  async createEmployeeAccount(
+    payload: CreateUserInput & {
+      employment_type?: 'official' | 'probation' | 'collaborator';
+      title?: string;
+      join_date?: string;
+    },
+    currentUser: UserProfile
+  ): Promise<{ success: boolean; userProfile?: UserProfile; employeeRecord?: EmployeeRecord; error?: string }> {
+    assertRateLimit(currentUser.id, 'hr/create_employee', 20);
+    this.ensureInitialized();
+
+    const canCreate = ['admin', 'ceo', 'director', 'regional_director', 'hr_admin'].includes(currentUser.role);
+    if (!canCreate) {
+      return { success: false, error: 'forbidden: Bạn không có quyền tạo tài khoản nhân sự!' };
+    }
+
+    const createRes = await teamRepository.createUser({
+      email: payload.email,
+      password: payload.password || 'password123',
+      full_name: payload.full_name,
+      phone: payload.phone,
+      role: payload.role || 'sale_agent',
+      organization_id: payload.organization_id || null,
+      region_id: payload.region_id || null,
+      agency_id: payload.agency_id || null,
+      team_id: payload.team_id || null,
+      must_change_password: payload.must_change_password ?? true,
+    });
+
+    if (!createRes.success || !createRes.profile) {
+      return { success: false, error: createRes.error || 'Lỗi khi tạo tài khoản nhân sự!' };
+    }
+
+    const newProfile = createRes.profile;
+    const records: EmployeeRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_RECORDS) || '[]');
+    const joinDate = payload.join_date || new Date().toISOString().slice(0, 10);
+    const empType = payload.employment_type || 'official';
+
+    const newRecord: EmployeeRecord = {
+      id: crypto.randomUUID(),
+      user_id: newProfile.id,
+      employee_code: `EMP-${Date.now().toString().slice(-5)}`,
+      employment_type: empType,
+      title: payload.title || (newProfile.role === 'sale_agent' ? 'Chuyên viên tư vấn' : newProfile.role),
+      level: 1,
+      direct_manager_id: currentUser.id,
+      join_date: joinDate,
+      probation_end_date: empType === 'probation' ? new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10) : undefined,
+      recruited_by: currentUser.id,
+      recruitment_source: 'Tạo trực tiếp bởi HR / Quản lý',
+      status: empType === 'probation' ? 'probation' : 'official',
+      created_at: new Date().toISOString(),
+    };
+    records.unshift(newRecord);
+    localStorage.setItem(STORAGE_KEY_EMPLOYEE_RECORDS, JSON.stringify(records));
+
+    // Append Personnel Event
+    const events: PersonnelEvent[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PERSONNEL_EVENTS) || '[]');
+    events.unshift({
+      id: crypto.randomUUID(),
+      user_id: newProfile.id,
+      event_type: 'hired',
+      effective_date: joinDate,
+      actor_id: currentUser.id,
+      actor_name: currentUser.full_name,
+      reason: `Tạo tài khoản nhân sự bởi ${currentUser.full_name} (${currentUser.role})`,
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem(STORAGE_KEY_PERSONNEL_EVENTS, JSON.stringify(events));
+
+    auditRepository.logAction(
+      currentUser.id,
+      currentUser.full_name,
+      'hr_create_sale_account',
+      {
+        target_user_id: newProfile.id,
+        email: newProfile.email,
+        role: newProfile.role,
+        organization_id: newProfile.organization_id,
+        region_id: newProfile.region_id,
+        agency_id: newProfile.agency_id,
+        team_id: newProfile.team_id,
+      }
+    );
+
+    return {
+      success: true,
+      userProfile: newProfile,
+      employeeRecord: newRecord,
+    };
+  }
+
+  // 7c. KHÓA / INACTIVE TÀI KHOẢN KHI NHÂN SỰ NGHỈ VIỆC HOẶC MỞ KHÓA BỞI HR
+  async toggleLockEmployee(
+    userId: string,
+    newStatus: 'locked' | 'active',
+    reason: string,
+    currentUser: UserProfile
+  ): Promise<{ success: boolean; error?: string }> {
+    assertRateLimit(currentUser.id, 'hr/toggle_lock', 30);
+    this.ensureInitialized();
+
+    const canLock = ['admin', 'ceo', 'director', 'regional_director', 'hr_admin'].includes(currentUser.role);
+    if (!canLock) {
+      return { success: false, error: 'forbidden: Bạn không có quyền khóa hoặc mở khóa tài khoản nhân sự!' };
+    }
+
+    const ok = await teamRepository.toggleUserStatus(userId, newStatus);
+    if (!ok) {
+      return { success: false, error: 'Không thể cập nhật trạng thái tài khoản!' };
+    }
+
+    // Cập nhật EmployeeRecord
+    const records: EmployeeRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_RECORDS) || '[]');
+    const idx = records.findIndex(r => r.user_id === userId);
+    if (idx !== -1) {
+      if (newStatus === 'locked') {
+        records[idx].status = 'resigned' as any;
+        (records[idx] as any).resigned_at = new Date().toISOString();
+      } else {
+        records[idx].status = 'official';
+      }
+      localStorage.setItem(STORAGE_KEY_EMPLOYEE_RECORDS, JSON.stringify(records));
+    }
+
+    // Ghi nhận PersonnelEvent
+    const events: PersonnelEvent[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PERSONNEL_EVENTS) || '[]');
+    events.unshift({
+      id: crypto.randomUUID(),
+      user_id: userId,
+      event_type: newStatus === 'locked' ? 'terminated' : 'rehired',
+      effective_date: new Date().toISOString().slice(0, 10),
+      actor_id: currentUser.id,
+      actor_name: currentUser.full_name,
+      reason: reason || (newStatus === 'locked' ? 'Khóa tài khoản do nhân sự nghỉ việc / ngưng hoạt động' : 'Mở khóa tài khoản nhân sự hoạt động trở lại'),
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem(STORAGE_KEY_PERSONNEL_EVENTS, JSON.stringify(events));
+
+    auditRepository.logAction(
+      currentUser.id,
+      currentUser.full_name,
+      newStatus === 'locked' ? 'employee_inactive_locked' : 'employee_active_unlocked',
+      { targetUserId: userId, newStatus, reason }
+    );
+
+    return { success: true };
+  }
+
   // 8. COACHING NOTES 1-1
   async getCoachingNotes(userId: string, currentUser: UserProfile): Promise<CoachingNote[]> {
     this.ensureInitialized();

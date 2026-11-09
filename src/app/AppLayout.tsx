@@ -69,7 +69,7 @@ export const AppLayout: React.FC = () => {
   ];
 
   // Quyền truy cập phân hệ Cơ cấu & Quản trị Nhân sự Vòng đời
-  const canAccessHR = currentUser && ['admin', 'director', 'hr_admin', 'sales_manager', 'team_leader'].includes(currentUser.role);
+  const canAccessHR = currentUser && ['admin', 'ceo', 'regional_director', 'director', 'hr_admin', 'sales_manager', 'team_leader'].includes(currentUser.role);
   if (canAccessHR) {
     navItems.push({ to: '/hr', label: 'Cơ Cấu & Nhân Sự', icon: UserCheck });
   }

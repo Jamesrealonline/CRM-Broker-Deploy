@@ -38,11 +38,20 @@ import {
   X,
   ExternalLink,
   Shield,
-  HelpCircle
+  HelpCircle,
+  Crown,
+  AlertCircle
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { hrRepository, EmployeeFilters } from '@/data/repositories/hrRepository';
-import { teamRepository } from '@/data/repositories/teamRepository';
+import { 
+  teamRepository, 
+  CreateUserInput, 
+  CreateAgencyInput, 
+  CreateRegionInput, 
+  CreateTeamInput 
+} from '@/data/repositories/teamRepository';
+import { auditRepository } from '@/data/repositories/auditRepository';
 import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { 
   UserProfile, 
@@ -59,6 +68,7 @@ import {
   Team,
   UserRole,
   Region,
+  Organization,
   Division,
   StructuralHealthReport
 } from '@/domain/types';
@@ -83,12 +93,72 @@ export const HRManagementPage: React.FC = () => {
 
   // Data lists
   const [employees, setEmployees] = useState<Array<UserProfile & { record?: EmployeeRecord }>>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [healthReport, setHealthReport] = useState<StructuralHealthReport | null>(null);
   const [metrics, setMetrics] = useState<any>(null);
+
+  // States: Modal Quản Trị Cơ Cấu & Nhân Sự Dành Cho HR
+  const [isRegionModalOpen, setIsRegionModalOpen] = useState(false);
+  const [newRegion, setNewRegion] = useState<CreateRegionInput>({
+    name: '',
+    code: '',
+    organization_id: '',
+    regional_director_id: '',
+    description: '',
+  });
+
+  const [isAgencyModalOpen, setIsAgencyModalOpen] = useState(false);
+  const [newAgency, setNewAgency] = useState<CreateAgencyInput>({
+    name: '',
+    code: '',
+    organization_id: '',
+    region_id: '',
+    director_id: '',
+    phone: '',
+    email: '',
+    address: '',
+  });
+
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [newTeam, setNewTeam] = useState<CreateTeamInput>({
+    name: '',
+    code: '',
+    agency_id: '',
+    leader_id: '',
+  });
+
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [newUser, setNewUser] = useState<CreateUserInput & {
+    employment_type: 'official' | 'probation' | 'collaborator';
+    title: string;
+    join_date: string;
+  }>({
+    email: '',
+    full_name: '',
+    phone: '',
+    role: 'sale_agent',
+    organization_id: '',
+    region_id: '',
+    agency_id: '',
+    team_id: '',
+    employment_type: 'official',
+    title: 'Chuyên viên tư vấn',
+    join_date: new Date().toISOString().slice(0, 10),
+    password: 'password123',
+    must_change_password: true,
+  });
+
+  // Modal: Khóa / Inactive tài khoản khi nhân sự nghỉ việc
+  const [lockModalOpen, setLockModalOpen] = useState(false);
+  const [targetUserToLock, setTargetUserToLock] = useState<{ id: string; name: string; currentStatus: string } | null>(null);
+  const [lockReason, setLockReason] = useState('Nghỉ việc / Inactive tài khoản');
+
+  const [modalSubmitting, setModalSubmitting] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   // Filters
   const [selectedRegion, setSelectedRegion] = useState('all');
@@ -187,7 +257,7 @@ export const HRManagementPage: React.FC = () => {
     if (!currentUser) return;
     setLoading(true);
     try {
-      const [empList, agList, tmList, regList, divList, healthRep, mtr, trList, lvList, reqList, cndList] = await Promise.all([
+      const [empList, agList, tmList, regList, orgList, divList, healthRep, mtr, trList, lvList, reqList, cndList] = await Promise.all([
         hrRepository.getEmployees({
           regionId: selectedRegion,
           agencyId: selectedAgency,
@@ -200,6 +270,7 @@ export const HRManagementPage: React.FC = () => {
         teamRepository.getAgencies(),
         teamRepository.getTeams(),
         teamRepository.getRegions(),
+        teamRepository.getOrganizations(),
         teamRepository.getDivisions(),
         teamRepository.getStructuralHealthReport(),
         hrRepository.getHRMetrics(undefined, currentUser),
@@ -213,6 +284,7 @@ export const HRManagementPage: React.FC = () => {
       const accessibleTeams = branchHierarchyService.filterTeams(currentUser, tmList);
       const accessibleRegions = branchHierarchyService.filterRegions(currentUser, regList);
       setEmployees(empList);
+      setOrganizations(orgList);
       setAgencies(accessibleAgencies);
       setTeams(accessibleTeams);
       setRegions(accessibleRegions);
@@ -309,7 +381,230 @@ export const HRManagementPage: React.FC = () => {
     }
   };
 
-  const isHrOrAdmin = currentUser && ['admin', 'director', 'hr_admin', 'sales_manager'].includes(currentUser.role);
+  // Helper: Trích xuất quan hệ tổ chức 4 tầng (CEO -> Vùng -> Sàn -> Team)
+  const getEmployeeOrgHierarchy = (emp: UserProfile) => {
+    const agency = agencies.find(a => a.id === emp.agency_id);
+    const team = teams.find(t => t.id === emp.team_id);
+    const regionId = emp.region_id || agency?.region_id;
+    const region = regions.find(r => r.id === regionId);
+    const orgId = emp.organization_id || region?.organization_id || agency?.organization_id;
+    const org = organizations.find(o => o.id === orgId) || organizations[0];
+    return { org, region, agency, team };
+  };
+
+  // 1. Tạo Vùng Kinh Doanh Mới
+  const handleCreateRegionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setModalSubmitting(true);
+    setModalError(null);
+
+    try {
+      const res = await teamRepository.createRegion({
+        name: newRegion.name,
+        code: newRegion.code,
+        organization_id: newRegion.organization_id || null,
+        regional_director_id: newRegion.regional_director_id || null,
+        description: newRegion.description,
+      });
+
+      if (res.success && res.region) {
+        auditRepository.logAction(
+          currentUser.id,
+          currentUser.full_name,
+          'hr_region_create',
+          { region_code: res.region.code, region_name: res.region.name }
+        );
+        setIsRegionModalOpen(false);
+        setNewRegion({ name: '', code: '', organization_id: '', regional_director_id: '', description: '' });
+        setActionSuccessMsg(`Đã thành lập Vùng kinh doanh mới: ${res.region.name} (${res.region.code})!`);
+        await loadData();
+        setTimeout(() => setActionSuccessMsg(''), 5000);
+      } else {
+        setModalError(res.error || 'Lỗi khi tạo vùng kinh doanh.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi tạo vùng.');
+    } finally {
+      setModalSubmitting(false);
+    }
+  };
+
+  // 2. Tạo Sàn Giao Dịch Mới
+  const handleCreateAgencySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setModalSubmitting(true);
+    setModalError(null);
+
+    try {
+      const res = await teamRepository.createAgency({
+        name: newAgency.name,
+        code: newAgency.code,
+        organization_id: newAgency.organization_id || null,
+        region_id: newAgency.region_id || null,
+        director_id: newAgency.director_id || null,
+        address: newAgency.address,
+        phone: newAgency.phone,
+        email: newAgency.email,
+      });
+
+      if (res.success && res.agency) {
+        auditRepository.logAction(
+          currentUser.id,
+          currentUser.full_name,
+          'hr_agency_create',
+          { agency_code: res.agency.code, agency_name: res.agency.name }
+        );
+        setIsAgencyModalOpen(false);
+        setNewAgency({ name: '', code: '', organization_id: '', region_id: '', director_id: '', phone: '', email: '', address: '' });
+        setActionSuccessMsg(`Đã thành lập Sàn giao dịch mới: ${res.agency.name} (${res.agency.code})!`);
+        await loadData();
+        setTimeout(() => setActionSuccessMsg(''), 5000);
+      } else {
+        setModalError(res.error || 'Lỗi khi tạo sàn giao dịch.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi tạo sàn.');
+    } finally {
+      setModalSubmitting(false);
+    }
+  };
+
+  // 3. Tạo Đội Nhóm Kinh Doanh Mới
+  const handleCreateTeamSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setModalSubmitting(true);
+    setModalError(null);
+
+    try {
+      const res = await teamRepository.createTeam({
+        name: newTeam.name,
+        code: newTeam.code,
+        agency_id: newTeam.agency_id,
+        leader_id: newTeam.leader_id || null,
+      });
+
+      if (res.success && res.team) {
+        auditRepository.logAction(
+          currentUser.id,
+          currentUser.full_name,
+          'hr_team_create',
+          { team_code: res.team.code, team_name: res.team.name, agency_id: res.team.agency_id }
+        );
+        setIsTeamModalOpen(false);
+        setNewTeam({ name: '', code: '', agency_id: '', leader_id: '' });
+        setActionSuccessMsg(`Đã thành lập Đội nhóm kinh doanh mới: ${res.team.name} (${res.team.code})!`);
+        await loadData();
+        setTimeout(() => setActionSuccessMsg(''), 5000);
+      } else {
+        setModalError(res.error || 'Lỗi khi tạo đội nhóm.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi tạo đội nhóm.');
+    } finally {
+      setModalSubmitting(false);
+    }
+  };
+
+  // 4. Tạo Sale Account / Nhân Sự Mới
+  const handleCreateUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setModalSubmitting(true);
+    setModalError(null);
+
+    try {
+      const res = await hrRepository.createEmployeeAccount({
+        email: newUser.email,
+        full_name: newUser.full_name,
+        phone: newUser.phone,
+        role: newUser.role,
+        organization_id: newUser.organization_id || null,
+        region_id: newUser.region_id || null,
+        agency_id: newUser.agency_id || null,
+        team_id: newUser.team_id || null,
+        employment_type: newUser.employment_type,
+        title: newUser.title,
+        password: newUser.password || 'password123',
+        must_change_password: true,
+      }, currentUser);
+
+      if (res.success) {
+        setIsUserModalOpen(false);
+        setActionSuccessMsg(`Đã tạo thành công tài khoản nhân sự: ${newUser.full_name} (${newUser.email})!`);
+        setNewUser({
+          email: '',
+          full_name: '',
+          phone: '',
+          role: 'sale_agent',
+          organization_id: '',
+          region_id: '',
+          agency_id: '',
+          team_id: '',
+          employment_type: 'official',
+          title: 'Chuyên viên tư vấn',
+          join_date: new Date().toISOString().slice(0, 10),
+          password: 'password123',
+          must_change_password: true,
+        });
+        await loadData();
+        setTimeout(() => setActionSuccessMsg(''), 5000);
+      } else {
+        setModalError(res.error || 'Lỗi khi tạo tài khoản nhân sự.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi tạo tài khoản.');
+    } finally {
+      setModalSubmitting(false);
+    }
+  };
+
+  // 5. Khóa / Mở Khóa Tài Khoản (Inactive do nghỉ việc)
+  const handleOpenLockModal = (userId: string, name: string, currentStatus: string) => {
+    setTargetUserToLock({ id: userId, name, currentStatus });
+    setLockReason(currentStatus === 'locked' ? 'Mở khóa tài khoản nhân sự quay lại làm việc' : 'Nhân sự nghỉ việc / ngưng hoạt động tại công ty');
+    setModalError(null);
+    setLockModalOpen(true);
+  };
+
+  const handleConfirmLockEmployee = async () => {
+    if (!currentUser || !targetUserToLock) return;
+    setModalSubmitting(true);
+    setModalError(null);
+
+    try {
+      const nextStatus = targetUserToLock.currentStatus === 'locked' ? 'active' : 'locked';
+      const res = await hrRepository.toggleLockEmployee(
+        targetUserToLock.id,
+        nextStatus,
+        lockReason,
+        currentUser
+      );
+
+      if (res.success) {
+        setLockModalOpen(false);
+        setActionSuccessMsg(
+          nextStatus === 'locked'
+            ? `Đã khóa tài khoản (Inactive) của ${targetUserToLock.name} do nghỉ việc!`
+            : `Đã mở khóa tài khoản hoạt động cho ${targetUserToLock.name}!`
+        );
+        setTargetUserToLock(null);
+        await loadData();
+        setTimeout(() => setActionSuccessMsg(''), 5000);
+      } else {
+        setModalError(res.error || 'Lỗi cập nhật trạng thái tài khoản.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi thao tác.');
+    } finally {
+      setModalSubmitting(false);
+    }
+  };
+
+  const isHrOrAdmin = currentUser && ['admin', 'ceo', 'director', 'regional_director', 'hr_admin', 'sales_manager'].includes(currentUser.role);
+  const canManageOrg = currentUser && ['admin', 'ceo', 'hr_admin', 'director', 'regional_director'].includes(currentUser.role);
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
@@ -330,7 +625,60 @@ export const HRManagementPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canManageOrg && (
+            <>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setModalError(null);
+                  setIsUserModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 shadow-sm"
+              >
+                <UserPlus className="h-4 w-4" />
+                <span>+ Tạo Sale Account</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setModalError(null);
+                  setIsRegionModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              >
+                <Layers className="h-4 w-4 text-indigo-600" />
+                <span>+ Vùng Mới</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setModalError(null);
+                  setIsAgencyModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              >
+                <Building2 className="h-4 w-4 text-indigo-600" />
+                <span>+ Sàn Mới</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setModalError(null);
+                  setIsTeamModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+              >
+                <Users className="h-4 w-4 text-indigo-600" />
+                <span>+ Đội Nhóm</span>
+              </Button>
+            </>
+          )}
+
           {isHrOrAdmin && (
             <>
               <Button 
@@ -352,13 +700,13 @@ export const HRManagementPage: React.FC = () => {
                 <span>Đề Xuất Điều Chuyển</span>
               </Button>
               <Button 
-                variant="primary" 
+                variant="outline" 
                 size="sm"
                 onClick={() => setNewCandidateModalOpen(true)}
-                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700"
+                className="flex items-center gap-1.5 border-slate-300"
               >
-                <UserPlus className="h-4 w-4" />
-                <span>+ Thêm Ứng Viên ATS</span>
+                <UserCheck className="h-4 w-4 text-slate-600" />
+                <span>+ Ứng Viên ATS</span>
               </Button>
             </>
           )}
@@ -590,7 +938,7 @@ export const HRManagementPage: React.FC = () => {
                     <tr>
                       <th className="p-3">Mã & Nhân Sự</th>
                       <th className="p-3">Chức Danh / Vai Trò</th>
-                      <th className="p-3">Sàn & Đội Nhóm</th>
+                      <th className="p-3">Đơn Vị Trực Thuộc (CEO • Vùng • Sàn • Team)</th>
                       <th className="p-3">Loại Hình</th>
                       <th className="p-3">Trạng Thái</th>
                       <th className="p-3">Ngày Vào</th>
@@ -599,20 +947,27 @@ export const HRManagementPage: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {employees.map(emp => {
-                      const agency = agencies.find(a => a.id === emp.agency_id);
-                      const team = teams.find(t => t.id === emp.team_id);
+                      const { org, region, agency, team } = getEmployeeOrgHierarchy(emp);
                       const roleObj = USER_ROLES.find(r => r.value === emp.role);
+                      const isLocked = emp.status === 'locked';
 
                       return (
-                        <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                        <tr key={emp.id} className={`hover:bg-slate-50 transition-colors ${isLocked ? 'bg-rose-50/20' : ''}`}>
                           <td className="p-3">
                             <div className="flex items-center gap-2.5">
-                              <div className="h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-xs flex-shrink-0">
-                                {emp.full_name.charAt(0)}
+                              <div className={`h-8 w-8 rounded-full font-bold flex items-center justify-center text-xs flex-shrink-0 ${
+                                isLocked ? 'bg-rose-100 text-rose-700' : 'bg-indigo-100 text-indigo-700'
+                              }`}>
+                                {isLocked ? <Lock className="h-4 w-4" /> : emp.full_name.charAt(0)}
                               </div>
                               <div>
-                                <div className="font-semibold text-slate-900 hover:text-indigo-600 cursor-pointer" onClick={() => handleOpen360(emp.id)}>
-                                  {emp.full_name}
+                                <div className="font-semibold text-slate-900 hover:text-indigo-600 cursor-pointer flex items-center gap-1.5" onClick={() => handleOpen360(emp.id)}>
+                                  <span>{emp.full_name}</span>
+                                  {isLocked && (
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] bg-rose-100 text-rose-700 font-bold border border-rose-200">
+                                      Nghỉ việc
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-[11px] text-slate-400 font-mono">
                                   {emp.record?.employee_code || 'Chưa gán mã'} • {emp.email}
@@ -627,28 +982,51 @@ export const HRManagementPage: React.FC = () => {
                           </td>
 
                           <td className="p-3">
-                            <div className="font-medium text-slate-800">{agency?.name || 'Toàn hệ thống'}</div>
-                            <div className="text-[11px] text-slate-400">{team?.name || 'Không thuộc team'}</div>
+                            <div className="space-y-0.5">
+                              {/* Cấp 1: CEO / Doanh Nghiệp */}
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
+                                <Crown className="h-3 w-3 text-amber-500 shrink-0" />
+                                <span>{org ? `${org.name} (${org.ceo_name ? `CEO: ${org.ceo_name}` : org.code})` : 'Địa Ốc Vàng TP.HCM'}</span>
+                              </div>
+                              {/* Cấp 2: Vùng kinh doanh */}
+                              <div className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-700">
+                                <Layers className="h-3 w-3 text-indigo-500 shrink-0" />
+                                <span>{region ? `${region.name} (${region.code})` : 'Chưa phân vùng'}</span>
+                              </div>
+                              {/* Cấp 3: Sàn giao dịch */}
+                              <div className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                                <Building2 className="h-3 w-3 text-slate-400 shrink-0" />
+                                <span>{agency ? `${agency.name} (${agency.code})` : 'Chưa gán sàn'}</span>
+                              </div>
+                              {/* Cấp 4: Đội nhóm */}
+                              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                                <Users className="h-3 w-3 text-slate-400 shrink-0" />
+                                <span>{team ? team.name : 'Chưa gán team'}</span>
+                              </div>
+                            </div>
                           </td>
 
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                              isLocked ? 'bg-rose-100 text-rose-800 border border-rose-200' :
                               emp.record?.employment_type === 'official' ? 'bg-emerald-100 text-emerald-800' :
                               emp.record?.employment_type === 'probation' ? 'bg-amber-100 text-amber-800' :
                               'bg-blue-100 text-blue-800'
                             }`}>
-                              {emp.record?.employment_type === 'official' ? 'Chính thức' :
+                              {isLocked ? 'Đã nghỉ việc' :
+                               emp.record?.employment_type === 'official' ? 'Chính thức' :
                                emp.record?.employment_type === 'probation' ? 'Thử việc' : 'Cộng tác viên'}
                             </span>
                           </td>
 
                           <td className="p-3">
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                              isLocked ? 'bg-rose-100 text-rose-800 border border-rose-200' :
                               emp.on_leave ? 'bg-purple-100 text-purple-800' :
                               emp.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-700'
                             }`}>
-                              <span className={`h-1.5 w-1.5 rounded-full ${emp.on_leave ? 'bg-purple-600' : emp.status === 'active' ? 'bg-green-600' : 'bg-slate-400'}`}></span>
-                              {emp.on_leave ? 'Đang nghỉ phép' : emp.status === 'active' ? 'Đang hoạt động' : 'Tạm khóa'}
+                              <span className={`h-1.5 w-1.5 rounded-full ${isLocked ? 'bg-rose-600' : emp.on_leave ? 'bg-purple-600' : emp.status === 'active' ? 'bg-green-600' : 'bg-slate-400'}`}></span>
+                              {isLocked ? 'Đã khóa / Inactive' : emp.on_leave ? 'Đang nghỉ phép' : emp.status === 'active' ? 'Đang hoạt động' : 'Tạm khóa'}
                             </span>
                           </td>
 
@@ -657,14 +1035,40 @@ export const HRManagementPage: React.FC = () => {
                           </td>
 
                           <td className="p-3 text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleOpen360(emp.id)}
-                              className="text-xs h-7 px-2.5 font-medium text-indigo-600 hover:bg-indigo-50"
-                            >
-                              Hồ Sơ 360° →
-                            </Button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              {canManageOrg && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenLockModal(emp.id, emp.full_name, emp.status || 'active')}
+                                  className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center gap-1 border transition-all ${
+                                    isLocked
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                      : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                  }`}
+                                  title={isLocked ? 'Mở khóa tài khoản' : 'Khóa tài khoản (Nghỉ việc)'}
+                                >
+                                  {isLocked ? (
+                                    <>
+                                      <Unlock className="h-3 w-3" />
+                                      <span>Mở khóa</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Lock className="h-3 w-3" />
+                                      <span>Khóa (Nghỉ việc)</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpen360(emp.id)}
+                                className="text-xs h-7 px-2.5 font-medium text-indigo-600 hover:bg-indigo-50"
+                              >
+                                Hồ Sơ 360° →
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1380,6 +1784,97 @@ export const HRManagementPage: React.FC = () => {
                           </div>
                         </div>
                       </Card>
+
+                      {/* Thẻ Cơ Cấu Trực Thuộc Hệ Thống (4 Cấp: CEO • Vùng • Sàn • Team) */}
+                      <Card className="p-4 border-slate-200 bg-indigo-50/20 space-y-3">
+                        <div className="flex items-center justify-between border-b border-indigo-100 pb-2">
+                          <div className="font-bold text-xs text-indigo-950 flex items-center gap-1.5">
+                            <Building2 className="h-4 w-4 text-indigo-600" />
+                            <span>Cơ Cấu Trực Thuộc Chuỗi Chỉ Huy (CEO • Vùng • Sàn • Team)</span>
+                          </div>
+                          <Badge variant="outline" className="text-[10px] bg-white text-indigo-700">
+                            Chuỗi 4 Tầng
+                          </Badge>
+                        </div>
+
+                        {(() => {
+                          const selectedEmp = employees.find(e => e.id === selectedEmployeeId);
+                          if (!selectedEmp) return null;
+                          const { org, region, agency, team } = getEmployeeOrgHierarchy(selectedEmp);
+                          return (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                              <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                                <span className="text-slate-400 block text-[10px] font-semibold uppercase">1. Doanh Nghiệp (CEO)</span>
+                                <div className="font-bold text-slate-900 mt-0.5 flex items-center gap-1">
+                                  <Crown className="h-3.5 w-3.5 text-amber-500" />
+                                  <span>{org ? `${org.name} (${org.code})` : 'Địa Ốc Vàng TP.HCM'}</span>
+                                </div>
+                                <div className="text-[11px] text-indigo-600 font-medium">CEO: {org?.ceo_name || 'Trần Hải Nam'}</div>
+                              </div>
+
+                              <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                                <span className="text-slate-400 block text-[10px] font-semibold uppercase">2. Vùng Kinh Doanh</span>
+                                <div className="font-bold text-slate-900 mt-0.5 flex items-center gap-1">
+                                  <Layers className="h-3.5 w-3.5 text-indigo-500" />
+                                  <span>{region ? `${region.name} (${region.code})` : 'Chưa phân vùng'}</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500">GĐ Vùng: {region?.regional_director_name || 'Đang cập nhật'}</div>
+                              </div>
+
+                              <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                                <span className="text-slate-400 block text-[10px] font-semibold uppercase">3. Sàn Giao Dịch</span>
+                                <div className="font-bold text-slate-900 mt-0.5 flex items-center gap-1">
+                                  <Building2 className="h-3.5 w-3.5 text-slate-400" />
+                                  <span>{agency ? `${agency.name} (${agency.code})` : 'Chưa gán sàn'}</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500">GĐ Sàn: {agency?.director_name || 'Đang cập nhật'}</div>
+                              </div>
+
+                              <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                                <span className="text-slate-400 block text-[10px] font-semibold uppercase">4. Đội Nhóm Kinh Doanh</span>
+                                <div className="font-bold text-slate-900 mt-0.5 flex items-center gap-1">
+                                  <Users className="h-3.5 w-3.5 text-slate-400" />
+                                  <span>{team ? team.name : 'Chưa gán team'}</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500">Trưởng nhóm: {team?.leader_name || 'Đang cập nhật'}</div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {canManageOrg && employee360Data.profile && (
+                          <div className="pt-2 flex items-center justify-between border-t border-indigo-100">
+                            <span className="text-[11px] text-slate-500">
+                              Trạng thái nhân sự:{' '}
+                              <strong className={employee360Data.profile.status === 'locked' ? 'text-rose-600' : 'text-emerald-600'}>
+                                {employee360Data.profile.status === 'locked' ? 'Đã khóa / Inactive (Nghỉ việc)' : 'Đang hoạt động'}
+                              </strong>
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenLockModal(
+                                employee360Data.profile.id,
+                                employee360Data.profile.full_name,
+                                employee360Data.profile.status || 'active'
+                              )}
+                              className={employee360Data.profile.status === 'locked' ? 'text-emerald-700 border-emerald-300 hover:bg-emerald-50' : 'text-rose-700 border-rose-300 hover:bg-rose-50'}
+                            >
+                              {employee360Data.profile.status === 'locked' ? (
+                                <>
+                                  <Unlock className="h-3.5 w-3.5 mr-1" />
+                                  Mở khóa tài khoản
+                                </>
+                              ) : (
+                                <>
+                                  <Lock className="h-3.5 w-3.5 mr-1" />
+                                  Khóa tài khoản (Nghỉ việc)
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </Card>
                     </div>
                   )}
 
@@ -1877,6 +2372,668 @@ export const HRManagementPage: React.FC = () => {
               className="bg-indigo-600 hover:bg-indigo-700"
             >
               Tiếp Nhận Hồ Sơ
+            </Button>
+          </div>
+        </div>
+      </Modal>
+      {/* ======================================================== */}
+      {/* 15. MODAL TẠO MỚI SALE ACCOUNT / NHÂN SỰ BỞI HR */}
+      {/* ======================================================== */}
+      <Modal
+        isOpen={isUserModalOpen}
+        onClose={() => setIsUserModalOpen(false)}
+        title="Tạo Mới Tài Khoản Sale / Nhân Sự (HR)"
+      >
+        <form onSubmit={handleCreateUserSubmit} className="space-y-4 text-xs">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Họ và tên nhân sự <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="Nguyễn Văn An"
+              value={newUser.full_name}
+              onChange={(e) => setNewUser({ ...newUser, full_name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Email công việc (dùng đăng nhập) <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="an.nguyen@diaocvang.vn"
+                value={newUser.email}
+                onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Số điện thoại liên hệ <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="tel"
+                required
+                placeholder="0912345678"
+                value={newUser.phone}
+                onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Vai trò hệ thống (Role) <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={newUser.role}
+                onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white font-semibold text-indigo-700"
+              >
+                {USER_ROLES.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Loại hình nhân sự
+              </label>
+              <select
+                value={newUser.employment_type}
+                onChange={(e) => setNewUser({ ...newUser, employment_type: e.target.value as any })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              >
+                <option value="official">Chính thức (Hợp đồng lao động)</option>
+                <option value="probation">Thử việc (Lộ trình 60 ngày)</option>
+                <option value="collaborator">Cộng tác viên (CTV bán hàng lẻ)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Phân cấp 4 tầng: Doanh nghiệp (CEO) -> Vùng -> Sàn -> Team */}
+          <div className="p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-3">
+            <span className="font-bold text-indigo-950 block text-[11px] uppercase tracking-wider">
+              Cơ Cấu Trực Thuộc (CEO • Vùng • Sàn • Đội Nhóm)
+            </span>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  1. Thuộc Doanh Nghiệp (CEO)
+                </label>
+                <select
+                  value={newUser.organization_id || ''}
+                  onChange={(e) => setNewUser({ ...newUser, organization_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                >
+                  <option value="">(Chọn Doanh nghiệp / Mặc định)</option>
+                  {organizations.map((o) => (
+                    <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  2. Thuộc Vùng Kinh Doanh
+                </label>
+                <select
+                  value={newUser.region_id || ''}
+                  onChange={(e) => setNewUser({ ...newUser, region_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                >
+                  <option value="">(Chọn Vùng kinh doanh)</option>
+                  {regions.map((r) => (
+                    <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  3. Thuộc Sàn Giao Dịch
+                </label>
+                <select
+                  value={newUser.agency_id || ''}
+                  onChange={(e) => setNewUser({ ...newUser, agency_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                >
+                  <option value="">(Chọn Sàn giao dịch)</option>
+                  {agencies.map((a) => (
+                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  4. Thuộc Đội Nhóm Kinh Doanh
+                </label>
+                <select
+                  value={newUser.team_id || ''}
+                  onChange={(e) => setNewUser({ ...newUser, team_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                >
+                  <option value="">(Chọn Đội nhóm kinh doanh)</option>
+                  {teams
+                    .filter(t => !newUser.agency_id || t.agency_id === newUser.agency_id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Chức danh chuyên môn
+              </label>
+              <input
+                type="text"
+                value={newUser.title}
+                onChange={(e) => setNewUser({ ...newUser, title: e.target.value })}
+                placeholder="Chuyên viên tư vấn cao cấp"
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Ngày bắt đầu làm việc
+              </label>
+              <input
+                type="date"
+                value={newUser.join_date}
+                onChange={(e) => setNewUser({ ...newUser, join_date: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsUserModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={modalSubmitting}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              Tạo Tài Khoản Sale
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ======================================================== */}
+      {/* 16. MODAL THÀNH LẬP VÙNG KINH DOANH MỚI (HR) */}
+      {/* ======================================================== */}
+      <Modal
+        isOpen={isRegionModalOpen}
+        onClose={() => setIsRegionModalOpen(false)}
+        title="Thành Lập Vùng Kinh Doanh Mới (HR)"
+      >
+        <form onSubmit={handleCreateRegionSubmit} className="space-y-4 text-xs">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Tên Vùng Kinh Doanh <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="Vùng Tây Nam Bộ (Cần Thơ - Long An - Tiền Giang)"
+              value={newRegion.name}
+              onChange={(e) => setNewRegion({ ...newRegion, name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Mã viết tắt Vùng <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="REG-SWEST"
+                value={newRegion.code}
+                onChange={(e) => setNewRegion({ ...newRegion, code: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Thuộc Doanh Nghiệp (CEO)
+              </label>
+              <select
+                value={newRegion.organization_id || ''}
+                onChange={(e) => setNewRegion({ ...newRegion, organization_id: e.target.value || null })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              >
+                <option value="">(Chọn Doanh nghiệp trực thuộc)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Bổ nhiệm Giám Đốc Vùng (Regional Director)
+            </label>
+            <select
+              value={newRegion.regional_director_id || ''}
+              onChange={(e) => setNewRegion({ ...newRegion, regional_director_id: e.target.value || null })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+            >
+              <option value="">(Chọn nhân sự làm Giám Đốc Vùng)</option>
+              {employees.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({p.role}) - {p.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Mô Tả & Địa Bàn Hoạt Động
+            </label>
+            <input
+              type="text"
+              placeholder="Quản lý các dự án và sàn tại khu vực các tỉnh Tây Nam Bộ"
+              value={newRegion.description || ''}
+              onChange={(e) => setNewRegion({ ...newRegion, description: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsRegionModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={modalSubmitting}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              Thành Lập Vùng
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ======================================================== */}
+      {/* 17. MODAL THÀNH LẬP SÀN GIAO DỊCH MỚI (HR) */}
+      {/* ======================================================== */}
+      <Modal
+        isOpen={isAgencyModalOpen}
+        onClose={() => setIsAgencyModalOpen(false)}
+        title="Thành Lập Sàn Giao Dịch Mới (HR)"
+      >
+        <form onSubmit={handleCreateAgencySubmit} className="space-y-4 text-xs">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Tên Sàn Giao Dịch <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="Sàn Giao Dịch Nam Sài Gòn (Q7)"
+              value={newAgency.name}
+              onChange={(e) => setNewAgency({ ...newAgency, name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Trực thuộc Doanh Nghiệp (CEO)
+              </label>
+              <select
+                value={newAgency.organization_id || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, organization_id: e.target.value || null })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              >
+                <option value="">(Chọn Doanh nghiệp)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Trực thuộc Vùng Kinh Doanh
+              </label>
+              <select
+                value={newAgency.region_id || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, region_id: e.target.value || null })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              >
+                <option value="">(Chọn Vùng kinh doanh)</option>
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Mã viết tắt sàn <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="S5-Q7"
+                value={newAgency.code}
+                onChange={(e) => setNewAgency({ ...newAgency, code: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Bổ nhiệm Giám Đốc Sàn
+              </label>
+              <select
+                value={newAgency.director_id || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, director_id: e.target.value || null })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              >
+                <option value="">(Chọn Giám đốc sàn)</option>
+                {employees.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name} ({p.role}) - {p.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Hotline Sàn</label>
+              <input
+                type="tel"
+                placeholder="028.3333.6666"
+                value={newAgency.phone || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, phone: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">Email Sàn</label>
+              <input
+                type="email"
+                placeholder="san.q7@diaocvang.vn"
+                value={newAgency.email || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, email: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Địa chỉ văn phòng Sàn</label>
+            <input
+              type="text"
+              placeholder="Nguyễn Thị Thập, P. Tân Phú, Q.7, TP.HCM"
+              value={newAgency.address || ''}
+              onChange={(e) => setNewAgency({ ...newAgency, address: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsAgencyModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={modalSubmitting}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              Thành Lập Sàn
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ======================================================== */}
+      {/* 18. MODAL THÀNH LẬP ĐỘI NHÓM KINH DOANH (HR) */}
+      {/* ======================================================== */}
+      <Modal
+        isOpen={isTeamModalOpen}
+        onClose={() => setIsTeamModalOpen(false)}
+        title="Thành Lập Đội Nhóm Kinh Doanh (HR)"
+      >
+        <form onSubmit={handleCreateTeamSubmit} className="space-y-4 text-xs">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Tên Team Kinh Doanh <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="Team Titanium (Chiến Binh Thép)"
+              value={newTeam.name}
+              onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Mã viết tắt Team <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="TM-TITAN"
+                value={newTeam.code}
+                onChange={(e) => setNewTeam({ ...newTeam, code: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 mb-1">
+                Trực thuộc Sàn giao dịch <span className="text-red-500">*</span>
+              </label>
+              <select
+                required
+                value={newTeam.agency_id}
+                onChange={(e) => setNewTeam({ ...newTeam, agency_id: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              >
+                <option value="">-- Chọn sàn trực thuộc --</option>
+                {agencies.map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Bổ nhiệm Trưởng Nhóm (Team Leader)
+            </label>
+            <select
+              value={newTeam.leader_id || ''}
+              onChange={(e) => setNewTeam({ ...newTeam, leader_id: e.target.value || null })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+            >
+              <option value="">(Chọn nhân sự làm Trưởng nhóm)</option>
+              {employees.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({p.role}) - {p.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsTeamModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={modalSubmitting}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              Thành Lập Team
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ======================================================== */}
+      {/* 19. MODAL KHÓA / MỞ KHÓA TÀI KHOẢN KHI NGHỈ VIỆC (HR) */}
+      {/* ======================================================== */}
+      <Modal
+        isOpen={lockModalOpen}
+        onClose={() => setLockModalOpen(false)}
+        title={targetUserToLock?.currentStatus === 'locked' ? 'Mở Khóa Tài Khoản Nhân Sự' : 'Khóa Tài Khoản (Nghỉ Việc / Inactive)'}
+      >
+        <div className="space-y-4 text-xs">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          {targetUserToLock && (
+            <div className={`p-3 rounded-lg border ${
+              targetUserToLock.currentStatus === 'locked'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}>
+              <div className="font-bold text-sm">{targetUserToLock.name}</div>
+              <div className="text-[11px] mt-0.5">
+                Trạng thái hiện tại: <strong>{targetUserToLock.currentStatus === 'locked' ? 'Đang bị khóa (Inactive)' : 'Đang hoạt động'}</strong>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <label className="font-semibold text-slate-700">
+              Lý do thực hiện <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              rows={2}
+              value={lockReason}
+              onChange={(e) => setLockReason(e.target.value)}
+              placeholder="Nhân sự nghỉ việc, bàn giao khách hàng và hoàn tất thủ tục offboarding..."
+              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-600 text-[11px] space-y-1">
+            <div className="font-semibold text-slate-800">Cơ chế an toàn hệ thống:</div>
+            <div>• Ngắt quyền đăng nhập CRM của nhân sự ngay lập tức khi khóa</div>
+            <div>• Cập nhật trạng thái hồ sơ nhân sự sang "Đã nghỉ việc" (resigned)</div>
+            <div>• Ghi nhận sự kiện vòng đời nhân sự (personnel_events) và nhật ký kiểm toán an ninh</div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setLockModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              isLoading={modalSubmitting}
+              onClick={handleConfirmLockEmployee}
+              className={targetUserToLock?.currentStatus === 'locked' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}
+            >
+              {targetUserToLock?.currentStatus === 'locked' ? 'Xác Nhận Mở Khóa' : 'Xác Nhận Khóa Tài Khoản'}
             </Button>
           </div>
         </div>
