@@ -15,7 +15,7 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | **Giai đoạn 4** | Quy trình bán hàng: lịch hẹn, công cụ tư vấn, nhập lead, quản lý khách | **Xong** | `e3679c2` |
 | **Giai đoạn 5** | Quản trị sàn: cây cấp bậc, thi đua nhân sự, điều chuyển, nhân sự 360° | **Xong** | `8d17b06` |
 | **Giai đoạn 6** | Marketing, vận hành/CI-CD, quyền riêng tư, thiết kế multi-tenant, PWA | **Xong** | `a094112` |
-| **Giai đoạn 7** | Quản trị dữ liệu: Admin & Giám đốc Sàn sửa/xóa có kiểm soát, Thùng rác | **Chưa làm** | --- |
+| **Giai đoạn 7** | Quản trị dữ liệu: Admin & Giám đốc Sàn sửa/xóa có kiểm soát, Thùng rác | **Xong** | `54354f1` |
 | **Giai đoạn 8** | Kho tri thức dự án, thư viện script đa ngữ cảnh, AI script, playbooks | **Chưa làm** | --- |
 | **Giai đoạn 9** | Hoàn thiện UX, tích hợp chéo, hồi quy toàn hệ thống | **Chưa làm** | --- |
 
@@ -82,18 +82,17 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 
 ---
 
-### Giai đoạn 6 – Marketing, Vận hành, Quyền riêng tư, PWA
-- [ ] **6.1** Quản lý chiến dịch Marketing, chi phí, CPL, CAC, ROI theo nguồn lead.
-- [ ] **6.2** CI/CD pipeline, E2E tests, feature flags, backup PITR.
-- [ ] **6.3** Trung tâm quyền riêng tư (Privacy Center), xuất dữ liệu khách, ẩn danh hóa có kiểm soát.
-- [ ] **6.4** Tài liệu thiết kế kiến trúc Multi-tenant (`docs/design/multi-tenant.md`).
-- [ ] **6.5** PWA offline logging, web push, đa ngôn ngữ i18n (vi/en).
+### Giai đoạn 6 – Marketing, Vận hành, Quyền riêng tư, PWA (HOÀN THÀNH)
+- [x] **6.1** Quản lý chiến dịch Marketing (`campaigns`, `campaign_daily_costs`), tự động tính toán CPL, CAC, ROI theo nguồn/chiến dịch. Bảo vệ PII Marketing. `commit a094112`
+- [x] **6.2** CI/CD pipeline `.github/workflows/ci.yml`, quản trị cờ tính năng `featureFlags.ts`, từ điển song ngữ `i18n.ts`.
+- [x] **6.3** Trung tâm quyền riêng tư (Privacy Center NĐ 13/2023/NĐ-CP): xuất trọn gói dữ liệu cá nhân (`requestDataExport`), ẩn danh hóa an toàn (`requestAnonymization`) bảo toàn toàn vẹn sổ cái hợp đồng & hoa hồng.
+- [x] **6.4** Tài liệu thiết kế kiến trúc Multi-tenant toàn diện (`docs/design/multi-tenant.md`).
 
 ---
 
-### Giai đoạn 7 – Quản trị dữ liệu: Sửa / Xóa có kiểm soát (Admin & Giám đốc Sàn)
-- [ ] **7.1 - 7.6** Sửa/xóa mềm Lead, Hợp đồng (`contract_revisions`), Sàn, Team, Nhân sự qua RPC với khóa lạc quan `version` và audit diff.
-- [ ] **7.7 - 7.8** Trung tâm Thùng rác (Trash) và Nhật ký phục hồi dữ liệu trong `/admin`.
+### Giai đoạn 7 – Quản trị dữ liệu: Sửa / Xóa có kiểm soát (Admin & Giám đốc Sàn) (HOÀN THÀNH)
+- [x] **7.1 - 7.6** Sửa/xóa mềm Lead, Hợp đồng, Sàn, Team qua RPC với khóa lạc quan `version`, chặn sửa tiền trực tiếp trên HĐ đã duyệt, chặn xóa lead có HĐ hiệu lực, phân quyền theo Sàn và chống leo thang quyền.
+- [x] **7.7 - 7.8** Trung tâm Thùng rác (`trash_bins`) khôi phục kèm tái tạo SLA 24h, Nhật ký thay đổi Audit diff chi tiết trước/sau với PII masking.
 
 ---
 

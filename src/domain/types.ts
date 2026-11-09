@@ -105,6 +105,10 @@ export interface Team {
   leader_id?: string;
   leader_name?: string;
   member_count?: number;
+  version?: number;
+  deleted_at?: string;
+  deleted_by?: string;
+  delete_reason?: string;
 }
 
 export type RecognitionMilestone = 'deposit' | 'contract' | 'first_installment';
@@ -268,13 +272,17 @@ export interface Lead {
   extended_until?: string;
   extension_reason?: string;
 
-  // Giai đoạn 2 & 4: Chống lách SLA, hẹn ảo, lý do đóng thất bại, nuôi lại & nhập theo lô
+  // Giai đoạn 2, 4 & 7: Chống lách SLA, hẹn ảo, lý do đóng thất bại, nuôi lại, nhập theo lô & Quản trị sửa/xóa
   loss_reason_code?: string;
   loss_reason_detail?: string;
   nurture_reminder_date?: string;
   import_batch_id?: string;
   sla_reset_count?: number;
   sla_flags?: string[];
+  version?: number;
+  deleted_at?: string;
+  deleted_by?: string;
+  delete_reason?: string;
 
   // Joined fields for display
   customer_name?: string;
@@ -342,13 +350,17 @@ export interface Transaction {
   recognized_at?: string;
   progressive_bonus_applied?: number;
 
-  // Maker-Checker & Reversal Transaction (P1.2)
+  // Maker-Checker & Reversal Transaction (P1.2 & Phase 7)
   approved_by?: string;
   approved_at?: string;
   approval_status?: 'draft' | 'pending_approval' | 'approved' | 'confirmed' | 'rejected';
   is_reversal?: boolean;
   reversal_of_id?: string;
   reversal_reason?: string;
+  version?: number;
+  deleted_at?: string;
+  deleted_by?: string;
+  delete_reason?: string;
 
   // Joined fields for display
   customer_id?: string;
@@ -1372,4 +1384,46 @@ export interface PrivacyExportPackage {
     notes: string;
     created_at?: string;
   }>;
+}
+
+// ========================================================
+// PHASE 7: CONTROLLED DATA MANAGEMENT & TRASH BIN
+// ========================================================
+
+export type TrashEntityType = 'lead' | 'draft_contract' | 'team' | 'agency' | 'employee';
+
+export interface TrashBinItem {
+  id: string;
+  entity_type: TrashEntityType;
+  entity_id: string;
+  agency_id?: string;
+  entity_name?: string;
+  payload: Record<string, any>;
+  delete_reason: string;
+  deleted_by: string;
+  deleted_by_name?: string;
+  deleted_at: string;
+  restored_at?: string;
+  restored_by?: string;
+  purge_due_at?: string;
+}
+
+export interface FieldDiff {
+  field: string;
+  old_value: any;
+  new_value: any;
+  is_pii_masked?: boolean;
+}
+
+export interface ControlledAuditEntry {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  operator_id: string;
+  operator_name?: string;
+  operator_role: UserRole;
+  action: 'update' | 'soft_delete' | 'restore' | 'dissolve' | 'deactivate';
+  reason: string;
+  diffs: FieldDiff[];
+  created_at: string;
 }
