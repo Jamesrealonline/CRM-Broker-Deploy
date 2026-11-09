@@ -18,6 +18,7 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | **Giai đoạn 7** | Quản trị dữ liệu: Admin & Giám đốc Sàn sửa/xóa có kiểm soát, Thùng rác | **Xong** | `54354f1` |
 | **Giai đoạn 8** | Kho tri thức dự án, thư viện script đa ngữ cảnh, AI script, playbooks | **Xong** | `98bc324` |
 | **Giai đoạn 9** | Hoàn thiện UX, tích hợp chéo, hồi quy toàn hệ thống | **Xong** | `8b46da7` |
+| **Giai đoạn 10** | Quyền toàn diện Admin & Giám đốc Sàn, KPI Nhân sự, Bộ lọc thời gian, Dữ liệu mẫu | **Xong** | `feat/admin-full-access-kpi-hr` |
 
 ---
 
@@ -108,3 +109,13 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 ### Giai đoạn 9 – Hoàn thiện UX & Kiểm thử hồi quy toàn diện (HOÀN THÀNH)
 - [x] **9.1** Tối ưu Mobile UX, gọi/Zalo 1 chạm, Kanban 7 giai đoạn thu gọn.
 - [x] **9.2** Chạy toàn bộ 197/197 tests pass 100% trên 25 test files, build verification không lỗi TypeScript, quét bảo mật không lộ secret/PII, xuất bản Báo cáo nghiệm thu tổng thể `docs/dev-log/FINAL_REPORT.md`.
+
+---
+
+### Giai đoạn 10 – Quyền toàn diện cho Admin & Giám đốc Sàn, Tích hợp KPI Nhân sự, Bộ lọc thời gian chuẩn hóa & Quản trị Dữ liệu mẫu (HOÀN THÀNH)
+- [x] **10.1** Quyền toàn diện cho Admin (toàn hệ thống) và Giám đốc Sàn (`director` theo `agency_id`, hỗ trợ cờ `director_global_scope`). Xem/sửa/xóa mọi đối tượng, phân trang, lọc, tìm kiếm. Xóa mềm vào Thùng rác (khôi phục được); Xóa cứng vĩnh viễn (Admin only); Hủy HĐMB đã duyệt tự sinh bút toán đảo hoa hồng và giải phóng căn; Chặn xóa hoặc khóa Admin duy nhất; Giám đốc Sàn không được phép sửa/xóa Admin hoặc Giám đốc Sàn khác; Thùng rác & Audit Diff view trực quan trên `/admin`.
+- [x] **10.2** Quyền xem PII không che (SĐT, CCCD, Email) cho Admin và Giám đốc Sàn kèm nút Copy 1 chạm và kiểm toán không gián đoạn; Mọi vai trò khác giữ nguyên che mờ PII an toàn.
+- [x] **10.3** Tích hợp KPI nhân sự: `employment_type` (chính thức, thử việc, CTV, thực tập, khác) và `status` (đang làm việc, nghỉ phép, tạm khóa, đã nghỉ việc) kèm huy hiệu nhận diện; Khối KPI nhân sự trên `/dashboard` (tổng nhân sự, cơ cấu, tuyển mới, nghỉ việc, tỷ lệ biến động, thử việc sắp hết hạn, năng suất bình quân doanh số/HĐ/lead trên mỗi nhân sự, biểu đồ xu hướng Recharts); Bộ lọc loại hình và xếp hạng năng suất bình quân trên `/leaderboard` cùng tab Quán quân Tuyển dụng.
+- [x] **10.4** Bộ lọc thời gian dùng chung (`DateRangeFilter` & `useDateRange` hook) chuẩn hóa múi giờ `Asia/Ho_Chi_Minh` (UTC+7), hỗ trợ 9 presets + tùy chọn ngày, so sánh kỳ trước (±%), đồng bộ URL params và lưu sở thích `localStorage`.
+- [x] **10.5** Quản trị Dữ liệu mẫu: Khởi tạo 10 lead mẫu gắn nhãn `is_sample = true`, phân bổ qua 10 trạng thái; Nút bật/tắt hiển thị dữ liệu mẫu trên UI; Chức năng `purge_sample_data` dọn sạch dữ liệu mẫu an toàn; Miễn trừ dữ liệu mẫu khỏi email thật và phạt SLA.
+- [x] **10.6** Kiểm thử hồi quy toàn diện: Đạt 212/212 tests pass 100% trên 26 test files, `tsc --noEmit` & `npm run build` thành công 100%. Đã áp dụng migration 026 và chạy seed thành công trên Supabase Production.

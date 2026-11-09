@@ -35,7 +35,10 @@ import {
   Mail,
   CreditCard,
   X,
-  ShieldCheck
+  ShieldCheck,
+  Copy,
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
@@ -47,6 +50,10 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { useDateRange } from '@/hooks/useDateRange';
+import { DateRangeFilter } from '@/components/common/DateRangeFilter';
+import { canViewFullPII, maskPhone } from '@/lib/masking';
+import { controlledDataService } from '@/domain/services/controlledDataService';
 
 export const TransactionsPage: React.FC = () => {
   const { currentUser } = useAuthStore();
@@ -140,6 +147,21 @@ export const TransactionsPage: React.FC = () => {
   const [editContractCode, setEditContractCode] = useState('');
   const [editNotes, setEditNotes] = useState('');
 
+  // Bộ lọc thời gian & Dữ liệu mẫu
+  const { dateRange, setPreset, setCustomRange, isComparingPrevious, setIsComparingPrevious } = useDateRange({
+    storageKey: 'crm_date_range_transactions',
+    defaultPreset: 'this_month',
+  });
+  const [includeSample, setIncludeSample] = useState(false);
+  const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
+  // Modal Xóa / Hủy hợp đồng có kiểm soát (Admin / Giám đốc Sàn)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [contractToDelete, setContractToDelete] = useState<Transaction | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -148,6 +170,9 @@ export const TransactionsPage: React.FC = () => {
           projectId: selectedProjectId === 'all' ? undefined : selectedProjectId,
           type: selectedType === 'all' ? undefined : selectedType,
           search: searchQuery,
+          includeSample: includeSample,
+          dateFrom: dateRange.from,
+          dateTo: dateRange.to,
         }),
         projectRepository.getProjects(),
       ]);
@@ -162,7 +187,7 @@ export const TransactionsPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [selectedProjectId, selectedType, searchQuery]);
+  }, [selectedProjectId, selectedType, searchQuery, includeSample, dateRange.from, dateRange.to]);
 
   // Mở modal tạo hợp đồng mới và tải dữ liệu dự án & giỏ hàng
   const handleOpenCreateModal = async () => {
@@ -517,6 +542,34 @@ export const TransactionsPage: React.FC = () => {
     setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, first_installment_paid: newStatus } : t));
   };
 
+  const handleConfirmDelete = async () => {
+    if (!contractToDelete || !currentUser) return;
+    if (!deleteReason.trim()) {
+      setDeleteError('Vui lòng nhập lý do hủy/xóa hợp đồng.');
+      return;
+    }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await controlledDataService.softDeleteContract(
+        contractToDelete.id,
+        deleteReason.trim(),
+        currentUser,
+        { forceCancelApproved: true }
+      );
+      setDeleteModalOpen(false);
+      setContractToDelete(null);
+      await loadData();
+      queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    } catch (err: any) {
+      setDeleteError(err.message || 'Lỗi khi xóa hợp đồng.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Lọc leads cho tab Khách hàng có sẵn
   const filteredCandidateLeads = candidateLeads.filter(l => {
     if (!leadSearchQuery.trim()) return true;
@@ -656,6 +709,31 @@ export const TransactionsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* 2.5 DATE RANGE & SAMPLE DATA BAR */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+        <DateRangeFilter
+          value={dateRange}
+          onPresetChange={setPreset}
+          onCustomRangeChange={setCustomRange}
+          isComparingPrevious={isComparingPrevious}
+          onCompareToggle={setIsComparingPrevious}
+          className="w-full sm:w-auto"
+        />
+
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
+            <input
+              type="checkbox"
+              checked={includeSample}
+              onChange={(e) => setIncludeSample(e.target.checked)}
+              className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 h-3.5 w-3.5"
+            />
+            <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+            <span>Hiện dữ liệu mẫu</span>
+          </label>
+        </div>
+      </div>
+
       {/* 3. BỘ LỌC VÀ TÌM KIẾM */}
       <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 flex-1">
@@ -744,8 +822,15 @@ export const TransactionsPage: React.FC = () => {
                   <tr key={tx.id} className="hover:bg-blue-50/30 transition-colors group">
                     {/* Mã GD & Căn */}
                     <td className="p-3">
-                      <div className="font-bold text-blue-900 group-hover:text-blue-700">
-                        {tx.unit_code || 'Chưa định danh'}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-blue-900 group-hover:text-blue-700">
+                          {tx.unit_code || 'Chưa định danh'}
+                        </span>
+                        {tx.is_sample && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                            <Sparkles className="h-2.5 w-2.5" /> Mẫu
+                          </span>
+                        )}
                       </div>
                       <div className="text-[10px] font-mono text-slate-400 mt-0.5">
                         {tx.code}
@@ -758,10 +843,35 @@ export const TransactionsPage: React.FC = () => {
                         <User className="h-3.5 w-3.5 text-slate-400" />
                         <span>{tx.customer_name || 'Khách vãng lai'}</span>
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 font-mono">
-                        <Phone className="h-3 w-3 text-slate-400" />
-                        <span>{tx.customer_phone || '---'}</span>
-                      </div>
+                      {(() => {
+                        const isFull = canViewFullPII(currentUser, tx.agency_id);
+                        const phoneText = isFull ? tx.customer_phone : maskPhone(tx.customer_phone || '');
+                        return (
+                          <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 font-mono">
+                            <Phone className="h-3 w-3 text-slate-400" />
+                            <span>{phoneText || '---'}</span>
+                            {isFull && tx.customer_phone && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigator.clipboard.writeText(tx.customer_phone || '');
+                                  setCopiedPhoneId(tx.id);
+                                  setTimeout(() => setCopiedPhoneId(null), 1500);
+                                }}
+                                className="p-0.5 text-slate-400 hover:text-blue-600 rounded transition-colors ml-0.5"
+                                title="Sao chép SĐT đầy đủ"
+                              >
+                                {copiedPhoneId === tx.id ? (
+                                  <Check className="h-3 w-3 text-emerald-600" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* Dự án */}
@@ -867,13 +977,29 @@ export const TransactionsPage: React.FC = () => {
 
                     {/* Thao tác */}
                     <td className="p-3 text-center">
-                      <button
-                        onClick={() => handleOpenUpdateModal(tx)}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Cập nhật tiến độ / Ghi chú"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => handleOpenUpdateModal(tx)}
+                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Cập nhật tiến độ / Ghi chú"
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </button>
+                        {(currentUser?.role === 'admin' || currentUser?.role === 'director') && (
+                          <button
+                            onClick={() => {
+                              setContractToDelete(tx);
+                              setDeleteReason('');
+                              setDeleteError(null);
+                              setDeleteModalOpen(true);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="Hủy / Xóa HĐ vào thùng rác (Có kiểm soát)"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1463,6 +1589,87 @@ export const TransactionsPage: React.FC = () => {
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* MODAL XÓA / HỦY HỢP ĐỒNG CÓ KIỂM SOÁT */}
+      <Modal
+        isOpen={deleteModalOpen}
+        onClose={() => {
+          if (!isDeleting) {
+            setDeleteModalOpen(false);
+            setContractToDelete(null);
+          }
+        }}
+        title="Xóa / Hủy Hợp Đồng Có Kiểm Soát (Thùng Rác)"
+        description="Chức năng dành riêng cho Admin và Giám đốc Sàn. Hợp đồng sẽ được chuyển vào Thùng rác, tự động hoàn nguyên bút toán hoa hồng và giải phóng căn."
+      >
+        <div className="space-y-4">
+          {deleteError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
+              <span>{deleteError}</span>
+            </div>
+          )}
+
+          {contractToDelete && (
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1">
+              <div><strong>Mã hợp đồng:</strong> {contractToDelete.contract_code || contractToDelete.code}</div>
+              <div><strong>Khách hàng:</strong> {contractToDelete.customer_name || 'Chưa định danh'}</div>
+              <div><strong>Căn:</strong> {contractToDelete.unit_code || '---'} • <strong>Dự án:</strong> {contractToDelete.project_name}</div>
+              <div><strong>Giá trị giao dịch:</strong> {formatFullVND(contractToDelete.deal_value || contractToDelete.amount)}</div>
+            </div>
+          )}
+
+          <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold">Cơ chế an toàn tự động:</p>
+              <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
+                <li>Hợp đồng được chuyển vào Thùng rác (có thể khôi phục trong 30 ngày).</li>
+                <li>Tự động tạo bút toán hoàn nguyên (reversal) hoa hồng để giữ cân đối sổ kế toán.</li>
+                <li>Trạng thái căn hộ được giải phóng về giỏ hàng (nếu đang giữ chỗ/cọc).</li>
+                <li>Ghi lại vết kiểm toán Audit Diff đầy đủ người thực hiện và lý do.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Lý do hủy / xóa hợp đồng *
+            </label>
+            <textarea
+              rows={3}
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Ví dụ: Khách hàng đổi ý hủy cọc theo thỏa thuận; Giao dịch tạo nhầm mã căn..."
+              className="w-full p-2.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isDeleting}
+              onClick={() => {
+                setDeleteModalOpen(false);
+                setContractToDelete(null);
+              }}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              disabled={isDeleting || !deleteReason.trim()}
+              onClick={handleConfirmDelete}
+            >
+              {isDeleting ? 'Đang chuyển vào Thùng rác...' : 'Xác Nhận Hủy / Chuyển Thùng Rác'}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

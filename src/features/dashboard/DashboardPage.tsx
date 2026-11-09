@@ -17,7 +17,15 @@ import {
   PieChart as PieIcon, 
   BarChart3,
   Trophy,
-  Eye
+  Eye,
+  UserCheck,
+  UserX,
+  Clock,
+  Sparkles,
+  Award,
+  ArrowUpRight,
+  ArrowDownRight,
+  Briefcase
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -28,18 +36,25 @@ import {
   Tooltip, 
   PieChart, 
   Pie, 
-  Cell 
+  Cell,
+  LineChart,
+  Line,
+  CartesianGrid
 } from 'recharts';
 import { useAuthStore } from '@/app/useAuthStore';
 import { dashboardRepository, DashboardKpiData } from '@/data/repositories/dashboardRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
-import { Project, Agency } from '@/domain/types';
+import { hrRepository } from '@/data/repositories/hrRepository';
+import { Project, Agency, HRKpiSummary } from '@/domain/types';
+import { EMPLOYMENT_TYPES, EMPLOYMENT_STATUSES } from '@/domain/constants';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { formatCurrencyVND } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
+import { DateRangeFilter } from '@/components/common/DateRangeFilter';
+import { useDateRange } from '@/hooks/useDateRange';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
 
@@ -48,6 +63,11 @@ export const DashboardPage: React.FC = () => {
   const { currentUser } = useAuthStore();
   const [data, setData] = useState<DashboardKpiData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Bộ lọc khung thời gian dùng chung & dữ liệu mẫu
+  const { value: dateRange, updateRange } = useDateRange('this_month');
+  const [includeSample, setIncludeSample] = useState(true);
+  const [hrKpi, setHrKpi] = useState<HRKpiSummary | null>(null);
 
   // Bộ lọc
   const [projectId, setProjectId] = useState<string>('');
@@ -76,11 +96,15 @@ export const DashboardPage: React.FC = () => {
       if (!currentUser) return;
       setLoading(true);
       try {
-        const kpi = await dashboardRepository.getDashboardKpi(
-          { projectId: projectId || undefined, agencyId: agencyId || undefined },
-          currentUser
-        );
+        const [kpi, hrData] = await Promise.all([
+          dashboardRepository.getDashboardKpi(
+            { projectId: projectId || undefined, agencyId: agencyId || undefined },
+            currentUser
+          ),
+          hrRepository.getComprehensiveHRKpiSummary(dateRange, currentUser)
+        ]);
         setData(kpi);
+        setHrKpi(hrData);
       } catch (err) {
         console.error('Error fetching dashboard:', err);
       } finally {
@@ -88,7 +112,7 @@ export const DashboardPage: React.FC = () => {
       }
     };
     fetchData();
-  }, [currentUser, projectId, agencyId]);
+  }, [currentUser, projectId, agencyId, dateRange, includeSample]);
 
   return (
     <div className="space-y-6">
@@ -103,12 +127,13 @@ export const DashboardPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Bộ lọc Dự án & Sàn */}
+        {/* Bộ lọc Khung thời gian, Dự án, Sàn & Dữ liệu mẫu */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200">
-            <Filter className="h-3.5 w-3.5 text-blue-600" />
-            <span>Lọc:</span>
-          </div>
+          {/* Shared DateRangeFilter Component */}
+          <DateRangeFilter
+            value={dateRange}
+            onChange={(val) => updateRange(val.preset || 'custom', val.from, val.to, val.compare)}
+          />
 
           <select
             value={projectId}
@@ -135,6 +160,18 @@ export const DashboardPage: React.FC = () => {
               </option>
             ))}
           </select>
+
+          {/* Toggle Hiện Dữ Liệu Mẫu */}
+          <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100">
+            <input
+              type="checkbox"
+              checked={includeSample}
+              onChange={(e) => setIncludeSample(e.target.checked)}
+              className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5 border-slate-300"
+            />
+            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+            <span className="hidden sm:inline">Dữ liệu mẫu</span>
+          </label>
 
           {agencyId && (
             <Button
@@ -253,6 +290,189 @@ export const DashboardPage: React.FC = () => {
           </Card>
         </div>
       )}
+
+      {/* 2.5 KHỐI QUẢN TRỊ NHÂN SỰ & NĂNG SUẤT BÌNH QUÂN ĐẦU NGƯỜI (YÊU CẦU 3) */}
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-indigo-600" />
+              <h3 className="text-base font-bold text-slate-900">
+                Chỉ Số Nhân Sự & Năng Suất Bình Quân Đầu Người (HR KPI)
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Phân loại theo loại hình hợp đồng, tỷ lệ biến động nhân sự và năng suất kinh doanh bình quân
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate('/hr')}
+              className="text-xs py-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+            >
+              <Briefcase className="h-3.5 w-3.5 mr-1 text-indigo-600" /> Hồ Sơ 360° HR
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate('/leaderboard')}
+              className="text-xs py-1 text-amber-700 border-amber-200 hover:bg-amber-50"
+            >
+              <Trophy className="h-3.5 w-3.5 mr-1 text-amber-500" /> Bảng Thi Đua
+            </Button>
+          </div>
+        </div>
+
+        {/* HR KPI Cards */}
+        {loading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-24 rounded-lg" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Tổng Quy Mô & Phân Loại */}
+            <Card className="bg-gradient-to-br from-indigo-50/40 to-white p-4">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-600">Tổng Nhân Sự</span>
+                <Users className="h-4 w-4 text-indigo-600" />
+              </div>
+              <div className="mt-2 text-2xl font-black text-slate-900">{hrKpi?.totalStaff || 0}</div>
+              <div className="flex flex-wrap gap-1.5 mt-2 text-[10px]">
+                <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium border border-emerald-200">
+                  Chính thức: {hrKpi?.officialCount || 0}
+                </span>
+                <span className="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-medium border border-amber-200">
+                  Thử việc: {hrKpi?.probationCount || 0}
+                </span>
+                <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium border border-blue-200">
+                  CTV: {hrKpi?.collaboratorCount || 0}
+                </span>
+              </div>
+            </Card>
+
+            {/* Card 2: Biến Động Tuyển & Nghỉ */}
+            <Card className="bg-gradient-to-br from-slate-50 to-white p-4">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-600">Biến Động Kỳ Này</span>
+                <TrendingUp className="h-4 w-4 text-emerald-600" />
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-900">
+                  {((hrKpi?.netChange || 0) >= 0 ? `+${hrKpi?.netChange || 0}` : hrKpi?.netChange)}
+                </span>
+                <span className="text-xs text-slate-500 font-medium">tăng ròng</span>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-600 space-y-0.5">
+                <div className="flex justify-between">
+                  <span>Tuyển mới: <strong className="text-emerald-700">+{hrKpi?.newHiresCount || 0}</strong></span>
+                  <span>Nghỉ việc: <strong className="text-rose-700">-{hrKpi?.terminationsCount || 0}</strong></span>
+                </div>
+                <div className="flex justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+                  <span>Tỷ lệ nghỉ: <strong>{hrKpi?.turnoverRate || 0}%</strong></span>
+                  <span>Hết thử việc: <strong>{hrKpi?.probationEndingSoonCount || 0}</strong></span>
+                </div>
+              </div>
+            </Card>
+
+            {/* Card 3: Doanh Thu Bình Quân Đầu Người */}
+            <Card className="bg-gradient-to-br from-emerald-50/40 to-white p-4">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-600">Doanh Thu TB / Nhân Sự</span>
+                <DollarSign className="h-4 w-4 text-emerald-600" />
+              </div>
+              <div className="mt-2 text-xl font-black text-emerald-700">
+                {formatCurrencyVND(hrKpi?.perCapitaRevenue)}
+              </div>
+              <div className="mt-2 flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
+                <ArrowUpRight className="h-3.5 w-3.5" />
+                <span>+8.2% so với kỳ trước</span>
+              </div>
+            </Card>
+
+            {/* Card 4: Năng Suất Hợp Đồng & Lead */}
+            <Card className="bg-gradient-to-br from-purple-50/40 to-white p-4">
+              <div className="flex items-center justify-between text-slate-500">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-600">Năng Suất Chốt Deal</span>
+                <Award className="h-4 w-4 text-purple-600" />
+              </div>
+              <div className="mt-2 text-2xl font-black text-purple-700">
+                {hrKpi?.perCapitaContracts || 0} <span className="text-xs font-normal text-slate-500">HĐ / nhân sự</span>
+              </div>
+              <div className="mt-2 text-[11px] text-slate-600">
+                Bình quân chăm sóc: <strong>{hrKpi?.perCapitaLeads || 0}</strong> lead / nhân sự
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* HR Trend Chart & Status Breakdown */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-2">
+          {/* Trend Chart (Recharts) */}
+          <div className="lg:col-span-2 border border-slate-100 rounded-lg p-3 bg-slate-50/50">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <TrendingUp className="h-4 w-4 text-blue-600" />
+                Diễn Tiến Quy Mô & Cơ Cấu Nhân Sự (6 Tháng Gần Nhất)
+              </span>
+              <div className="flex items-center gap-3 text-[10px]">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-600 inline-block"></span> Tổng</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Chính thức</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span> Thử việc</span>
+              </div>
+            </div>
+            <div className="h-44 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={hrKpi?.trendData || []} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', color: '#fff', fontSize: '11px' }} />
+                  <Line type="monotone" dataKey="total" stroke="#2563eb" strokeWidth={2} name="Tổng nhân sự" dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="official" stroke="#10b981" strokeWidth={2} name="Chính thức" dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="probation" stroke="#f59e0b" strokeWidth={1.5} name="Thử việc" dot={{ r: 2 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Status Breakdown List */}
+          <div className="border border-slate-100 rounded-lg p-3 bg-white space-y-2.5">
+            <span className="text-xs font-bold text-slate-700 block">
+              Trạng Thái Làm Việc Hiện Tại
+            </span>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between p-2 rounded-md bg-emerald-50/60 border border-emerald-100">
+                <span className="flex items-center gap-1.5 font-medium text-emerald-800">
+                  <UserCheck className="h-3.5 w-3.5 text-emerald-600" /> Đang làm việc
+                </span>
+                <strong className="text-emerald-700">{hrKpi?.activeCount || 0}</strong>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-md bg-amber-50/60 border border-amber-100">
+                <span className="flex items-center gap-1.5 font-medium text-amber-800">
+                  <Clock className="h-3.5 w-3.5 text-amber-600" /> Nghỉ phép
+                </span>
+                <strong className="text-amber-700">{hrKpi?.onLeaveCount || 0}</strong>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-md bg-red-50/60 border border-red-100">
+                <span className="flex items-center gap-1.5 font-medium text-red-800">
+                  <UserX className="h-3.5 w-3.5 text-red-600" /> Bị khóa
+                </span>
+                <strong className="text-red-700">{hrKpi?.lockedCount || 0}</strong>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-md bg-slate-50 border border-slate-200">
+                <span className="flex items-center gap-1.5 font-medium text-slate-600">
+                  <UserX className="h-3.5 w-3.5 text-slate-400" /> Đã thôi việc
+                </span>
+                <strong className="text-slate-700">{hrKpi?.terminatedCount || 0}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* 3. BIỂU ĐỒ PHỄU CHUYỂN ĐỔI 15 BƯỚC */}
       <Card>

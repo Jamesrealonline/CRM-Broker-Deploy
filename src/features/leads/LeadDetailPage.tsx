@@ -30,7 +30,8 @@ import {
   UserCheck,
   RotateCcw,
   AlertTriangle,
-  Send
+  Send,
+  Trash2
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { leadRepository } from '@/data/repositories/leadRepository';
@@ -58,6 +59,8 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { formatDate, formatCurrencyVND, maskPhone, maskEmail } from '@/lib/utils';
+import { canViewFullPII } from '@/lib/masking';
+import { controlledDataService } from '@/domain/services/controlledDataService';
 import { Skeleton } from '@/components/ui/Skeleton';
 
 export const LeadDetailPage: React.FC = () => {
@@ -116,6 +119,11 @@ export const LeadDetailPage: React.FC = () => {
   const [actContent, setActContent] = useState('');
 
   // AI Assistant State
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [aiInsights, setAiInsights] = useState<AILeadInsightResult | null>(null);
   const [aiScript, setAiScript] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -366,8 +374,9 @@ export const LeadDetailPage: React.FC = () => {
 
   const stage = JOURNEY_STAGES.find((s) => s.id === lead.status);
   const isMarketing = currentUser?.role === 'marketing_manager';
-  const displayPhone = isMarketing ? maskPhone(lead.customer_phone) : lead.customer_phone;
-  const displayEmail = isMarketing ? maskEmail(lead.customer_email) : lead.customer_email;
+  const canFull = canViewFullPII(currentUser, lead.agency_id);
+  const displayPhone = canFull ? lead.customer_phone : (isMarketing ? maskPhone(lead.customer_phone) : lead.customer_phone);
+  const displayEmail = canFull ? lead.customer_email : (isMarketing ? maskEmail(lead.customer_email) : lead.customer_email);
 
   return (
     <div className="space-y-6">
@@ -383,6 +392,11 @@ export const LeadDetailPage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-slate-900">{lead.customer_name}</h2>
+              {lead.is_sample && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3 text-amber-500" /> Mẫu
+                </span>
+              )}
               <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${stage?.bgColor} ${stage?.color} ${stage?.borderColor}`}>
                 {stage?.label}
               </span>
@@ -395,6 +409,21 @@ export const LeadDetailPage: React.FC = () => {
 
         {/* Nút hành động nhanh */}
         <div className="flex items-center gap-2">
+          {canFull && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDeleteReason('');
+                setDeleteError(null);
+                setDeleteModalOpen(true);
+              }}
+              className="text-red-600 border-red-200 hover:bg-red-50 text-xs"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1 text-red-500" /> Xóa Lead
+            </Button>
+          )}
+
           <Button variant="outline" size="sm" onClick={() => setActivityModalOpen(true)}>
             <Plus className="h-4 w-4 mr-1.5" />
             Ghi nhận hoạt động
@@ -529,14 +558,46 @@ export const LeadDetailPage: React.FC = () => {
             </CardHeader>
             <div className="space-y-3 text-xs">
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Số điện thoại</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Số điện thoại</span>
+                  {canFull && lead.customer_phone && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(lead.customer_phone || '');
+                        setCopiedField('phone');
+                        setTimeout(() => setCopiedField(null), 1500);
+                      }}
+                      className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200"
+                    >
+                      <Copy className="h-2.5 w-2.5" />
+                      {copiedField === 'phone' ? 'Đã sao chép!' : 'Sao chép'}
+                    </button>
+                  )}
+                </div>
                 <span className="font-semibold text-slate-800 text-sm flex items-center gap-1.5 mt-0.5">
                   <Phone className="h-3.5 w-3.5 text-blue-600" /> {displayPhone}
                 </span>
               </div>
 
               <div>
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Email</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Email</span>
+                  {canFull && lead.customer_email && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(lead.customer_email || '');
+                        setCopiedField('email');
+                        setTimeout(() => setCopiedField(null), 1500);
+                      }}
+                      className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200"
+                    >
+                      <Copy className="h-2.5 w-2.5" />
+                      {copiedField === 'email' ? 'Đã sao chép!' : 'Sao chép'}
+                    </button>
+                  )}
+                </div>
                 <span className="font-medium text-slate-800 flex items-center gap-1.5 mt-0.5">
                   <Mail className="h-3.5 w-3.5 text-slate-400" /> {displayEmail || 'Chưa có'}
                 </span>
@@ -1456,6 +1517,75 @@ export const LeadDetailPage: React.FC = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* MODAL XÓA LEAD VÀO THÙNG RÁC (ADMIN & GIÁM ĐỐC SÀN) */}
+      <Modal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        title="Xóa Lead Có Kiểm Soát (Thùng Rác)"
+        description={`Xác nhận xóa lead "${lead?.customer_name}". Dữ liệu được đưa vào Thùng rác và có thể khôi phục bất cứ lúc nào.`}
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          {deleteError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+              <span>{deleteError}</span>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">
+              Lý do xóa lead * (Tối thiểu 5 ký tự)
+            </label>
+            <textarea
+              rows={3}
+              required
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Nhập lý do chi tiết..."
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-300 focus:outline-none focus:border-red-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              isLoading={isDeleting}
+              onClick={async () => {
+                if (!lead || !currentUser) return;
+                if (deleteReason.trim().length < 5) {
+                  setDeleteError('Lý do xóa bắt buộc tối thiểu 5 ký tự.');
+                  return;
+                }
+                setIsDeleting(true);
+                try {
+                  controlledDataService.softDeleteLead(lead.id, deleteReason.trim(), currentUser);
+                  alert('Đã chuyển Lead vào Thùng rác.');
+                  navigate('/leads');
+                } catch (err: any) {
+                  setDeleteError(err.message || 'Lỗi khi xóa lead.');
+                } finally {
+                  setIsDeleting(false);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Xác Nhận Xóa
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

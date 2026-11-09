@@ -3,7 +3,7 @@
 // DOMAIN CONSTANTS & BUSINESS RULES
 // ========================================================
 
-import { LeadStatus, UserRole } from './types';
+import { LeadStatus, UserRole, EmploymentType, DateRangePreset } from './types';
 
 export const USER_ROLES: { value: UserRole; label: string; description: string }[] = [
   { value: 'admin', label: 'Quản Trị Viên (Admin)', description: 'Toàn quyền quản trị hệ thống, phân quyền, cấu hình' },
@@ -66,3 +66,45 @@ export const LEAD_LOSS_REASONS_DEFAULT = [
 ];
 
 export const STAGE_CONFIG_MAP = new Map(JOURNEY_STAGES.map(s => [s.id, s]));
+
+export const EMPLOYMENT_TYPES: {
+  value: EmploymentType;
+  label: string;
+  icon: string;
+  badgeClass: string;
+  dotClass: string;
+}[] = [
+  { value: 'official', label: 'Chính thức', icon: 'CheckCircle', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200', dotClass: 'bg-emerald-500' },
+  { value: 'probation', label: 'Thử việc', icon: 'Clock', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200', dotClass: 'bg-amber-500' },
+  { value: 'collaborator', label: 'Cộng tác viên (CTV)', icon: 'Users', badgeClass: 'bg-blue-50 text-blue-700 border-blue-200', dotClass: 'bg-blue-500' },
+  { value: 'intern', label: 'Thực tập sinh', icon: 'GraduationCap', badgeClass: 'bg-purple-50 text-purple-700 border-purple-200', dotClass: 'bg-purple-500' },
+  { value: 'other', label: 'Khác', icon: 'User', badgeClass: 'bg-slate-50 text-slate-700 border-slate-200', dotClass: 'bg-slate-500' },
+];
+
+export const EMPLOYMENT_STATUSES: {
+  value: string;
+  label: string;
+  badgeClass: string;
+}[] = [
+  { value: 'active', label: 'Đang làm việc', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { value: 'on_leave', label: 'Nghỉ phép', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { value: 'locked', label: 'Bị khóa', badgeClass: 'bg-red-50 text-red-700 border-red-200' },
+  { value: 'terminated', label: 'Đã nghỉ việc', badgeClass: 'bg-slate-100 text-slate-600 border-slate-300' },
+];
+
+export const DATE_RANGE_PRESETS: {
+  value: DateRangePreset;
+  label: string;
+}[] = [
+  { value: 'today', label: 'Hôm nay' },
+  { value: 'yesterday', label: 'Hôm qua' },
+  { value: 'last_7_days', label: '7 ngày qua' },
+  { value: 'last_30_days', label: '30 ngày qua' },
+  { value: 'this_week', label: 'Tuần này' },
+  { value: 'this_month', label: 'Tháng này' },
+  { value: 'last_month', label: 'Tháng trước' },
+  { value: 'this_quarter', label: 'Quý này' },
+  { value: 'this_year', label: 'Năm nay' },
+  { value: 'custom', label: 'Tùy chọn' },
+];
+

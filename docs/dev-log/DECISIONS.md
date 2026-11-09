@@ -53,3 +53,23 @@
   - *Phương án chọn:* Tuyệt đối không xóa cứng dữ liệu giao dịch/nhân sự/khách hàng. Mọi thao tác xóa là gắn cờ `deleted_at`, `deleted_by`, `delete_reason`.
   - *Khóa lạc quan (Optimistic Locking):* Sử dụng cột `version` để chống ghi đè đồng thời giữa 2 quản trị viên.
   - *Bảo mật thẩm quyền:* Giám đốc Sàn chỉ được thao tác trong sàn của mình; không được xóa/sửa dữ liệu của Admin hoặc người cấp cao hơn.
+
+---
+
+## 6. QUYỀN TOÀN DIỆN CHO ADMIN & GIÁM ĐỐC SÀN, KPI NHÂN SỰ, BỘ LỌC THỜI GIAN & DỮ LIỆU MẪU (GIAI ĐOẠN 8)
+- **Quyết định 6.1: Quyền xem PII đầy đủ cho Admin và Giám đốc Sàn (Ghi đè cho phép rõ ràng)**
+  - *Phương án chọn:* Admin và Giám đốc Sàn (`director`) được xem SĐT, CCCD, Email đầy đủ, không che mờ, không giới hạn số lần xem, không bắt buộc nhập lý do mỗi lần xem. Cung cấp nút sao chép (Copy) 1 chạm thuận tiện.
+  - *Bảo mật các vai trò khác:* Mọi vai trò khác (`sale_agent`, `team_leader`, `sales_manager`, `marketing_manager`) vẫn giữ nguyên quy tắc che mờ PII (`maskPhone`, `maskIdCard`, `maskEmail`) và phân quyền RLS nghiêm ngặt như cũ.
+- **Quyết định 6.2: Xác định vai trò Giám đốc Sàn (director) và cờ director_global_scope**
+  - *Đối chiếu Codebase:* Vai trò Giám đốc Sàn trong hệ thống là `director` (trực thuộc `agency_id`).
+  - *Phạm vi:* Admin = Toàn hệ thống. Giám đốc Sàn = Toàn bộ dữ liệu thuộc sàn của mình.
+  - *Mở rộng toàn cầu:* Thêm cấu hình `director_global_scope` (bảng `system_settings` và `localStorage`), mặc định `false`. Khi bật `true`, Giám đốc Sàn có quyền quản trị toàn hệ thống (nhưng vẫn tuyệt đối bị chặn sửa/xóa tài khoản của Admin hoặc Giám đốc Sàn khác).
+- **Quyết định 6.3: Hủy có kiểm soát hợp đồng đã duyệt và bút toán đảo hoa hồng**
+  - *Phương án chọn:* Cho phép Admin và Giám đốc Sàn hủy/ẩn hợp đồng đã duyệt với cờ `{ forceCancelApproved: true }`.
+  - *Đảm bảo kế toán:* Tự động tạo bút toán hoàn nguyên (reversal entry) có giá trị âm tương ứng, giải phóng mã căn trong giỏ hàng về trạng thái `available`, và chuyển hợp đồng vào Thùng rác (`TrashBinItem`) để có thể khôi phục khi cần.
+- **Quyết định 6.4: Quản trị và cách ly Dữ liệu Mẫu (Sample Data Management)**
+  - *Phương án chọn:* Toàn bộ dữ liệu mẫu (10 lead phân bổ đều qua 10 trạng thái từ New đến HĐMB) được gắn cờ `is_sample = true` và `created_via = 'sample_seed'`.
+  - *Cách ly vận hành:* Dữ liệu mẫu được gắn nhãn "Mẫu", có nút bật/tắt hiển thị "Hiện dữ liệu mẫu" trên tất cả các màn hình, và được miễn trừ hoàn toàn khỏi việc gửi email thông báo thật và phạt SLA.
+  - *Dọn dẹp sạch sẽ:* Cung cấp chức năng `purge_sample_data` ở cả RPC DB và UI Admin để dọn sạch toàn bộ dữ liệu mẫu một cách an toàn mà không làm mất bất kỳ dữ liệu thực nào.
+- **Quyết định 6.5: Chuẩn hóa Bộ lọc thời gian dùng chung (DateRangeFilter & useDateRange)**
+  - *Phương án chọn:* Thống nhất bộ lọc thời gian theo múi giờ Việt Nam `Asia/Ho_Chi_Minh` (UTC+7), hỗ trợ 9 preset nhanh + tùy chọn ngày (Custom Range), có tính toán kỳ đối chiếu liền trước (Previous Period Comparison), tự động đồng bộ URL Params và ghi nhớ tùy chọn người dùng qua `localStorage`.

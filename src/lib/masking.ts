@@ -2,6 +2,8 @@
 // PII MASKING & SECURITY HELPERS
 // ========================================================
 
+import { UserProfile } from '@/domain/types';
+
 /**
  * Che số điện thoại ở tầng hiển thị hoặc mock DB:
  * Giữ 2 số đầu và 3 số cuối, ví dụ: 0987654321 -> 09xx xxx 321
@@ -15,6 +17,27 @@ export function maskPhone(phone?: string | null): string {
 }
 
 /**
+ * Che số CMND/CCCD:
+ * Giữ 3 số đầu và 3 số cuối, ví dụ: 001095012345 -> 001xxx345
+ */
+export function maskIdCard(idCard?: string | null): string {
+  if (!idCard || idCard.trim().length < 6) return '***';
+  const clean = idCard.trim();
+  if (clean.length <= 6) return `${clean.slice(0, 2)}***${clean.slice(-1)}`;
+  return `${clean.slice(0, 3)}******${clean.slice(-3)}`;
+}
+
+/**
+ * Che email: "nguyenvana@gmail.com" -> "ng***@gmail.com"
+ */
+export function maskEmail(email?: string | null): string {
+  if (!email || !email.includes('@')) return '***@***.***';
+  const [local, domain] = email.split('@');
+  const visible = local.length > 2 ? local.slice(0, 2) + '***' : local.slice(0, 1) + '***';
+  return `${visible}@${domain}`;
+}
+
+/**
  * Che họ tên khách hàng:
  * Giữ ký tự đầu tiên và phần họ/tên cuối: "Nguyễn Văn An" -> "N*** An"
  */
@@ -24,6 +47,34 @@ export function maskName(name?: string | null): string {
   if (parts.length <= 1) return `${parts[0].slice(0, 1)}***`;
   return `${parts[0].slice(0, 1)}*** ${parts[parts.length - 1]}`;
 }
+
+/**
+ * Kiểm tra xem người dùng hiện tại có quyền xem PII (SĐT, CCCD, Email) đầy đủ hay không.
+ * - Admin: Toàn hệ thống (không giới hạn, không che, không bắt nhập lý do).
+ * - Director (Giám đốc Sàn): Toàn bộ dữ liệu thuộc sàn của mình.
+ *   Nếu bật cờ directorGlobalScope = true thì xem được toàn hệ thống.
+ * - Các vai trò khác (sale_agent, team_leader, sales_manager, marketing_manager): Trả về false (luôn che).
+ */
+export function canViewFullPII(
+  user?: UserProfile | null, 
+  targetAgencyId?: string, 
+  directorGlobalScope = false
+): boolean {
+  if (!user || user.status !== 'active') return false;
+  
+  if (user.role === 'admin') {
+    return true;
+  }
+  
+  if (user.role === 'director') {
+    if (directorGlobalScope) return true;
+    if (!targetAgencyId || !user.agency_id) return true;
+    return user.agency_id === targetAgencyId;
+  }
+  
+  return false;
+}
+
 
 // Bảng hằng số SHA-256
 const K = [

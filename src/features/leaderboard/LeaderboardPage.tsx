@@ -30,7 +30,10 @@ import {
 } from 'lucide-react';
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
-import { LeaderboardItem, Project, Transaction } from '@/domain/types';
+import { hrRepository } from '@/data/repositories/hrRepository';
+import { TimeRangeFilter } from '@/domain/services/financialCalculationService';
+import { LeaderboardItem, Project, Transaction, RecruiterRank, EmploymentType } from '@/domain/types';
+import { EMPLOYMENT_TYPES, EMPLOYMENT_STATUSES } from '@/domain/constants';
 import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -39,9 +42,10 @@ import { Button } from '@/components/ui/Button';
 import { useAuthStore } from '@/app/useAuthStore';
 import { exportToExcel } from '@/lib/exportExcel';
 import { formatCurrencyVND } from '@/lib/utils';
-import { TimeRangeFilter } from '@/domain/services/financialCalculationService';
+import { DateRangeFilter } from '@/components/common/DateRangeFilter';
+import { useDateRange } from '@/hooks/useDateRange';
 
-type CompetitionTab = 'agency' | 'sales_manager' | 'team' | 'sale_agent';
+type CompetitionTab = 'agency' | 'sales_manager' | 'team' | 'sale_agent' | 'recruiter';
 type RankingMetric = 'revenue' | 'contracts_count' | 'commission';
 
 export const LeaderboardPage: React.FC = () => {
@@ -49,14 +53,18 @@ export const LeaderboardPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<CompetitionTab>('agency');
   const [rankingMetric, setRankingMetric] = useState<RankingMetric>('revenue');
 
+  // Shared DateRangeFilter Hook
+  const { value: dateRange, updateRange } = useDateRange('this_month');
+  const [includeSample, setIncludeSample] = useState(true);
+
   // Filters
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
-  const [selectedTimePreset, setSelectedTimePreset] = useState<'all' | 'week' | 'month' | 'quarter' | 'custom'>('all');
-  const [customStartDate, setCustomStartDate] = useState('');
-  const [customEndDate, setCustomEndDate] = useState('');
+  const [selectedEmploymentTypes, setSelectedEmploymentTypes] = useState<EmploymentType[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardItem[]>([]);
+  const [recruiters, setRecruiters] = useState<RecruiterRank[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Agency Performance Drill-down Modal
@@ -80,25 +88,43 @@ export const LeaderboardPage: React.FC = () => {
     projectRepository.getProjects().then(setProjects).catch(console.error);
   }, []);
 
-  // Load Leaderboard when Tab, Project, Time, or Metric changes
+  // Load Leaderboard when Tab, Project, DateRange, Metric, or Filters change
   useEffect(() => {
     setLoading(true);
-    const timeFilter: TimeRangeFilter = {
-      preset: selectedTimePreset,
-      startDate: customStartDate || undefined,
-      endDate: customEndDate || undefined,
-    };
+    if (activeTab === 'recruiter') {
+      hrRepository.getRecruiterLeaderboard()
+        .then(setRecruiters)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+      return;
+    }
 
     contractRepository.getLeaderboard({
       type: activeTab,
       projectId: selectedProjectId === 'all' ? undefined : selectedProjectId,
-      timeFilter,
+      dateFrom: dateRange.from,
+      dateTo: dateRange.to,
+      includeSample,
       metric: rankingMetric,
+      employmentTypes: selectedEmploymentTypes.length > 0 ? selectedEmploymentTypes : undefined,
+      employmentStatuses: selectedStatuses.length > 0 ? selectedStatuses : undefined,
     })
       .then(setLeaderboardData)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [activeTab, selectedProjectId, selectedTimePreset, customStartDate, customEndDate, rankingMetric]);
+  }, [activeTab, selectedProjectId, dateRange, includeSample, rankingMetric, selectedEmploymentTypes, selectedStatuses]);
+
+  const toggleEmploymentType = (type: EmploymentType) => {
+    setSelectedEmploymentTypes(prev => 
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+    );
+  };
+
+  const toggleStatus = (status: string) => {
+    setSelectedStatuses(prev => 
+      prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
+    );
+  };
 
   const handleOpenAgencyDetail = (agencyId: string) => {
     setSelectedAgencyId(agencyId);
@@ -109,9 +135,9 @@ export const LeaderboardPage: React.FC = () => {
     setLoadingSaleContracts(true);
     try {
       const timeFilter: TimeRangeFilter = {
-        preset: selectedTimePreset,
-        startDate: customStartDate || undefined,
-        endDate: customEndDate || undefined,
+        preset: (dateRange.preset === 'custom' ? 'custom' : 'month'),
+        startDate: dateRange.from || undefined,
+        endDate: dateRange.to || undefined,
       };
 
       const res = await contractRepository.getSaleCommissions(
@@ -156,7 +182,7 @@ export const LeaderboardPage: React.FC = () => {
       metadata: {
         'Chỉ số xếp hạng': rankingMetric === 'revenue' ? 'Doanh số' : rankingMetric === 'contracts_count' ? 'Số HĐMB' : 'Hoa hồng',
         'Dự án': selectedProjectId === 'all' ? 'Toàn bộ dự án' : (projects.find(p => p.id === selectedProjectId)?.name || selectedProjectId),
-        'Kỳ thi đua': selectedTimePreset === 'week' ? 'Tuần này' : selectedTimePreset === 'month' ? 'Tháng này' : selectedTimePreset === 'quarter' ? 'Quý này' : 'Toàn thời gian',
+        'Kỳ thi đua': `${dateRange.from} đến ${dateRange.to} (${dateRange.preset})`,
         'Ngày xuất': new Date().toLocaleString('vi-VN'),
       },
       columns: [
@@ -318,39 +344,23 @@ export const LeaderboardPage: React.FC = () => {
               </select>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200">
-              <Calendar className="h-3.5 w-3.5 text-slate-400" />
-              <span className="font-semibold text-slate-600">Thời gian:</span>
-              <select
-                value={selectedTimePreset}
-                onChange={(e) => setSelectedTimePreset(e.target.value as any)}
-                className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer"
-              >
-                <option value="all">Toàn thời gian</option>
-                <option value="week">Tuần này</option>
-                <option value="month">Tháng này</option>
-                <option value="quarter">Quý này</option>
-                <option value="custom">Tùy chọn khoảng ngày...</option>
-              </select>
-            </div>
+            {/* Reusable DateRangeFilter Component */}
+            <DateRangeFilter
+              value={dateRange}
+              onChange={(val) => updateRange(val.preset || 'custom', val.from, val.to, val.compare)}
+            />
 
-            {selectedTimePreset === 'custom' && (
-              <div className="flex items-center gap-1.5 bg-blue-50/60 px-2 py-1 rounded-xl border border-blue-200">
-                <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                  className="bg-transparent text-xs text-slate-700 font-semibold focus:outline-none"
-                />
-                <span className="text-slate-400">-</span>
-                <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                  className="bg-transparent text-xs text-slate-700 font-semibold focus:outline-none"
-                />
-              </div>
-            )}
+            {/* Toggle Dữ Liệu Mẫu */}
+            <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100">
+              <input
+                type="checkbox"
+                checked={includeSample}
+                onChange={(e) => setIncludeSample(e.target.checked)}
+                className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5 border-slate-300"
+              />
+              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <span className="hidden sm:inline">Dữ liệu mẫu</span>
+            </label>
           </div>
 
           {/* CHUYỂN ĐỔI CHỈ SỐ THI ĐUA (DOANH SỐ / HĐMB / HOA HỒNG) */}
@@ -388,10 +398,59 @@ export const LeaderboardPage: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* BỘ LỌC NÂNG CAO LOẠI HÌNH & TRẠNG THÁI CHO SALE AGENTS */}
+        {activeTab === 'sale_agent' && (
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-3 text-xs">
+            <span className="text-slate-500 font-semibold text-[11px]">Loại hình nhân sự:</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {EMPLOYMENT_TYPES.map(type => {
+                const isSelected = selectedEmploymentTypes.includes(type.value);
+                return (
+                  <button
+                    key={type.value}
+                    type="button"
+                    onClick={() => toggleEmploymentType(type.value)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
+                      isSelected
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : `${type.badgeClass} hover:opacity-80`
+                    }`}
+                  >
+                    <span>{type.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <span className="text-slate-400">|</span>
+
+            <span className="text-slate-500 font-semibold text-[11px]">Trạng thái:</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {EMPLOYMENT_STATUSES.map(st => {
+                const isSelected = selectedStatuses.includes(st.value);
+                return (
+                  <button
+                    key={st.value}
+                    type="button"
+                    onClick={() => toggleStatus(st.value)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                      isSelected
+                        ? 'bg-slate-800 text-white border-slate-800 shadow-xs'
+                        : `${st.badgeClass} hover:opacity-80`
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 2. 4 TABS THI ĐUA (SÀN, TRƯỞNG PHÒNG, TEAM, SALE) */}
-      <div className="flex items-center gap-2 bg-slate-200/70 p-1.5 rounded-2xl w-fit">
+      {/* 2. 5 TABS THI ĐUA (SÀN, TRƯỞNG PHÒNG, TEAM, SALE, TUYỂN DỤNG) */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-200/70 p-1.5 rounded-2xl w-fit">
         <button
           onClick={() => setActiveTab('agency')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -425,7 +484,7 @@ export const LeaderboardPage: React.FC = () => {
           }`}
         >
           <Users className="h-4 w-4" />
-          <span>Đội Nhóm Kinh Doanh</span>
+          <span>Thi Đua Đội Nhóm</span>
         </button>
 
         <button
@@ -437,7 +496,19 @@ export const LeaderboardPage: React.FC = () => {
           }`}
         >
           <UserCheck className="h-4 w-4" />
-          <span>Chuyên Viên Tư Vấn (Sale)</span>
+          <span>Chuyên Viên Tư Vấn</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('recruiter')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'recruiter'
+              ? 'bg-white text-indigo-600 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Sparkles className="h-4 w-4 text-amber-500" />
+          <span>Tuyển Dụng & Nhân Sự</span>
         </button>
       </div>
 
@@ -579,124 +650,196 @@ export const LeaderboardPage: React.FC = () => {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-              <tr>
-                <th className="p-3 text-center w-14">Hạng</th>
-                <th className="p-3">Đơn Vị / Nhân Sự</th>
-                <th className="p-3 text-right">Tổng Doanh Số</th>
-                <th className="p-3 text-center">Số HĐMB</th>
-                <th className="p-3 text-right">Hoa Hồng</th>
-                <th className="p-3 text-center">% Tăng Trưởng</th>
-                <th className="p-3 w-40">Tiến Độ Mục Tiêu</th>
-                <th className="p-3 text-center">Thao Tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {leaderboardData.map((item, idx) => (
-                <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                  {/* Hạng */}
-                  <td className="p-3 text-center">
-                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${
-                      idx === 0 
-                        ? 'bg-amber-100 text-amber-800 font-black' 
-                        : idx === 1 
-                        ? 'bg-slate-200 text-slate-800' 
-                        : idx === 2 
-                        ? 'bg-orange-100 text-orange-800' 
-                        : 'text-slate-500'
-                    }`}>
-                      {idx + 1}
-                    </span>
-                  </td>
-
-                  {/* Tên */}
-                  <td className="p-3">
-                    <div className="font-bold text-slate-900">{item.name}</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">{item.subtitle}</div>
-                  </td>
-
-                  {/* Doanh số */}
-                  <td className="p-3 text-right">
-                    <div className="font-black text-slate-900 text-sm">{formatCurrencyVND(item.revenue)}</div>
-                  </td>
-
-                  {/* Số HĐMB */}
-                  <td className="p-3 text-center">
-                    <span className="font-bold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md border border-blue-200">
-                      {item.contracts_count} căn
-                    </span>
-                  </td>
-
-                  {/* Hoa hồng (Bảo mật cho Sale Agent) */}
-                  <td className="p-3 text-right">
-                    {isSaleAgentViewing && item.id !== currentUser?.id ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 font-medium italic">
-                        <Lock className="h-3 w-3 text-slate-400" /> Bảo mật
-                      </span>
-                    ) : (
-                      <div className="font-bold text-emerald-700">{formatCurrencyVND(item.commission)}</div>
-                    )}
-                  </td>
-
-                  {/* % Tăng trưởng */}
-                  <td className="p-3 text-center">
-                    {item.growth_rate !== undefined ? (
-                      <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                        item.growth_rate >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'
-                      }`}>
-                        {item.growth_rate >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                        {item.growth_rate >= 0 ? `+${item.growth_rate}%` : `${item.growth_rate}%`}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">---</span>
-                    )}
-                  </td>
-
-                  {/* Tiến độ mục tiêu */}
-                  <td className="p-3">
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px] font-semibold text-slate-500">
-                        <span>{item.target_progress || 0}%</span>
-                        <span>10 tỷ KPI</span>
-                      </div>
-                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="bg-gradient-to-r from-blue-500 to-indigo-600 h-1.5 rounded-full"
-                          style={{ width: `${item.target_progress || 0}%` }}
-                        />
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* Nút hành động */}
-                  <td className="p-3 text-center">
-                    {activeTab === 'agency' && (
-                      <button
-                        onClick={() => handleOpenAgencyDetail(item.id)}
-                        className="px-2.5 py-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200 inline-flex items-center gap-1"
-                      >
-                        <Eye className="h-3 w-3" /> Hiệu suất sàn
-                      </button>
-                    )}
-
-                    {activeTab === 'sale_agent' && (
-                      <button
-                        onClick={() => handleOpenSaleContracts(item.id, item.name)}
-                        className="px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors border border-amber-200 inline-flex items-center gap-1"
-                      >
-                        <FileCheck className="h-3 w-3" /> HĐ & Hoa hồng
-                      </button>
-                    )}
-
-                    {activeTab !== 'agency' && activeTab !== 'sale_agent' && (
-                      <span className="text-slate-400 text-[11px]">---</span>
-                    )}
-                  </td>
+          {activeTab === 'recruiter' ? (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                <tr>
+                  <th className="p-3 text-center w-14">Hạng</th>
+                  <th className="p-3">Quản Lý Tuyển Dụng</th>
+                  <th className="p-3">Chức Vụ</th>
+                  <th className="p-3 text-center">Nhân Sự Tuyển Mới</th>
+                  <th className="p-3 text-center">Đạt Thử Việc</th>
+                  <th className="p-3 text-center">Tỷ Lệ Đạt</th>
+                  <th className="p-3 text-center">Danh Hiệu</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {recruiters.map((rec, idx) => (
+                  <tr key={rec.recruiterId} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="p-3 text-center">
+                      <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${
+                        idx === 0 ? 'bg-amber-100 text-amber-800 font-black' : idx === 1 ? 'bg-slate-200 text-slate-800' : idx === 2 ? 'bg-orange-100 text-orange-800' : 'text-slate-500'
+                      }`}>
+                        {idx + 1}
+                      </span>
+                    </td>
+                    <td className="p-3 font-bold text-slate-900">{rec.recruiterName}</td>
+                    <td className="p-3 text-slate-500 capitalize">{rec.recruiterRole.replace('_', ' ')}</td>
+                    <td className="p-3 text-center font-bold text-blue-600">+{rec.totalRecruited} nhân sự</td>
+                    <td className="p-3 text-center font-bold text-emerald-600">{rec.passedProbationCount} người</td>
+                    <td className="p-3 text-center font-bold text-slate-800">{rec.passedProbationRate}%</td>
+                    <td className="p-3 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        idx === 0 ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-slate-100 text-slate-700'
+                      }`}>
+                        {idx === 0 ? '🏆 Quán Quân Tuyển Dụng' : idx < 3 ? '⭐ Xuất Sắc' : 'Đạt Chuẩn'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                <tr>
+                  <th className="p-3 text-center w-14">Hạng</th>
+                  <th className="p-3">Đơn Vị / Nhân Sự</th>
+                  <th className="p-3">Loại Hình / Nhân Số</th>
+                  <th className="p-3 text-right">Tổng Doanh Số</th>
+                  <th className="p-3 text-right">Năng Suất TB / Người</th>
+                  <th className="p-3 text-center">Số HĐMB</th>
+                  <th className="p-3 text-right">Hoa Hồng</th>
+                  <th className="p-3 text-center">% Tăng Trưởng</th>
+                  <th className="p-3 w-36">Tiến Độ Mục Tiêu</th>
+                  <th className="p-3 text-center">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {leaderboardData.map((item, idx) => {
+                  const empTypeObj = EMPLOYMENT_TYPES.find(t => t.value === item.employment_type);
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                      {/* Hạng */}
+                      <td className="p-3 text-center">
+                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${
+                          idx === 0 
+                            ? 'bg-amber-100 text-amber-800 font-black' 
+                            : idx === 1 
+                            ? 'bg-slate-200 text-slate-800' 
+                            : idx === 2 
+                            ? 'bg-orange-100 text-orange-800' 
+                            : 'text-slate-500'
+                        }`}>
+                          {idx + 1}
+                        </span>
+                      </td>
+
+                      {/* Tên */}
+                      <td className="p-3">
+                        <div className="font-bold text-slate-900">{item.name}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">{item.subtitle}</div>
+                      </td>
+
+                      {/* Loại hình hoặc Quy mô nhân sự */}
+                      <td className="p-3">
+                        {item.type === 'sale_agent' ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${empTypeObj?.badgeClass || 'bg-slate-100 text-slate-600'}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${empTypeObj?.dotClass || 'bg-slate-400'}`} />
+                              {empTypeObj?.label || 'Chính thức'}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                            {item.member_count || 1} nhân sự
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Doanh số */}
+                      <td className="p-3 text-right">
+                        <div className="font-black text-slate-900 text-sm">{formatCurrencyVND(item.revenue)}</div>
+                      </td>
+
+                      {/* Năng suất bình quân đầu người */}
+                      <td className="p-3 text-right">
+                        <div className="font-semibold text-slate-800">
+                          {item.per_capita_revenue ? formatCurrencyVND(item.per_capita_revenue) : formatCurrencyVND(item.revenue)}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {item.per_capita_contracts ? `${item.per_capita_contracts} HĐ / người` : '1 người'}
+                        </div>
+                      </td>
+
+                      {/* Số HĐMB */}
+                      <td className="p-3 text-center">
+                        <span className="font-bold px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md border border-blue-200">
+                          {item.contracts_count} căn
+                        </span>
+                      </td>
+
+                      {/* Hoa hồng (Bảo mật cho Sale Agent) */}
+                      <td className="p-3 text-right">
+                        {isSaleAgentViewing && item.id !== currentUser?.id ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 font-medium italic">
+                            <Lock className="h-3 w-3 text-slate-400" /> Bảo mật
+                          </span>
+                        ) : (
+                          <div className="font-bold text-emerald-700">{formatCurrencyVND(item.commission)}</div>
+                        )}
+                      </td>
+
+                      {/* % Tăng trưởng */}
+                      <td className="p-3 text-center">
+                        {item.growth_rate !== undefined ? (
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                            item.growth_rate >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'
+                          }`}>
+                            {item.growth_rate >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                            {item.growth_rate >= 0 ? `+${item.growth_rate}%` : `${item.growth_rate}%`}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">---</span>
+                        )}
+                      </td>
+
+                      {/* Tiến độ mục tiêu */}
+                      <td className="p-3">
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[10px] font-semibold text-slate-500">
+                            <span>{item.target_progress || 0}%</span>
+                            <span>10 tỷ KPI</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className="bg-gradient-to-r from-blue-500 to-indigo-600 h-1.5 rounded-full"
+                              style={{ width: `${item.target_progress || 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Nút hành động */}
+                      <td className="p-3 text-center">
+                        {activeTab === 'agency' && (
+                          <button
+                            onClick={() => handleOpenAgencyDetail(item.id)}
+                            className="px-2.5 py-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200 inline-flex items-center gap-1"
+                          >
+                            <Eye className="h-3 w-3" /> Hiệu suất sàn
+                          </button>
+                        )}
+
+                        {activeTab === 'sale_agent' && (
+                          <button
+                            onClick={() => handleOpenSaleContracts(item.id, item.name)}
+                            className="px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors border border-amber-200 inline-flex items-center gap-1"
+                          >
+                            <FileCheck className="h-3 w-3" /> HĐ & Hoa hồng
+                          </button>
+                        )}
+
+                        {activeTab !== 'agency' && activeTab !== 'sale_agent' && (
+                          <span className="text-slate-400 text-[11px]">---</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 

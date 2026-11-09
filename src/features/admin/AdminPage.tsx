@@ -42,7 +42,11 @@ import {
   ExternalLink,
   Sparkles,
   MessageSquare,
-  Copy
+  Copy,
+  Trash2,
+  History,
+  FileText,
+  Database
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
@@ -53,6 +57,8 @@ import {
   CreateTeamInput 
 } from '@/data/repositories/teamRepository';
 import { auditRepository } from '@/data/repositories/auditRepository';
+import { leadRepository } from '@/data/repositories/leadRepository';
+import { controlledDataService } from '@/domain/services/controlledDataService';
 import { autoTransferService, DEFAULT_AUTO_TRANSFER_CONFIG } from '@/domain/services/autoTransferService';
 import { notificationService, DEFAULT_EMAIL_CONFIG } from '@/domain/services/notificationService';
 import { 
@@ -64,7 +70,9 @@ import {
   AutoTransferConfig,
   EmailNotificationConfig,
   NotificationLog,
-  LeadStatus
+  LeadStatus,
+  TrashBinItem,
+  ControlledAuditEntry
 } from '@/domain/types';
 import { USER_ROLES, JOURNEY_STAGES } from '@/domain/constants';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -77,12 +85,20 @@ import { Skeleton } from '@/components/ui/Skeleton';
 
 export const AdminPage: React.FC = () => {
   const { currentUser, realUser } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'teams' | 'settings' | 'audit' | 'auto_transfer'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'teams' | 'settings' | 'audit' | 'auto_transfer' | 'trash_bin' | 'audit_diff'>('users');
 
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [trashItems, setTrashItems] = useState<TrashBinItem[]>([]);
+  const [controlledAuditLogs, setControlledAuditLogs] = useState<ControlledAuditEntry[]>([]);
+  const [trashFilterType, setTrashFilterType] = useState<string>('all');
+  const [directorGlobalScope, setDirectorGlobalScopeState] = useState<boolean>(() => controlledDataService.isDirectorGlobalScopeEnabled());
+  const [sampleDataMsg, setSampleDataMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isSampleDataOperating, setIsSampleDataOperating] = useState(false);
+  const [restoringItemId, setRestoringItemId] = useState<string | null>(null);
+  const [hardDeletingItemId, setHardDeletingItemId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Module 6 & 7: Auto-transfer & Email configs
@@ -180,7 +196,90 @@ export const AdminPage: React.FC = () => {
     setAutoTransferConfig(aConfig);
     setEmailConfig(eConfig);
     setNotificationLogs(nLogs);
+    if (currentUser) {
+      setTrashItems(controlledDataService.getTrashBin(currentUser));
+      setControlledAuditLogs(controlledDataService.getControlledAuditLogs(currentUser));
+    }
+    setDirectorGlobalScopeState(controlledDataService.isDirectorGlobalScopeEnabled());
     setLoading(false);
+  };
+
+  const handleRestoreTrash = async (item: TrashBinItem) => {
+    if (!currentUser) return;
+    setRestoringItemId(item.id);
+    try {
+      if (item.entity_type === 'contract' || item.entity_type === 'draft_contract') {
+        controlledDataService.restoreContractFromTrash(item.entity_id, currentUser);
+      } else {
+        controlledDataService.restoreLeadFromTrash(item.entity_id, currentUser);
+      }
+      await reloadData();
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi khôi phục đối tượng.');
+    } finally {
+      setRestoringItemId(null);
+    }
+  };
+
+  const handleHardDeleteTrash = async (item: TrashBinItem) => {
+    if (!currentUser) return;
+    if (currentUser.role !== 'admin') {
+      alert('Chỉ Admin mới có quyền xóa vĩnh viễn khỏi Thùng rác.');
+      return;
+    }
+    if (!window.confirm(`Bạn có chắc chắn muốn XÓA VĨNH VIỄN đối tượng "${item.entity_name || item.entity_id}"? Hành động này KHÔNG THỂ HOÀN TÁC.`)) {
+      return;
+    }
+    setHardDeletingItemId(item.id);
+    try {
+      controlledDataService.hardDeleteTrashItem(item.id, currentUser);
+      await reloadData();
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi xóa vĩnh viễn đối tượng.');
+    } finally {
+      setHardDeletingItemId(null);
+    }
+  };
+
+  const handleToggleDirectorGlobalScope = (enabled: boolean) => {
+    controlledDataService.setDirectorGlobalScope(enabled);
+    setDirectorGlobalScopeState(enabled);
+  };
+
+  const handleSeedSampleData = async () => {
+    if (!currentUser) return;
+    setIsSampleDataOperating(true);
+    setSampleDataMsg(null);
+    try {
+      const res = await leadRepository.seedSampleLeads(currentUser);
+      setSampleDataMsg({ type: 'success', text: res.message || 'Đã khởi tạo thành công dữ liệu mẫu!' });
+      await reloadData();
+    } catch (err: any) {
+      setSampleDataMsg({ type: 'error', text: err.message || 'Lỗi khi khởi tạo dữ liệu mẫu.' });
+    } finally {
+      setIsSampleDataOperating(false);
+    }
+  };
+
+  const handlePurgeSampleData = async () => {
+    if (!currentUser) return;
+    if (!window.confirm('Bạn có chắc chắn muốn XÓA TOÀN BỘ dữ liệu mẫu (is_sample=true) khỏi hệ thống?')) {
+      return;
+    }
+    setIsSampleDataOperating(true);
+    setSampleDataMsg(null);
+    try {
+      const res = await leadRepository.purgeSampleData(currentUser);
+      setSampleDataMsg({
+        type: 'success',
+        text: res.message || 'Đã xóa toàn bộ dữ liệu mẫu thành công!'
+      });
+      await reloadData();
+    } catch (err: any) {
+      setSampleDataMsg({ type: 'error', text: err.message || 'Lỗi khi xóa dữ liệu mẫu.' });
+    } finally {
+      setIsSampleDataOperating(false);
+    }
   };
 
   const handleSaveAutoConfig = async () => {
@@ -531,6 +630,8 @@ export const AdminPage: React.FC = () => {
             { id: 'teams', label: `Cơ cấu Sàn (${agencies.length}) & Team (${teams.length})`, icon: Building2 },
             { id: 'permissions', label: 'Ma trận Phân quyền 6 Vai trò', icon: KeyRound },
             { id: 'auto_transfer', label: 'Tự Động Chuyển Lead & Email', icon: Clock },
+            { id: 'trash_bin', label: `Thùng Rác Quản Trị (${trashItems.length})`, icon: Trash2 },
+            { id: 'audit_diff', label: 'Nhật Ký Kiểm Toán (Audit Diff)', icon: History },
             { id: 'settings', label: 'Cấu hình Hệ thống', icon: Sliders },
             { id: 'audit', label: 'Nhật ký Bảo mật (Audit)', icon: ShieldAlert },
           ].map((tab) => {
@@ -907,7 +1008,8 @@ export const AdminPage: React.FC = () => {
 
       {/* 5. TAB 4: SYSTEM SETTINGS */}
       {activeTab === 'settings' && (
-        <Card className="max-w-2xl">
+        <div className="space-y-6">
+          <Card className="max-w-2xl">
           <CardHeader>
             <CardTitle className="text-sm">Cấu Hình Thông Số Nghiệp Vụ Toàn Hệ Thống</CardTitle>
           </CardHeader>
@@ -956,6 +1058,297 @@ export const AdminPage: React.FC = () => {
             <Button variant="primary" size="sm" onClick={handleSaveSettings}>
               Lưu cấu hình hệ thống
             </Button>
+          </div>
+        </Card>
+
+        {/* CẤU HÌNH PHẠM VI GIÁM ĐỐC SÀN */}
+        <Card className="max-w-2xl mt-6">
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-indigo-600" />
+              Quyền Hạn & Phạm Vi Quản Trị Của Giám Đốc Sàn (Director Scope)
+            </CardTitle>
+          </CardHeader>
+          <div className="p-5 space-y-4 text-xs">
+            <div className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="space-y-1 pr-4">
+                <div className="font-bold text-slate-800">
+                  Mở rộng phạm vi Giám đốc Sàn ra Toàn hệ thống (director_global_scope)
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Mặc định (Tắt): Giám đốc Sàn chỉ quản lý nhân sự, lead, khách hàng và hợp đồng thuộc Sàn của mình.
+                  Khi bật: Giám đốc Sàn có quyền xem và quản lý dữ liệu toàn công ty (ngoại trừ sửa/xóa Admin hoặc Giám đốc Sàn khác).
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={directorGlobalScope}
+                  onChange={(e) => handleToggleDirectorGlobalScope(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
+            </div>
+          </div>
+        </Card>
+
+        {/* QUẢN LÝ DỮ LIỆU MẪU */}
+        <Card className="max-w-2xl mt-6">
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Database className="h-4 w-4 text-purple-600" />
+              Quản Lý Dữ Liệu Mẫu (Sample Data Seeding & Purge)
+            </CardTitle>
+          </CardHeader>
+          <div className="p-5 space-y-4 text-xs">
+            {sampleDataMsg && (
+              <div className={`p-3 rounded-lg border flex items-center gap-2 ${
+                sampleDataMsg.type === 'success' 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                {sampleDataMsg.type === 'success' ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                )}
+                <span>{sampleDataMsg.text}</span>
+              </div>
+            )}
+
+            <p className="text-slate-600 leading-relaxed">
+              Dữ liệu mẫu (10 Lead kèm Khách hàng và Hợp đồng phân bổ đều qua 10 trạng thái) được gắn nhãn <span className="font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">is_sample = true</span> để phục vụ đào tạo và kiểm thử. Dữ liệu mẫu được miễn trừ gửi email thật và phạt SLA.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isSampleDataOperating}
+                onClick={handleSeedSampleData}
+                className="text-xs text-purple-700 border-purple-300 hover:bg-purple-50"
+              >
+                <Sparkles className="h-4 w-4 mr-1.5 text-purple-600" />
+                {isSampleDataOperating ? 'Đang khởi tạo...' : 'Khởi Tạo 10 Lead Mẫu & HĐMB'}
+              </Button>
+
+              {currentUser?.role === 'admin' && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={isSampleDataOperating}
+                  onClick={handlePurgeSampleData}
+                  className="text-xs"
+                >
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  {isSampleDataOperating ? 'Đang xóa...' : 'Xóa Toàn Bộ Dữ Liệu Mẫu'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </Card>
+      </div>
+      )}
+
+      {/* TAB: THÙNG RÁC QUẢN TRỊ (TRASH BIN) */}
+      {activeTab === 'trash_bin' && (
+        <Card>
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Trash2 className="h-4 w-4 text-rose-600" />
+                Thùng Rác Quản Trị Hệ Thống (Trash Bin)
+              </CardTitle>
+              <p className="text-xs text-slate-500">
+                Lưu trữ các Lead, Hợp đồng, Team đã bị xóa mềm. Admin và Giám đốc Sàn có thể khôi phục an toàn. Admin có quyền xóa vĩnh viễn.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={trashFilterType}
+                onChange={(e) => setTrashFilterType(e.target.value)}
+                className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">Tất cả loại đối tượng ({trashItems.length})</option>
+                <option value="lead">Khách hàng / Lead</option>
+                <option value="contract">Hợp đồng giao dịch</option>
+                <option value="draft_contract">Hợp đồng dự thảo</option>
+                <option value="team">Đội nhóm kinh doanh</option>
+                <option value="employee">Nhân sự</option>
+              </select>
+            </div>
+          </CardHeader>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-semibold uppercase text-[10px] border-y">
+                  <th className="py-2.5 px-4">Loại Đối Tượng</th>
+                  <th className="py-2.5 px-4">Tên / Mã Đối Tượng</th>
+                  <th className="py-2.5 px-4">Người Xóa</th>
+                  <th className="py-2.5 px-4">Thời Gian Xóa</th>
+                  <th className="py-2.5 px-4">Lý Do Xóa</th>
+                  <th className="py-2.5 px-4 text-center">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {trashItems
+                  .filter(item => trashFilterType === 'all' || item.entity_type === trashFilterType)
+                  .length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-8 text-slate-400">
+                      Thùng rác hiện đang trống. Chưa có đối tượng nào bị xóa mềm.
+                    </td>
+                  </tr>
+                ) : (
+                  trashItems
+                    .filter(item => trashFilterType === 'all' || item.entity_type === trashFilterType)
+                    .map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50/80">
+                        <td className="py-2.5 px-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            item.entity_type === 'contract' ? 'bg-amber-100 text-amber-800' :
+                            item.entity_type === 'lead' ? 'bg-blue-100 text-blue-800' :
+                            'bg-slate-100 text-slate-700'
+                          }`}>
+                            {item.entity_type === 'contract' ? 'Hợp Đồng' :
+                             item.entity_type === 'lead' ? 'Khách/Lead' :
+                             item.entity_type === 'team' ? 'Đội Nhóm' : item.entity_type}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 font-semibold text-slate-900">
+                          <div>{item.entity_name || item.entity_id}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{item.entity_id}</div>
+                        </td>
+                        <td className="py-2.5 px-4 text-slate-600 font-medium">
+                          {item.deleted_by_name || item.deleted_by}
+                        </td>
+                        <td className="py-2.5 px-4 text-slate-500 font-mono text-[11px]">
+                          {formatDate(item.deleted_at)}
+                        </td>
+                        <td className="py-2.5 px-4 text-slate-700 max-w-xs truncate" title={item.delete_reason}>
+                          {item.delete_reason || 'Không ghi rõ'}
+                        </td>
+                        <td className="py-2.5 px-4 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 py-1 px-2.5"
+                              disabled={restoringItemId === item.id}
+                              onClick={() => handleRestoreTrash(item)}
+                            >
+                              <RotateCcw className="h-3 w-3 mr-1" />
+                              {restoringItemId === item.id ? 'Đang khôi phục...' : 'Khôi phục'}
+                            </Button>
+                            {currentUser?.role === 'admin' && (
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                className="text-xs py-1 px-2.5"
+                                disabled={hardDeletingItemId === item.id}
+                                onClick={() => handleHardDeleteTrash(item)}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" />
+                                {hardDeletingItemId === item.id ? 'Đang xóa...' : 'Xóa vĩnh viễn'}
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* TAB: NHẬT KÝ KIỂM TOÁN CÓ SO SÁNH (AUDIT DIFF) */}
+      {activeTab === 'audit_diff' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <History className="h-4 w-4 text-indigo-600" />
+              Nhật Ký Kiểm Toán Thay Đổi Có Đối Chiếu Dữ Liệu (Audit Diff)
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              Ghi nhận chi tiết từng trường dữ liệu trước (Before) và sau (After) của các thao tác có kiểm soát (Sửa, Xóa mềm, Khôi phục, Batch).
+            </p>
+          </CardHeader>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-semibold uppercase text-[10px] border-y">
+                  <th className="py-2.5 px-4">Thời Gian</th>
+                  <th className="py-2.5 px-4">Người Thực Hiện</th>
+                  <th className="py-2.5 px-4">Hành Động</th>
+                  <th className="py-2.5 px-4">Đối Tượng</th>
+                  <th className="py-2.5 px-4">Lý Do Nghiệp Vụ</th>
+                  <th className="py-2.5 px-4">Chi Tiết Thay Đổi (Diffs)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {controlledAuditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center py-8 text-slate-400">
+                      Chưa có sự kiện kiểm toán có kiểm soát nào.
+                    </td>
+                  </tr>
+                ) : (
+                  controlledAuditLogs.slice(0, 50).map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-50/80 align-top">
+                      <td className="py-2.5 px-4 text-slate-500 font-mono text-[11px] whitespace-nowrap">
+                        {formatDate(log.created_at)}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <div className="font-semibold text-slate-900">{log.operator_name || log.operator_id}</div>
+                        <div className="text-[10px] text-slate-400 font-mono capitalize">{log.operator_role}</div>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <Badge variant="outline" className={`text-[10px] font-mono ${
+                          log.action === 'soft_delete' ? 'text-rose-700 border-rose-300 bg-rose-50' :
+                          log.action === 'restore' ? 'text-emerald-700 border-emerald-300 bg-emerald-50' :
+                          'text-blue-700 border-blue-300 bg-blue-50'
+                        }`}>
+                          {log.action}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span className="font-semibold text-slate-800 capitalize">{log.entity_type}</span>
+                        <div className="text-[10px] text-slate-400 font-mono">{log.entity_id}</div>
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-700 max-w-xs">
+                        {log.reason || '---'}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        {log.diffs && log.diffs.length > 0 ? (
+                          <div className="space-y-1 font-mono text-[10px]">
+                            {log.diffs.map((d, idx) => (
+                              <div key={idx} className="p-1.5 bg-slate-50 rounded border border-slate-200">
+                                <span className="font-bold text-slate-700">{d.field}:</span>{' '}
+                                <span className="text-rose-600 line-through mr-1">
+                                  {typeof d.old_value === 'object' ? JSON.stringify(d.old_value) : String(d.old_value ?? 'null')}
+                                </span>
+                                →{' '}
+                                <span className="text-emerald-700 font-semibold">
+                                  {typeof d.new_value === 'object' ? JSON.stringify(d.new_value) : String(d.new_value ?? 'null')}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-[11px]">Không có diff chi tiết</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </Card>
       )}

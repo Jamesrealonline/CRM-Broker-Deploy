@@ -25,7 +25,11 @@ import {
   Send,
   CheckCircle2,
   AlertCircle,
-  Share2
+  Share2,
+  Copy,
+  Trash2,
+  Edit3,
+  ShieldAlert
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { DistributionPage } from '@/features/distribution/DistributionPage';
@@ -34,6 +38,7 @@ import { projectRepository } from '@/data/repositories/projectRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
 import { autoTransferService } from '@/domain/services/autoTransferService';
 import { notificationService } from '@/domain/services/notificationService';
+import { controlledDataService } from '@/domain/services/controlledDataService';
 import { Lead, Project, LeadStatus, UserProfile, LeadSource } from '@/domain/types';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { Button } from '@/components/ui/Button';
@@ -43,6 +48,9 @@ import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { formatDate, maskPhone, formatCurrencyVND } from '@/lib/utils';
+import { canViewFullPII } from '@/lib/masking';
+import { DateRangeFilter } from '@/components/common/DateRangeFilter';
+import { useDateRange } from '@/hooks/useDateRange';
 
 export const LeadsPage: React.FC = () => {
   const { currentUser } = useAuthStore();
@@ -63,6 +71,17 @@ export const LeadsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   // Filters & Pagination
+  const { value: dateRange, updateRange } = useDateRange('this_month');
+  const [includeSample, setIncludeSample] = useState(true);
+  const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
+  // Soft Delete State (Controlled for Admin/Director)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const [search, setSearch] = useState('');
   const [selectedProject, setSelectedProject] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('');
@@ -199,6 +218,9 @@ export const LeadsPage: React.FC = () => {
           search: search || undefined,
           projectId: selectedProject || undefined,
           status: (selectedStatus as LeadStatus) || undefined,
+          includeSample,
+          dateFrom: dateRange.from,
+          dateTo: dateRange.to,
           page,
           pageSize,
         },
@@ -215,7 +237,7 @@ export const LeadsPage: React.FC = () => {
 
   useEffect(() => {
     fetchLeads();
-  }, [currentUser, search, selectedProject, selectedStatus, page]);
+  }, [currentUser, search, selectedProject, selectedStatus, page, dateRange, includeSample]);
 
   // Kiểm tra trùng SĐT real-time khi gõ vào form tạo Lead
   const handlePhoneChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -272,18 +294,22 @@ export const LeadsPage: React.FC = () => {
       return;
     }
 
-    const headers = ['Mã Lead', 'Khách hàng', 'SĐT', 'Email', 'Dự án', 'Trạng thái', 'Điểm', 'Sale phụ trách', 'Ngày tạo'];
-    const rows = leads.map(l => [
-      l.id,
-      l.customer_name || '',
-      currentUser?.role === 'marketing_manager' ? maskPhone(l.customer_phone) : (l.customer_phone || ''),
-      l.customer_email || '',
-      l.project_name || '',
-      l.status,
-      l.lead_score,
-      l.assigned_name || '',
-      formatDate(l.created_at),
-    ]);
+    const headers = ['Mã Lead', 'Khách hàng', 'SĐT', 'Email', 'Dự án', 'Trạng thái', 'Điểm', 'Sale phụ trách', 'Ngày tạo', 'Dữ liệu mẫu'];
+    const rows = leads.map(l => {
+      const canFull = canViewFullPII(currentUser, l.agency_id);
+      return [
+        l.id,
+        l.customer_name || '',
+        canFull ? (l.customer_phone || '') : maskPhone(l.customer_phone),
+        canFull ? (l.customer_email || '') : (l.customer_email ? '***@***.***' : ''),
+        l.project_name || '',
+        l.status,
+        l.lead_score,
+        l.assigned_name || '',
+        formatDate(l.created_at),
+        l.is_sample ? 'Có' : 'Không',
+      ];
+    });
 
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers, ...rows].map(e => e.join(',')).join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -293,6 +319,51 @@ export const LeadsPage: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleOpenDelete = (lead: Lead, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLeadToDelete(lead);
+    setDeleteReason('');
+    setDeleteError(null);
+    setDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!leadToDelete || !currentUser) return;
+    if (deleteReason.trim().length < 5) {
+      setDeleteError('Lý do xóa có kiểm soát bắt buộc tối thiểu 5 ký tự.');
+      return;
+    }
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      controlledDataService.softDeleteLead(leadToDelete.id, deleteReason.trim(), currentUser);
+      setDeleteModalOpen(false);
+      setLeadToDelete(null);
+      fetchLeads();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Không thể xóa lead.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedLeadIds.length === 0 || !currentUser) return;
+    const reason = prompt('Nhập lý do xóa hàng loạt các lead đã chọn (tối thiểu 5 ký tự):');
+    if (!reason || reason.trim().length < 5) {
+      alert('Lý do xóa không hợp lệ (tối thiểu 5 ký tự).');
+      return;
+    }
+    try {
+      const res = controlledDataService.executeBatchSoftDelete('lead', selectedLeadIds, reason.trim(), currentUser);
+      alert(`Đã chuyển ${res.affected_count} lead vào Thùng rác (Mã lô: ${res.batch_id}). Bạn có thể khôi phục từ Trang Quản Trị.`);
+      setSelectedLeadIds([]);
+      fetchLeads();
+    } catch (err: any) {
+      alert(err.message || 'Lỗi khi xóa hàng loạt lead.');
+    }
   };
 
   return (
@@ -365,7 +436,13 @@ export const LeadsPage: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          {/* Reusable DateRangeFilter */}
+          <DateRangeFilter
+            value={dateRange}
+            onChange={(val) => updateRange(val.preset || 'custom', val.from, val.to, val.compare)}
+          />
+
           <select
             value={selectedProject}
             onChange={(e) => { setSelectedProject(e.target.value); setPage(1); }}
@@ -387,10 +464,22 @@ export const LeadsPage: React.FC = () => {
               <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>
+
+          {/* Toggle Hiện dữ liệu mẫu */}
+          <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none bg-slate-50 px-2.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-100">
+            <input
+              type="checkbox"
+              checked={includeSample}
+              onChange={(e) => setIncludeSample(e.target.checked)}
+              className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5 border-slate-300"
+            />
+            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+            <span className="hidden sm:inline">Dữ liệu mẫu</span>
+          </label>
         </div>
       </div>
 
-      {/* 2.5 BANNER PHÂN BỔ HÀNG LOẠT KHI CHỌN NHIỀU LEAD */}
+      {/* 2.5 BANNER PHÂN BỔ & XÓA HÀNG LOẠT KHI CHỌN NHIỀU LEAD */}
       {selectedLeadIds.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-200 p-3.5 rounded-xl text-blue-900 shadow-sm animate-fadeIn">
           <div className="flex items-center gap-2.5 text-xs font-semibold">
@@ -399,7 +488,7 @@ export const LeadsPage: React.FC = () => {
             </div>
             <div>
               <span>Đã chọn <strong className="text-blue-700 font-bold">{selectedLeadIds.length}</strong> khách hàng</span>
-              <span className="text-slate-500 font-normal ml-2 hidden sm:inline">(Sẽ gộp vào 1 thông báo phân bổ duy nhất)</span>
+              <span className="text-slate-500 font-normal ml-2 hidden sm:inline">(Thao tác hàng loạt có hoàn tác)</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -414,6 +503,19 @@ export const LeadsPage: React.FC = () => {
                 Phân bổ cho Sale ({selectedLeadIds.length})
               </Button>
             )}
+
+            {['admin', 'director'].includes(currentUser?.role || '') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBatchDelete}
+                className="text-red-700 bg-red-50 hover:bg-red-100 border-red-200 shadow-sm"
+              >
+                <Trash2 className="h-4 w-4 mr-1.5 text-red-600" />
+                Xóa hàng loạt ({selectedLeadIds.length})
+              </Button>
+            )}
+
             <Button variant="outline" size="sm" onClick={() => setSelectedLeadIds([])}>
               Bỏ chọn tất cả
             </Button>
@@ -467,7 +569,8 @@ export const LeadsPage: React.FC = () => {
                 {leads.map((lead) => {
                   const stage = JOURNEY_STAGES.find((s) => s.id === lead.status);
                   const isMarketing = currentUser?.role === 'marketing_manager';
-                  const displayPhone = isMarketing ? maskPhone(lead.customer_phone) : lead.customer_phone;
+                  const canFull = canViewFullPII(currentUser, lead.agency_id);
+                  const displayPhone = canFull ? lead.customer_phone : (isMarketing ? maskPhone(lead.customer_phone) : lead.customer_phone);
                   const isSelected = selectedLeadIds.includes(lead.id);
 
                   // Đếm ngược 24h
@@ -495,12 +598,36 @@ export const LeadsPage: React.FC = () => {
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
-                          {lead.customer_name}
+                        <div className="flex items-center gap-1.5 font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
+                          <span>{lead.customer_name}</span>
+                          {lead.is_sample && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              <Sparkles className="h-2.5 w-2.5 text-amber-500" /> Mẫu
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5 text-slate-500 text-[11px] mt-0.5">
                           <Phone className="h-3 w-3 text-slate-400" />
                           <span>{displayPhone}</span>
+                          {canFull && lead.customer_phone && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(lead.customer_phone || '');
+                                setCopiedPhoneId(lead.id);
+                                setTimeout(() => setCopiedPhoneId(null), 1500);
+                              }}
+                              className="text-blue-600 hover:text-blue-800 p-0.5 rounded hover:bg-blue-50"
+                              title="Sao chép số điện thoại"
+                            >
+                              {copiedPhoneId === lead.id ? (
+                                <span className="text-[10px] font-bold text-emerald-600">Đã chép!</span>
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -565,9 +692,21 @@ export const LeadsPage: React.FC = () => {
                       </td>
 
                       <td className="py-3.5 px-4 text-right">
-                        <span className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium">
-                          Xem <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
-                        </span>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {canFull && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleOpenDelete(lead, e)}
+                              className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors"
+                              title="Xóa Lead vào Thùng rác"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          <span className="inline-flex items-center text-blue-600 hover:text-blue-800 font-medium">
+                            Xem <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
+                          </span>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -872,6 +1011,67 @@ export const LeadsPage: React.FC = () => {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* 7. MODAL XÓA LEAD CÓ KIỂM SOÁT VÀO THÙNG RÁC (ADMIN & DIRECTOR) */}
+      <Modal
+        isOpen={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        title="Xóa Lead Có Kiểm Soát (Thùng Rác)"
+        description={`Lead "${leadToDelete?.customer_name}" sẽ được chuyển vào Thùng rác và có thể khôi phục bất kỳ lúc nào.`}
+        maxWidth="md"
+      >
+        <div className="space-y-4">
+          {deleteError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 shrink-0 text-red-600" />
+              <span>{deleteError}</span>
+            </div>
+          )}
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 space-y-1">
+            <p className="font-semibold">Quy định quản trị an toàn:</p>
+            <p>• Lead đã phát sinh hợp đồng hiệu lực không thể xóa trực tiếp.</p>
+            <p>• Khi khôi phục, hạn chót SLA 24h sẽ được tự động làm mới để bảo vệ quyền lợi Sale.</p>
+            <p>• Toàn bộ lịch sử thao tác được ghi vào Nhật ký kiểm toán (Audit Log).</p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">
+              Lý do xóa lead * (Tối thiểu 5 ký tự)
+            </label>
+            <textarea
+              rows={3}
+              required
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Ví dụ: Khách hàng đổi kế hoạch tài chính, dừng liên hệ..."
+              className="w-full text-xs p-2.5 rounded-lg border border-slate-300 focus:outline-none focus:border-red-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              isLoading={isDeleting}
+              onClick={handleConfirmDelete}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              Xác Nhận Xóa Vào Thùng Rác
+            </Button>
+          </div>
+        </div>
       </Modal>
         </>
       )}

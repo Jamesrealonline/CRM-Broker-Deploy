@@ -44,6 +44,9 @@ export interface LeadFilters {
   teamId?: string;
   assignedTo?: string;
   status?: LeadStatus;
+  includeSample?: boolean;
+  dateFrom?: string;
+  dateTo?: string;
   page?: number;
   pageSize?: number;
 }
@@ -187,6 +190,9 @@ export class LeadRepository {
       if (filters.teamId) query = query.eq('team_id', filters.teamId);
       if (filters.assignedTo) query = query.eq('assigned_to', filters.assignedTo);
       if (filters.status) query = query.eq('status', filters.status);
+      if (filters.includeSample === false) query = query.eq('is_sample', false);
+      if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom);
+      if (filters.dateTo) query = query.lte('created_at', `${filters.dateTo}T23:59:59.999Z`);
 
       const page = filters.page || 1;
       const pageSize = filters.pageSize || 20;
@@ -241,6 +247,9 @@ export class LeadRepository {
     if (filters.teamId) allLeads = allLeads.filter(l => l.team_id === filters.teamId);
     if (filters.assignedTo) allLeads = allLeads.filter(l => l.assigned_to === filters.assignedTo);
     if (filters.status) allLeads = allLeads.filter(l => l.status === filters.status);
+    if (filters.includeSample === false) allLeads = allLeads.filter(l => !l.is_sample);
+    if (filters.dateFrom) allLeads = allLeads.filter(l => l.created_at.slice(0, 10) >= filters.dateFrom!);
+    if (filters.dateTo) allLeads = allLeads.filter(l => l.created_at.slice(0, 10) <= filters.dateTo!);
 
     if (filters.search) {
       const q = filters.search.toLowerCase().trim();
@@ -1620,6 +1629,76 @@ export class LeadRepository {
       localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(mockTxs));
       localStorage.setItem(STORAGE_KEY_STATUS_HISTORY, JSON.stringify(mockHistory));
     }
+  }
+
+  // ========================================================
+  // XEM PII ĐẦY ĐỦ CHO ADMIN VÀ GIÁM ĐỐC SÀN (RPC DB)
+  // ========================================================
+  async getUnmaskedCustomerPII(
+    customerId: string,
+    currentUser: UserProfile
+  ): Promise<{ phone: string; email?: string; identity_card?: string; address?: string } | null> {
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.rpc('get_unmasked_customer_pii', {
+        p_customer_id: customerId
+      });
+      if (error || !data) return null;
+      return data as { phone: string; email?: string; identity_card?: string; address?: string };
+    }
+
+    // Mock fallback
+    const { canViewFullPII } = await import('@/lib/masking');
+    if (!canViewFullPII(currentUser)) {
+      throw new Error('Từ chối truy cập: Bạn không có quyền xem thông tin định danh đầy đủ.');
+    }
+    const customers = JSON.parse(localStorage.getItem(STORAGE_KEY_CUSTOMERS) || '[]');
+    const cust = customers.find((c: any) => c.id === customerId);
+    if (!cust) return null;
+    return {
+      phone: cust.phone,
+      email: cust.email,
+      identity_card: cust.identity_card || cust.encrypted_id_number,
+      address: cust.address
+    };
+  }
+
+  // ========================================================
+  // QUẢN LÝ DỮ LIỆU MẪU (PURGE & SEED SAMPLE DATA)
+  // ========================================================
+  async purgeSampleData(operator: UserProfile): Promise<{ success: boolean; message: string }> {
+    if (operator.role !== 'admin') {
+      throw new Error('Chỉ Quản trị viên (Admin) mới có quyền xóa dữ liệu mẫu.');
+    }
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.rpc('purge_sample_data');
+      if (error) throw new Error(error.message);
+      return data as { success: boolean; message: string };
+    }
+
+    const { controlledDataService } = await import('@/domain/services/controlledDataService');
+    const result = controlledDataService.purgeSampleData(operator);
+    return {
+      success: true,
+      message: `Đã dọn dẹp ${result.deleted_leads} leads, ${result.deleted_customers} khách hàng và ${result.deleted_contracts} hợp đồng mẫu.`
+    };
+  }
+
+  async seedSampleLeads(operator: UserProfile): Promise<{ success: boolean; message: string }> {
+    if (operator.role !== 'admin') {
+      throw new Error('Chỉ Quản trị viên (Admin) mới có quyền tạo dữ liệu mẫu.');
+    }
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.rpc('seed_sample_leads_data');
+      if (error) throw new Error(error.message);
+      return data as { success: boolean; message: string };
+    }
+
+    const { controlledDataService } = await import('@/domain/services/controlledDataService');
+    const result = controlledDataService.seedSampleLeads(operator);
+    return {
+      success: true,
+      message: `Đã khởi tạo thành công ${result.created_count} lead mẫu.`
+    };
   }
 }
 

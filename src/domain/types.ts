@@ -12,7 +12,7 @@ export type UserRole =
   | 'team_leader' 
   | 'sale_agent';
 
-export type UserStatus = 'active' | 'inactive' | 'locked';
+export type UserStatus = 'active' | 'inactive' | 'locked' | 'on_leave' | 'terminated';
 
 export interface UserProfile {
   id: string;
@@ -21,6 +21,8 @@ export interface UserProfile {
   phone: string;
   avatar_url?: string;
   role: UserRole;
+  employment_type?: EmploymentType;
+  is_sample?: boolean;
   organization_id?: string;
   agency_id?: string;
   team_id?: string;
@@ -106,6 +108,7 @@ export interface Team {
   leader_name?: string;
   member_count?: number;
   version?: number;
+  is_sample?: boolean;
   deleted_at?: string;
   deleted_by?: string;
   delete_reason?: string;
@@ -206,6 +209,7 @@ export interface Customer {
   consent_date?: string;
   do_not_contact?: boolean;
   anonymized_at?: string;
+  is_sample?: boolean;
   created_at?: string;
 }
 
@@ -280,6 +284,7 @@ export interface Lead {
   sla_reset_count?: number;
   sla_flags?: string[];
   version?: number;
+  is_sample?: boolean;
   deleted_at?: string;
   deleted_by?: string;
   delete_reason?: string;
@@ -358,6 +363,7 @@ export interface Transaction {
   reversal_of_id?: string;
   reversal_reason?: string;
   version?: number;
+  is_sample?: boolean;
   deleted_at?: string;
   deleted_by?: string;
   delete_reason?: string;
@@ -428,6 +434,11 @@ export interface LeaderboardItem {
   type: 'agency' | 'sales_manager' | 'team' | 'sale_agent';
   subtitle?: string;
   avatar?: string;
+  employment_type?: EmploymentType;
+  employment_status?: string;
+  member_count?: number;
+  per_capita_revenue?: number;
+  per_capita_contracts?: number;
   revenue: number;           // Tổng doanh số (VND)
   contracts_count: number;   // Tổng số HĐMB
   commission: number;        // Tổng hoa hồng (VND)
@@ -660,7 +671,7 @@ export interface AutoTransferScanResult {
 // HR LIFECYCLE MANAGEMENT TYPES (MODULE 5)
 // ========================================================
 
-export type EmploymentType = 'official' | 'probation' | 'collaborator';
+export type EmploymentType = 'official' | 'probation' | 'collaborator' | 'intern' | 'other';
 export type EmployeeStatus = 'candidate' | 'onboarding' | 'probation' | 'official' | 'on_leave' | 'terminated';
 
 export interface EmployeeRecord {
@@ -1390,7 +1401,7 @@ export interface PrivacyExportPackage {
 // PHASE 7: CONTROLLED DATA MANAGEMENT & TRASH BIN
 // ========================================================
 
-export type TrashEntityType = 'lead' | 'draft_contract' | 'team' | 'agency' | 'employee';
+export type TrashEntityType = 'lead' | 'contract' | 'draft_contract' | 'team' | 'agency' | 'employee';
 
 export interface TrashBinItem {
   id: string;
@@ -1530,3 +1541,92 @@ export interface ComplianceLintResult {
     severity: 'error' | 'warning';
   }>;
 }
+
+// ========================================================
+// DATE RANGE FILTER & SHARED REPORTING TYPES (PHASE 8 / YÊU CẦU 4)
+// ========================================================
+
+export type DateRangePreset = 
+  | 'today' 
+  | 'yesterday' 
+  | 'last_7_days' 
+  | 'last_30_days' 
+  | 'this_week' 
+  | 'this_month' 
+  | 'last_month' 
+  | 'this_quarter' 
+  | 'this_year' 
+  | 'custom';
+
+export interface DateRangeValue {
+  from: string; // YYYY-MM-DD (Asia/Ho_Chi_Minh 00:00:00)
+  to: string;   // YYYY-MM-DD (Asia/Ho_Chi_Minh 23:59:59)
+  preset?: DateRangePreset;
+  compare?: boolean;
+  previousFrom?: string;
+  previousTo?: string;
+}
+
+// ========================================================
+// HR KPI & UNIT PERFORMANCE TYPES (PHASE 8 / YÊU CẦU 3)
+// ========================================================
+
+export interface HRKpiSummary {
+  totalStaff: number;
+  officialCount: number;
+  probationCount: number;
+  collaboratorCount: number;
+  internCount: number;
+  otherCount: number;
+  activeCount: number;
+  onLeaveCount: number;
+  lockedCount: number;
+  terminatedCount: number;
+  newHiresCount: number;
+  terminationsCount: number;
+  netChange: number;
+  turnoverRate: number; // Tỷ lệ nghỉ việc (%)
+  probationEndingSoonCount: number; // Sắp hết hạn thử việc
+  perCapitaRevenue: number; // Doanh thu bình quân đầu người
+  perCapitaContracts: number; // Hợp đồng bình quân đầu người
+  perCapitaLeads: number; // Lead bình quân đầu người
+  trendData?: Array<{
+    date: string;
+    total: number;
+    official: number;
+    probation: number;
+    collaborator: number;
+  }>;
+  previousSummary?: {
+    totalStaff: number;
+    newHiresCount: number;
+    terminationsCount: number;
+    perCapitaRevenue: number;
+    perCapitaContracts: number;
+    perCapitaLeads: number;
+  };
+}
+
+export interface UnitPerformanceRank {
+  unitId: string;
+  unitName: string;
+  type: 'agency' | 'team';
+  memberCount: number;
+  totalRevenue: number;
+  totalContracts: number;
+  totalLeads: number;
+  perCapitaRevenue: number;
+  perCapitaContracts: number;
+  perCapitaLeads: number;
+}
+
+export interface RecruiterRank {
+  recruiterId: string;
+  recruiterName: string;
+  recruiterRole: string;
+  agencyName?: string;
+  totalRecruited: number;
+  passedProbationCount: number;
+  passedProbationRate: number; // %
+}
+

@@ -45,6 +45,9 @@ export interface ContractFilters {
   type?: string;
   status?: string;
   search?: string;
+  includeSample?: boolean;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export interface CreateContractWithCustomerPayload {
@@ -203,6 +206,9 @@ export class ContractRepository {
         if (filters.saleId) mapped = mapped.filter(t => t.sale_id === filters.saleId);
         if (filters.type) mapped = mapped.filter(t => t.type === filters.type);
         if (filters.status) mapped = mapped.filter(t => t.status === filters.status);
+        if (filters.includeSample === false) mapped = mapped.filter(t => !t.is_sample);
+        if (filters.dateFrom) mapped = mapped.filter(t => (t.contract_date || t.transaction_date || t.created_at || '').slice(0, 10) >= filters.dateFrom!);
+        if (filters.dateTo) mapped = mapped.filter(t => (t.contract_date || t.transaction_date || t.created_at || '').slice(0, 10) <= filters.dateTo!);
         if (filters.search) {
           const q = filters.search.toLowerCase().trim();
           mapped = mapped.filter(t => 
@@ -230,6 +236,9 @@ export class ContractRepository {
     if (filters.saleId) list = list.filter(t => t.sale_id === filters.saleId || t.created_by === filters.saleId);
     if (filters.type) list = list.filter(t => t.type === filters.type);
     if (filters.status) list = list.filter(t => t.status === filters.status);
+    if (filters.includeSample === false) list = list.filter(t => !t.is_sample);
+    if (filters.dateFrom) list = list.filter(t => (t.contract_date || t.transaction_date || t.created_at || '').slice(0, 10) >= filters.dateFrom!);
+    if (filters.dateTo) list = list.filter(t => (t.contract_date || t.transaction_date || t.created_at || '').slice(0, 10) <= filters.dateTo!);
     if (filters.search) {
       const q = filters.search.toLowerCase().trim();
       list = list.filter(t => 
@@ -1035,10 +1044,18 @@ export class ContractRepository {
     projectIds?: string[];
     timeFilter?: TimeRangeFilter;
     metric?: 'revenue' | 'contracts_count' | 'commission';
+    dateFrom?: string;
+    dateTo?: string;
+    includeSample?: boolean;
+    employmentTypes?: string[];
+    employmentStatuses?: string[];
   }): Promise<LeaderboardItem[]> {
     let contracts = await this.getTransactions({
       type: 'contract',
       status: 'confirmed',
+      includeSample: params.includeSample,
+      dateFrom: params.dateFrom,
+      dateTo: params.dateTo,
     });
 
     // Lọc theo 1 hoặc nhiều dự án
@@ -1134,7 +1151,25 @@ export class ContractRepository {
 
     const metric = params.metric || 'revenue';
 
-    const result: LeaderboardItem[] = Object.values(itemsMap).map(item => {
+    // Đọc danh sách profiles để gắn employment_type, status và tính per capita
+    const rawProfiles = typeof window !== 'undefined' ? localStorage.getItem('crm_profiles') : null;
+    const profiles: UserProfile[] = rawProfiles ? JSON.parse(rawProfiles) : INITIAL_PROFILES;
+
+    let result: LeaderboardItem[] = Object.values(itemsMap).map(item => {
+      const profile = profiles.find(p => p.id === item.id);
+      const empType = profile?.employment_type || (item.id.includes('ctv') ? 'collaborator' : 'official');
+      const empStatus = profile?.status || 'active';
+
+      let memberCount = 1;
+      if (params.type === 'agency') {
+        memberCount = profiles.filter(p => p.agency_id === item.id).length || 5;
+      } else if (params.type === 'team') {
+        memberCount = profiles.filter(p => p.team_id === item.id).length || 3;
+      }
+
+      const perCapitaRevenue = Math.round(item.revenue / memberCount);
+      const perCapitaContracts = Number((item.contracts_count / memberCount).toFixed(1));
+
       // Tính toán % tăng trưởng so với kỳ trước (+18.5%, +12.0%, -4.5%...)
       const charCodeSum = item.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
       const isPositive = (charCodeSum % 5) !== 0;
@@ -1146,6 +1181,12 @@ export class ContractRepository {
         name: item.name,
         type: params.type,
         subtitle: item.subtitle,
+        avatar: profile?.avatar_url,
+        employment_type: empType as any,
+        employment_status: empStatus,
+        member_count: memberCount,
+        per_capita_revenue: perCapitaRevenue,
+        per_capita_contracts: perCapitaContracts,
         revenue: item.revenue,
         contracts_count: item.contracts_count,
         commission: item.commission,
@@ -1153,6 +1194,16 @@ export class ContractRepository {
         growth_rate,
       };
     });
+
+    // Lọc theo employmentTypes và employmentStatuses
+    if (params.type === 'sale_agent') {
+      if (params.employmentTypes && params.employmentTypes.length > 0) {
+        result = result.filter(item => item.employment_type && params.employmentTypes!.includes(item.employment_type));
+      }
+      if (params.employmentStatuses && params.employmentStatuses.length > 0) {
+        result = result.filter(item => item.employment_status && params.employmentStatuses!.includes(item.employment_status));
+      }
+    }
 
     // Sắp xếp thứ hạng linh hoạt theo chỉ số thi đua được chọn
     if (metric === 'contracts_count') {
