@@ -38,14 +38,15 @@ import {
   ShieldCheck,
   Copy,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Users
 } from 'lucide-react';
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { leadRepository } from '@/data/repositories/leadRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
 import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
-import { Transaction, Project, Lead, ProjectUnit, LeadSource, Region, Agency, Team, UserProfile } from '@/domain/types';
+import { Transaction, Project, Lead, ProjectUnit, LeadSource, Region, Agency, Team, UserProfile, Organization } from '@/domain/types';
 import { useAuthStore } from '@/app/useAuthStore';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -80,6 +81,8 @@ export const TransactionsPage: React.FC = () => {
   const [allAgencies, setAllAgencies] = useState<Agency[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
   const [allSales, setAllSales] = useState<UserProfile[]>([]);
+  const [allProfiles, setAllProfiles] = useState<UserProfile[]>([]);
+  const [allOrganizations, setAllOrganizations] = useState<Organization[]>([]);
 
   const [selectedRegionId, setSelectedRegionId] = useState<string>('all');
   const [selectedAgencyId, setSelectedAgencyId] = useState<string>('all');
@@ -97,8 +100,12 @@ export const TransactionsPage: React.FC = () => {
       setAllTeams(branchHierarchyService.filterTeams(currentUser, tms));
     });
     teamRepository.getProfiles().then((profs) => {
+      setAllProfiles(profs);
       const activeSales = profs.filter(p => (p.role === 'sale_agent' || p.role === 'team_leader') && p.status === 'active');
       setAllSales(branchHierarchyService.filterSales(currentUser, activeSales));
+    });
+    teamRepository.getOrganizations().then((orgs) => {
+      setAllOrganizations(orgs);
     });
   }, [currentUser]);
 
@@ -154,6 +161,7 @@ export const TransactionsPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
   const [commissionRate, setCommissionRate] = useState<number>(3.5);
   const [saleCommissionRate, setSaleCommissionRate] = useState<number>(1.5);
+  const [contractSaleId, setContractSaleId] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -305,6 +313,9 @@ export const TransactionsPage: React.FC = () => {
       }
     }
 
+    const defaultSale = currentUser?.role === 'sale_agent' ? currentUser.id : (allSales[0]?.id || currentUser?.id || '');
+    setContractSaleId(defaultSale);
+
     setCreateModalOpen(true);
   };
 
@@ -437,6 +448,59 @@ export const TransactionsPage: React.FC = () => {
     return '';
   };
 
+  // Phân giải chuỗi nhân sự 5 cấp (Sale -> Trưởng phòng / Trưởng nhóm -> Giám đốc Sàn -> Giám đốc Vùng -> CEO)
+  const contractSaleProfile = useMemo(() => {
+    return allProfiles.find(p => p.id === contractSaleId) || 
+           allSales.find(s => s.id === contractSaleId) || 
+           (contractSaleId === currentUser?.id ? currentUser : null);
+  }, [allProfiles, allSales, contractSaleId, currentUser]);
+
+  const contractHierarchy = useMemo(() => {
+    const sale = contractSaleProfile;
+    const team = allTeams.find(t => t.id === sale?.team_id);
+    const agency = allAgencies.find(a => a.id === (team?.agency_id || sale?.agency_id));
+    const region = allRegions.find(r => r.id === (agency?.region_id || sale?.region_id));
+    const org = allOrganizations.find(o => o.id === (region?.organization_id || agency?.organization_id || sale?.organization_id)) || allOrganizations[0];
+
+    // Trưởng phòng / Trưởng nhóm:
+    const teamLeader = team?.leader_id ? allProfiles.find(p => p.id === team.leader_id) : null;
+    const teamLeaderName = team?.leader_name || teamLeader?.full_name || (team ? `Trưởng nhóm (${team.name})` : 'Chưa phân nhóm');
+
+    // Giám đốc Sàn:
+    const agencyDirector = agency?.director_id ? allProfiles.find(p => p.id === agency.director_id) : null;
+    const agencyDirectorName = agency?.director_name || agencyDirector?.full_name || (agency ? `GĐ Sàn (${agency.name})` : 'Chưa phân sàn');
+
+    // Giám đốc Vùng:
+    const regionalDirector = region?.regional_director_id ? allProfiles.find(p => p.id === region.regional_director_id) : null;
+    const regionalDirectorName = region?.regional_director_name || regionalDirector?.full_name || (region ? `GĐ Vùng (${region.name})` : 'Chưa phân vùng');
+
+    // CEO:
+    const ceoProfile = allProfiles.find(p => p.role === 'ceo' && (!org || p.organization_id === org.id));
+    const ceoName = org?.ceo_name || ceoProfile?.full_name || 'Tổng Giám Đốc';
+
+    return {
+      saleId: sale?.id || currentUser?.id || '',
+      saleName: sale?.full_name || currentUser?.full_name || 'Chuyên viên tư vấn',
+      teamId: team?.id,
+      teamName: team?.name || 'Chưa phân nhóm',
+      teamLeaderId: team?.leader_id,
+      teamLeaderName,
+      salesManagerId: team?.department_id,
+      salesManagerName: teamLeaderName,
+      agencyId: agency?.id,
+      agencyName: agency?.name || 'Chưa phân sàn',
+      agencyDirectorId: agency?.director_id,
+      agencyDirectorName,
+      regionId: region?.id,
+      regionName: region?.name || 'Chưa phân vùng',
+      regionalDirectorId: region?.regional_director_id,
+      regionalDirectorName,
+      ceoId: org?.ceo_id || ceoProfile?.id,
+      ceoName,
+      organizationId: org?.id,
+    };
+  }, [contractSaleProfile, allTeams, allAgencies, allRegions, allOrganizations, allProfiles, currentUser]);
+
   // Lưu hợp đồng trong transaction atomic
   const handleCreateContract = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -505,7 +569,28 @@ export const TransactionsPage: React.FC = () => {
 
         sourceId: customerMode === 'new' ? newCustSourceId : undefined,
         sourceDetail: customerMode === 'new' ? newCustSourceDetail.trim() || undefined : undefined,
-        assignedTo: currentUser.id,
+        assignedTo: contractHierarchy.saleId,
+
+        // Chuỗi nhân sự đầy đủ (Sale -> Trưởng phòng / Trưởng nhóm -> Giám đốc Sàn -> Giám đốc Vùng -> CEO)
+        saleId: contractHierarchy.saleId,
+        saleName: contractHierarchy.saleName,
+        teamId: contractHierarchy.teamId,
+        teamName: contractHierarchy.teamName,
+        teamLeaderId: contractHierarchy.teamLeaderId,
+        teamLeaderName: contractHierarchy.teamLeaderName,
+        salesManagerId: contractHierarchy.salesManagerId,
+        salesManagerName: contractHierarchy.salesManagerName,
+        agencyId: contractHierarchy.agencyId,
+        agencyName: contractHierarchy.agencyName,
+        agencyDirectorId: contractHierarchy.agencyDirectorId,
+        agencyDirectorName: contractHierarchy.agencyDirectorName,
+        regionId: contractHierarchy.regionId,
+        regionName: contractHierarchy.regionName,
+        regionalDirectorId: contractHierarchy.regionalDirectorId,
+        regionalDirectorName: contractHierarchy.regionalDirectorName,
+        ceoId: contractHierarchy.ceoId,
+        ceoName: contractHierarchy.ceoName,
+        organizationId: contractHierarchy.organizationId,
 
         dealValue: dealValue,
         contractCode: contractCode.trim() || undefined,
@@ -527,7 +612,7 @@ export const TransactionsPage: React.FC = () => {
       if (createProjectId && unitCode) {
         await projectRepository.updateUnitStatusByCode(createProjectId, unitCode, 'deposit', {
           customer_name: customerMode === 'new' ? newCustName : candidateLeads.find(l => l.id === selectedLeadId)?.customer_name,
-          sale_name: currentUser.full_name,
+          sale_name: contractHierarchy.saleName,
         });
       }
 
@@ -1485,7 +1570,120 @@ export const TransactionsPage: React.FC = () => {
             )}
           </div>
 
-          {/* 3. GIÁ TRỊ GIAO DỊCH & THÔNG TIN HỢP ĐỒNG */}
+          {/* 3. CHUYÊN VIÊN TƯ VẤN (SALE) & CHUỖI PHÂN CẤP QUẢN LÝ (TRƯỞNG PHÒNG, GĐ SÀN, GĐ VÙNG, CEO) */}
+          <div className="p-3.5 bg-indigo-50/60 rounded-xl border border-indigo-200/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                <Users className="h-4 w-4 text-indigo-600" /> 3. Chuyên Viên Bán Hàng & Chuỗi Phân Cấp Quản Lý *
+              </label>
+              <span className="text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded-full border border-indigo-200">
+                Chuỗi Snapshot Bất Biến
+              </span>
+            </div>
+
+            {/* Chọn Chuyên Viên Sale */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                Chuyên viên tư vấn (Sale phụ trách giao dịch) *
+              </label>
+              {currentUser?.role === 'sale_agent' ? (
+                <div className="flex items-center justify-between px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-medium text-slate-800">
+                  <span className="font-bold text-indigo-900">{currentUser.full_name} ({currentUser.email})</span>
+                  <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-semibold">Tài khoản hiện tại</span>
+                </div>
+              ) : (
+                <select
+                  value={contractSaleId}
+                  onChange={(e) => setContractSaleId(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-slate-800"
+                >
+                  {allSales.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name} ({s.role === 'team_leader' ? 'Trưởng nhóm' : 'Chuyên viên'}) - {allTeams.find(t => t.id === s.team_id)?.name || 'Chưa nhóm'}
+                    </option>
+                  ))}
+                  {allSales.length === 0 && (
+                    <option value={currentUser?.id}>{currentUser?.full_name} (Hiện tại)</option>
+                  )}
+                </select>
+              )}
+            </div>
+
+            {/* Thẻ hiển thị trực quan chuỗi 5 cấp nhân sự */}
+            <div className="p-3 bg-white rounded-lg border border-indigo-100 shadow-sm">
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                Chuỗi nhân sự quản lý trực thuộc của giao dịch:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                {/* 1. Sale */}
+                <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1 mb-0.5">
+                    <User className="h-3 w-3 text-blue-600" /> 1. Chuyên Viên (Sale)
+                  </div>
+                  <div className="font-bold text-slate-900 truncate" title={contractHierarchy.saleName}>
+                    {contractHierarchy.saleName}
+                  </div>
+                  <div className="text-[10px] text-slate-500 truncate">
+                    {contractHierarchy.teamName}
+                  </div>
+                </div>
+
+                {/* 2. Trưởng nhóm / Trưởng phòng */}
+                <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1 mb-0.5">
+                    <Users className="h-3 w-3 text-indigo-600" /> 2. Trưởng Phòng / Nhóm
+                  </div>
+                  <div className="font-bold text-slate-900 truncate" title={contractHierarchy.teamLeaderName}>
+                    {contractHierarchy.teamLeaderName}
+                  </div>
+                  <div className="text-[10px] text-slate-500 truncate">
+                    {contractHierarchy.teamName}
+                  </div>
+                </div>
+
+                {/* 3. Giám đốc Sàn */}
+                <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1 mb-0.5">
+                    <Building2 className="h-3 w-3 text-purple-600" /> 3. Giám Đốc Sàn
+                  </div>
+                  <div className="font-bold text-slate-900 truncate" title={contractHierarchy.agencyDirectorName}>
+                    {contractHierarchy.agencyDirectorName}
+                  </div>
+                  <div className="text-[10px] text-slate-500 truncate">
+                    {contractHierarchy.agencyName}
+                  </div>
+                </div>
+
+                {/* 4. Giám đốc Vùng */}
+                <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1 mb-0.5">
+                    <MapPin className="h-3 w-3 text-amber-600" /> 4. Giám Đốc Vùng
+                  </div>
+                  <div className="font-bold text-slate-900 truncate" title={contractHierarchy.regionalDirectorName}>
+                    {contractHierarchy.regionalDirectorName}
+                  </div>
+                  <div className="text-[10px] text-slate-500 truncate">
+                    {contractHierarchy.regionName}
+                  </div>
+                </div>
+
+                {/* 5. Tổng Giám Đốc (CEO) */}
+                <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1 mb-0.5">
+                    <Award className="h-3 w-3 text-emerald-600" /> 5. Tổng Giám Đốc
+                  </div>
+                  <div className="font-bold text-slate-900 truncate" title={contractHierarchy.ceoName}>
+                    {contractHierarchy.ceoName}
+                  </div>
+                  <div className="text-[10px] text-emerald-700 font-semibold truncate">
+                    Điều hành chung
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. GIÁ TRỊ GIAO DỊCH & THÔNG TIN HỢP ĐỒNG */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <div className="flex items-center justify-between mb-1">

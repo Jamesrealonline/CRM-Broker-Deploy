@@ -121,12 +121,14 @@ export const LeadsPage: React.FC = () => {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkFeedback, setBulkFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Bộ lọc phân cấp nhánh (Cascading Branch Filter): Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Chuyên Viên Sale
+  // Bộ lọc phân cấp nhánh (Cascading Branch Filter): CEO -> Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Chuyên Viên Sale
+  const [allCeos, setAllCeos] = useState<UserProfile[]>([]);
   const [allRegions, setAllRegions] = useState<Region[]>([]);
   const [allAgencies, setAllAgencies] = useState<Agency[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
   const [allSales, setAllSales] = useState<UserProfile[]>([]);
 
+  const [selectedCeo, setSelectedCeo] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('');
   const [selectedAgency, setSelectedAgency] = useState('');
   const [selectedTeam, setSelectedTeam] = useState('');
@@ -136,6 +138,26 @@ export const LeadsPage: React.FC = () => {
     projectRepository.getProjects().then((list) => {
       setProjects(list);
       if (list.length > 0 && !newProjectId) setNewProjectId(list[0].id);
+    });
+
+    teamRepository.getOrganizations().then((orgs) => {
+      teamRepository.getProfiles().then((profs) => {
+        let ceoList = profs.filter(p => p.role === 'ceo');
+        if (ceoList.length === 0) {
+          ceoList = orgs.map(o => ({
+            id: o.ceo_id || `ceo-${o.id}`,
+            full_name: o.ceo_name || `CEO (${o.name})`,
+            email: o.email || 'ceo@diaocvang.vn',
+            phone: o.phone || '',
+            role: 'ceo' as const,
+            organization_id: o.id,
+            status: 'active' as const,
+            must_change_password: false,
+            totp_enabled: false,
+          }));
+        }
+        setAllCeos(currentUser?.role === 'ceo' ? ceoList.filter(c => c.id === currentUser.id || c.organization_id === currentUser.organization_id) : ceoList);
+      });
     });
 
     teamRepository.getRegions().then((regs) => {
@@ -163,10 +185,21 @@ export const LeadsPage: React.FC = () => {
     });
   }, [newProjectId, currentUser]);
 
+  const visibleRegions = useMemo(() => {
+    if (!selectedCeo) return allRegions;
+    const targetCeo = allCeos.find(c => c.id === selectedCeo);
+    if (!targetCeo?.organization_id) return allRegions;
+    return allRegions.filter(r => !r.organization_id || r.organization_id === targetCeo.organization_id);
+  }, [allRegions, selectedCeo, allCeos]);
+
   const visibleAgencies = useMemo(() => {
-    if (!selectedRegion) return allAgencies;
+    if (!selectedRegion) {
+      if (!selectedCeo) return allAgencies;
+      const regionIds = new Set(visibleRegions.map(r => r.id));
+      return allAgencies.filter(a => !a.region_id || regionIds.has(a.region_id));
+    }
     return allAgencies.filter(a => a.region_id === selectedRegion);
-  }, [allAgencies, selectedRegion]);
+  }, [allAgencies, selectedRegion, selectedCeo, visibleRegions]);
 
   const visibleTeams = useMemo(() => {
     if (!selectedAgency) {
@@ -265,6 +298,7 @@ export const LeadsPage: React.FC = () => {
         {
           search: search || undefined,
           projectId: selectedProject || undefined,
+          ceoId: selectedCeo || undefined,
           regionId: selectedRegion || undefined,
           agencyId: selectedAgency || undefined,
           teamId: selectedTeam || undefined,
@@ -289,7 +323,7 @@ export const LeadsPage: React.FC = () => {
 
   useEffect(() => {
     fetchLeads();
-  }, [currentUser, search, selectedProject, selectedRegion, selectedAgency, selectedTeam, selectedSale, selectedStatus, page, dateRange, includeSample]);
+  }, [currentUser, search, selectedProject, selectedCeo, selectedRegion, selectedAgency, selectedTeam, selectedSale, selectedStatus, page, dateRange, includeSample]);
 
   // Kiểm tra trùng SĐT real-time khi gõ vào form tạo Lead
   const handlePhoneChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -495,8 +529,28 @@ export const LeadsPage: React.FC = () => {
             onChange={(val) => updateRange(val.preset || 'custom', val.from, val.to, val.compare)}
           />
 
-          {/* Bộ lọc 4 cấp: Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale */}
-          {allRegions.length > 0 && (
+          {/* Bộ lọc 5 cấp: CEO -> Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale */}
+          {allCeos.length > 0 && (
+            <select
+              value={selectedCeo}
+              onChange={(e) => {
+                setSelectedCeo(e.target.value);
+                setSelectedRegion('');
+                setSelectedAgency('');
+                setSelectedTeam('');
+                setSelectedSale('');
+                setPage(1);
+              }}
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 focus:outline-none focus:border-blue-500 text-slate-800 font-semibold shadow-sm"
+            >
+              <option value="">Tất cả Tổng Giám Đốc (CEO)</option>
+              {allCeos.map((c) => (
+                <option key={c.id} value={c.id}>{c.full_name}</option>
+              ))}
+            </select>
+          )}
+
+          {visibleRegions.length > 0 && (
             <select
               value={selectedRegion}
               onChange={(e) => {
@@ -509,7 +563,7 @@ export const LeadsPage: React.FC = () => {
               className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 focus:outline-none focus:border-blue-500 text-slate-700 font-medium"
             >
               <option value="">Tất cả Vùng (GĐ Vùng)</option>
-              {allRegions.map((r) => (
+              {visibleRegions.map((r) => (
                 <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
               ))}
             </select>

@@ -42,6 +42,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { maskPhone } from '@/lib/utils';
+import { AI_MASTER_STAGE_SCRIPTS, formatFullScriptMarkdown } from '@/data/aiSalesScripts';
 
 export const SalesScriptsPage: React.FC = () => {
   const { currentUser } = useAuthStore();
@@ -276,6 +277,29 @@ Bạn đang gặp khó khăn gì trong quá trình tương tác với khách nà
     }
   };
 
+  const handleGenerateAiScript = async () => {
+    if (!selectedProjectId) return;
+    const aiDetail = AI_MASTER_STAGE_SCRIPTS[selectedStatus];
+    if (!aiDetail) return;
+    const generatedMarkdown = formatFullScriptMarkdown(aiDetail, selectedProject?.name || 'Dự án Bất Động Sản');
+    setContent(generatedMarkdown);
+    if (currentScript) {
+      const updated: SalesScript = {
+        ...currentScript,
+        content: generatedMarkdown,
+        is_auto: true,
+        is_edited: false,
+      };
+      await projectRepository.saveSalesScript(updated);
+      setSaveMsg(true);
+      setTimeout(() => setSaveMsg(false), 2500);
+      const refreshed = await projectRepository.getSalesScripts(selectedProjectId);
+      setScripts(refreshed);
+      const active = refreshed.find(s => s.status === selectedStatus);
+      if (active) setCurrentScript(active);
+    }
+  };
+
   const handleResetScript = async () => {
     if (!selectedProjectId || !confirm('Bạn có chắc muốn đặt lại kịch bản này về mẫu tự động tiêu chuẩn?')) return;
     const reset = await projectRepository.resetScriptToDefault(selectedProjectId, selectedStatus);
@@ -422,7 +446,17 @@ Bạn đang gặp khó khăn gì trong quá trình tương tác với khách nà
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleGenerateAiScript}
+                        className="bg-indigo-50/80 text-indigo-700 hover:bg-indigo-100 border-indigo-200 font-semibold"
+                        title="Tạo lại kịch bản chuyên sâu chuẩn theo trạng thái bằng AI"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 mr-1 text-indigo-600" />
+                        AI Soạn Kịch Bản Chuẩn
+                      </Button>
                       <Button variant="outline" size="sm" onClick={handleCopyScript}>
                         <Copy className="h-3.5 w-3.5 mr-1" />
                         {copied ? 'Đã copy!' : 'Sao chép'}

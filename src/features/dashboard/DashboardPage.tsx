@@ -91,16 +91,30 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     const loadDropdowns = async () => {
-      const [pList, rList, aList, tList, profList] = await Promise.all([
+      const [pList, rList, aList, tList, profList, orgList] = await Promise.all([
         projectRepository.getProjects(),
         teamRepository.getRegions(),
         teamRepository.getAgencies(),
         teamRepository.getTeams(),
         teamRepository.getProfiles(),
+        teamRepository.getOrganizations(),
       ]);
       setProjects(pList);
-      const ceoList = profList.filter(p => p.role === 'ceo');
-      setCeos(ceoList.length > 0 ? ceoList : (currentUser?.role === 'ceo' ? [currentUser] : []));
+      let ceoList = profList.filter(p => p.role === 'ceo');
+      if (ceoList.length === 0) {
+        ceoList = orgList.map(o => ({
+          id: o.ceo_id || `ceo-${o.id}`,
+          full_name: o.ceo_name || `CEO (${o.name})`,
+          email: o.email || 'ceo@diaocvang.vn',
+          phone: o.phone || '',
+          role: 'ceo' as const,
+          organization_id: o.id,
+          status: 'active' as const,
+          must_change_password: false,
+          totp_enabled: false,
+        }));
+      }
+      setCeos(currentUser?.role === 'ceo' ? ceoList.filter(c => c.id === currentUser.id || c.organization_id === currentUser.organization_id) : ceoList);
       setRegions(branchHierarchyService.filterRegions(currentUser, rList));
       setAgencies(branchHierarchyService.filterAgencies(currentUser, aList));
       setTeams(branchHierarchyService.filterTeams(currentUser, tList));

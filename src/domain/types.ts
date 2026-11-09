@@ -173,10 +173,14 @@ export interface Team {
   deleted_by?: string;
   delete_reason?: string;
 
-  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director, Sales Manager, Team Leader)
   organization_id?: string;
   agency_director_id?: string;
   agency_director_name?: string;
+  sales_manager_id?: string;
+  sales_manager_name?: string;
+  team_leader_id?: string;
+  team_leader_name?: string;
   region_id?: string;
   region_name?: string;
   regional_director_id?: string;
@@ -374,10 +378,14 @@ export interface Lead {
   deleted_by?: string;
   delete_reason?: string;
 
-  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director, Sales Manager, Team Leader)
   organization_id?: string;
   agency_director_id?: string;
   agency_director_name?: string;
+  sales_manager_id?: string;
+  sales_manager_name?: string;
+  team_leader_id?: string;
+  team_leader_name?: string;
   region_id?: string;
   region_name?: string;
   regional_director_id?: string;
@@ -479,10 +487,14 @@ export interface Transaction {
   deleted_by?: string;
   delete_reason?: string;
 
-  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director)
+  // Snapshot theo chuỗi trực thuộc tại thời điểm ký (CEO, Regional Director, Agency Director, Sales Manager, Team Leader)
   organization_id?: string;
   agency_director_id?: string;
   agency_director_name?: string;
+  sales_manager_id?: string;
+  sales_manager_name?: string;
+  team_leader_id?: string;
+  team_leader_name?: string;
   region_id?: string;
   region_name?: string;
   regional_director_id?: string;

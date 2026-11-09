@@ -21,6 +21,7 @@ import { INITIAL_PROJECTS, INITIAL_KNOWLEDGE, INITIAL_TRANSACTIONS, INITIAL_PROJ
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { financialCalculationService, TimeRangeFilter } from '@/domain/services/financialCalculationService';
 import { contractRepository } from './contractRepository';
+import { AI_MASTER_STAGE_SCRIPTS, formatFullScriptMarkdown } from '@/data/aiSalesScripts';
 
 const STORAGE_KEY_PROJECTS = 'crm_projects';
 const STORAGE_KEY_KNOWLEDGE = 'crm_project_knowledge';
@@ -564,23 +565,54 @@ export class ProjectRepository {
     localStorage.setItem(`${STORAGE_KEY_SCRIPTS}_${projectId}`, JSON.stringify(updated));
   }
 
-  // Lấy Sales Scripts của dự án theo 15 trạng thái
+  // Lấy Sales Scripts của dự án theo 15 trạng thái (Áp dụng bộ kịch bản AI chuyên sâu)
   async getSalesScripts(projectId: string): Promise<SalesScript[]> {
     const raw = localStorage.getItem(`${STORAGE_KEY_SCRIPTS}_${projectId}`);
-    if (raw) return JSON.parse(raw);
+    const project = await this.getProjectById(projectId);
+    const projectName = project?.name || 'Dự án Bất Động Sản';
 
-    // Khởi tạo mặc định 15 script cho 15 trạng thái
-    const defaultScripts: SalesScript[] = JOURNEY_STAGES.map(stage => ({
-      id: crypto.randomUUID(),
-      project_id: projectId,
-      status: stage.id,
-      title: `Kịch bản tư vấn: ${stage.label}`,
-      content: `Chào Anh/Chị, em liên hệ từ dự án bất động sản. Tại bước "${stage.label}", em xin gửi thông tin chi tiết và hỗ trợ giải đáp mọi thắc mắc của Anh/Chị.`,
-      version: 1,
-      is_auto: true,
-      is_edited: false,
-      updated_at: new Date().toISOString(),
-    }));
+    if (raw) {
+      const parsed: SalesScript[] = JSON.parse(raw);
+      // Tự động nâng cấp các kịch bản mẫu ngắn cũ lên nội dung kịch bản AI 5 phần chuyên sâu
+      let needsUpdate = false;
+      const upgraded = parsed.map(s => {
+        if (!s.is_edited && (s.content.includes('Chào Anh/Chị, em liên hệ từ dự án bất động sản') || s.content.length < 250)) {
+          const aiDetail = AI_MASTER_STAGE_SCRIPTS[s.status as LeadStatus];
+          if (aiDetail) {
+            needsUpdate = true;
+            return {
+              ...s,
+              content: formatFullScriptMarkdown(aiDetail, projectName),
+            };
+          }
+        }
+        return s;
+      });
+
+      if (needsUpdate) {
+        localStorage.setItem(`${STORAGE_KEY_SCRIPTS}_${projectId}`, JSON.stringify(upgraded));
+        return upgraded;
+      }
+      return parsed;
+    }
+
+    // Khởi tạo mặc định 15 script cho 15 trạng thái với nội dung AI chuyên biệt thực chiến
+    const defaultScripts: SalesScript[] = JOURNEY_STAGES.map(stage => {
+      const aiDetail = AI_MASTER_STAGE_SCRIPTS[stage.id];
+      return {
+        id: crypto.randomUUID(),
+        project_id: projectId,
+        status: stage.id,
+        title: `Kịch bản tư vấn: ${stage.label}`,
+        content: aiDetail 
+          ? formatFullScriptMarkdown(aiDetail, projectName)
+          : `Chào Anh/Chị, em liên hệ từ dự án ${projectName}. Tại bước "${stage.label}", em xin gửi thông tin chi tiết và hỗ trợ giải đáp mọi thắc mắc của Anh/Chị.`,
+        version: 1,
+        is_auto: true,
+        is_edited: false,
+        updated_at: new Date().toISOString(),
+      };
+    });
 
     localStorage.setItem(`${STORAGE_KEY_SCRIPTS}_${projectId}`, JSON.stringify(defaultScripts));
     return defaultScripts;
@@ -603,18 +635,22 @@ export class ProjectRepository {
     localStorage.setItem(`${STORAGE_KEY_SCRIPTS}_${script.project_id}`, JSON.stringify(scripts));
   }
 
-  // Đặt lại kịch bản theo mẫu mặc định
+  // Đặt lại kịch bản theo mẫu AI chuyên sâu mặc định
   async resetScriptToDefault(projectId: string, status: LeadStatus): Promise<SalesScript> {
-    const knowledge = await this.getProjectKnowledge(projectId);
+    const project = await this.getProjectById(projectId);
+    const projectName = project?.name || 'Dự án Bất Động Sản';
     const scripts = await this.getSalesScripts(projectId);
     const stage = JOURNEY_STAGES.find(s => s.id === status);
+    const aiDetail = AI_MASTER_STAGE_SCRIPTS[status];
     
     const resetScript: SalesScript = {
       id: crypto.randomUUID(),
       project_id: projectId,
       status,
       title: `Kịch bản tư vấn: ${stage?.label || status}`,
-      content: `[Kịch bản Tiêu chuẩn]\nGiai đoạn: ${stage?.label}\nDự án: ${knowledge?.property_type || 'Căn hộ'}\nĐiểm cốt lõi: ${knowledge?.highlights || 'Ưu đãi và vị trí đẹp'}.`,
+      content: aiDetail
+        ? formatFullScriptMarkdown(aiDetail, projectName)
+        : `[Kịch bản Tiêu chuẩn]\nGiai đoạn: ${stage?.label}\nDự án: ${projectName}`,
       version: 1,
       is_auto: true,
       is_edited: false,

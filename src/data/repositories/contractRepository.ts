@@ -94,6 +94,27 @@ export interface CreateContractWithCustomerPayload {
   overrideReason?: string;
   notes?: string;
 
+  // Chuỗi nhân sự đầy đủ (Sale -> Trưởng phòng / Trưởng nhóm -> Giám đốc Sàn -> Giám đốc Vùng -> CEO)
+  saleId?: string;
+  saleName?: string;
+  teamId?: string;
+  teamName?: string;
+  teamLeaderId?: string;
+  teamLeaderName?: string;
+  salesManagerId?: string;
+  salesManagerName?: string;
+  agencyId?: string;
+  agencyName?: string;
+  agencyDirectorId?: string;
+  agencyDirectorName?: string;
+  regionId?: string;
+  regionName?: string;
+  regionalDirectorId?: string;
+  regionalDirectorName?: string;
+  ceoId?: string;
+  ceoName?: string;
+  organizationId?: string;
+
   currentUser: UserProfile;
   requestId?: string;
 }
@@ -522,9 +543,25 @@ export class ContractRepository {
       first_installment_paid: Boolean(payload.firstInstallmentPaid),
       payment_method: (payload.paymentMethod as any) || 'bank_transfer',
       status: 'pending', // Chờ duyệt theo Maker-Checker
-      agency_id: payload.currentUser.agency_id || undefined,
-      team_id: payload.currentUser.team_id || undefined,
-      region_id: payload.currentUser.region_id || undefined,
+      sale_id: payload.saleId || payload.assignedTo || payload.currentUser.id,
+      sale_name: payload.saleName || payload.currentUser.full_name,
+      team_id: payload.teamId || payload.currentUser.team_id || undefined,
+      team_name: payload.teamName,
+      team_leader_id: payload.teamLeaderId,
+      team_leader_name: payload.teamLeaderName,
+      sales_manager_id: payload.salesManagerId,
+      sales_manager_name: payload.salesManagerName,
+      agency_id: payload.agencyId || payload.currentUser.agency_id || undefined,
+      agency_name: payload.agencyName,
+      agency_director_id: payload.agencyDirectorId,
+      agency_director_name: payload.agencyDirectorName,
+      region_id: payload.regionId || payload.currentUser.region_id || undefined,
+      region_name: payload.regionName,
+      regional_director_id: payload.regionalDirectorId,
+      regional_director_name: payload.regionalDirectorName,
+      ceo_id: payload.ceoId,
+      ceo_name: payload.ceoName,
+      organization_id: payload.organizationId || payload.currentUser.organization_id || undefined,
       requires_l1_approval: dealVal > 5_000_000_000,
       requires_l2_approval: dealVal > 15_000_000_000,
       requires_l3_approval: dealVal > 30_000_000_000,
