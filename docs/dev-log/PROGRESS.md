@@ -147,4 +147,39 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
   - `npx tsc --noEmit` đạt 0 lỗi.
   - `npm run build` thành công xuất sắc.
 
+---
+
+### Giai đoạn 13 – Tính & Phân Bổ Hoa Hồng 5 Tầng Theo Hợp Đồng & Sổ Cái Thu Nhập (HOÀN THÀNH)
+- [x] **13.1** Mô hình phân bổ hoa hồng 5 tầng (`domain/types.ts` & `services/commissionService.ts`):
+  - 5 tầng cốt lõi: Chuyên viên Sale (`sale_agent`), Nhóm / Trưởng nhóm (`team` / `team_leader`), Giám đốc Sàn (`director` / `agency_director`), Giám đốc Vùng (`regional_director`), Tổng Giám Đốc (`ceo`).
+  - Tầng mở rộng: Trưởng phòng (`department_head`), Quỹ vận hành (`ops_fund`), Đồng phụ trách (`co_sale`), Người giới thiệu (`referrer`).
+  - Quỹ phân bổ: Hoa hồng Sàn = GTGD × % phí dự án. Lợi nhuận Công ty giữ lại = Hoa hồng Sàn − Tổng các tầng chia.
+  - Thuật toán làm tròn **Largest Remainder Method (Hamilton/Hare-Niemeyer)**: VND nguyên (`numeric(18,0)`), không float, phần lẻ phân bổ chính xác và phần dôi dư còn lại về trọn vẹn "Công ty giữ lại".
+  - Kiểm chứng số học ví dụ chuẩn: GTGD 3.650.000.000 đ; Sàn 3,5% = 127.750.000 đ; Sale 1,5% = 54.750.000 đ; Nhóm 0,3% = 10.950.000 đ; GĐ Sàn 0,2% = 7.300.000 đ; GĐ Vùng 0,1% = 3.650.000 đ; CEO 0,05% = 1.825.000 đ; Tổng chia = 78.475.000 đ (2,15%); Công ty giữ lại = 49.275.000 đ (1,35%).
+  - Hỗ trợ linh hoạt: `base_mode` (`contract_value` | `company_commission`), `team_split_mode` (`leader_only` | `equal` | `by_ratio`), thuế TNCN tạm tính `withholding_rate` (gross / net).
+- [x] **13.2** Cập nhật `contractRepository.ts`:
+  - Mở rộng payload tạo hợp đồng tiếp nhận tỷ lệ 5 tầng, tính toán snapshot `MultiTierCommissionSnapshot`, tự động sinh các dòng bút toán `CommissionEntry` và ghi nhận phiên tính `CommissionRun`.
+  - Bổ sung các phương thức: `getCommissionEntries`, `assignCommissionRecipient` (kiểm tra lý do >= 10 ký tự, thẩm quyền, ghi audit), `updateCommissionEntryStatus` (ngăn sửa khoản đã chi trừ clawback, ghi audit), `getCommissionPreview`, `getIncomeSummary`, `exportIncomeCsv` (kiểm tra impersonation, loại bỏ PII thô, ghi audit log).
+  - Tích hợp dữ liệu seed hoa hồng mẫu gắn nhãn `is_sample = true`.
+- [x] **13.3** Giao diện Người Dùng (`TransactionsPage.tsx`, `IncomeLedgerTab.tsx`, `ContractCommissionDetailModal.tsx`):
+  - Tab switcher trực quan tại `/transactions`: Danh Sách Hợp Đồng vs Thu Nhập & Sổ Cái Hoa Hồng 5 Tầng.
+  - Modal Khởi tạo hợp đồng mới: Bảng tính trước hoa hồng 5 tầng thời gian thực (Live Preview), cảnh báo vượt quỹ sàn (`isExceedsPool`) và cảnh báo tầng khuyết (`unassigned`).
+  - Bảng danh sách hợp đồng: Bổ sung các cột "Hoa Hồng Sàn", "Tổng Chia 5 Tầng", "Công Ty Giữ Lại" (chỉ hiển thị cho cấp quản lý), nút xem sổ cái chi tiết.
+  - Tab "Thu Nhập & Sổ Cái":
+    - Bộ lọc đa tiêu chí: Lọc theo người dùng (phân quyền theo chuỗi chỉ huy), tầng hoa hồng, trạng thái giải ngân, dự án, mốc ngày đối soát (`sign_date`, `eligible_at`, `paid_at`), và bộ lọc thời gian dùng chung `DateRangeFilter`.
+    - 7 Thẻ KPI tổng hợp: Tổng Gross, Thuế TNCN tạm tính, Thực nhận Net, Đã chi trả (Paid), Đủ điều kiện (Eligible), Dự kiến (Expected), Đã thu hồi (Clawback).
+    - Biểu đồ Recharts: Diễn biến thu nhập theo thời gian (BarChart) và Cơ cấu hoa hồng theo tầng (PieChart).
+    - Bảng kê sổ cái chi tiết từng bút toán kèm các thao tác xem HĐMB, gán người nhận, cập nhật trạng thái.
+    - Nút "Xuất CSV Báo Cáo Thu Nhập" bảo mật (chặn khi đang đóng vai, ghi audit trail).
+  - Modal "Sổ cái phân bổ hoa hồng 5 tầng" theo hợp đồng: Cho phép quản trị viên gán người nhận cho tầng khuyết hoặc đổi trạng thái giải ngân.
+- [x] **13.4** Cơ sở dữ liệu Supabase Migration & Rollback:
+  - Tạo migration `028_commission_tiers_and_income_ledger.sql`: Thêm cột cho 5 tầng trên `transactions`, tạo bảng `commission_entries`, `commission_runs`, `project_commission_policies`, thiết lập RLS phân quyền theo ma trận, RPC `assign_commission_recipient`.
+  - Tạo rollback script `028_rollback_commission_tiers_and_income_ledger.sql`.
+- [x] **13.5** Kiểm thử tự động & Verification:
+  - Bộ test mới `src/test/commission_tiers_and_income.test.ts` gồm 19 tests kiểm thử toàn diện: số học ví dụ chuẩn 3.65 tỷ, thuật toán số dư lớn nhất, base_mode, team_split_mode, thuế TNCN, pool exceed, tầng khuyết, ma trận RLS theo vai trò, impersonation block, getIncomeSummary, clawback.
+  - Đạt **281/281 tests pass 100% trên 30 test files**.
+  - `npx tsc --noEmit` đạt 0 lỗi.
+  - `npm run build` thành công xuất sắc.
+
+
 

@@ -138,3 +138,49 @@
       - Khi chọn Sàn, dropdown Đội nhóm tự động thu gọn theo sàn đó.
       - Khi chọn Đội nhóm, dropdown Nhân viên Sale tự động thu gọn theo nhóm đó.
     - Repositories (`leadRepository`, `contractRepository`, `hrRepository`, `dashboardRepository`) đều tích hợp tham số `regionId` và cưỡng chế subtree scoping.
+
+---
+
+### GIAI ĐOẠN 8: TÍNH & PHÂN BỔ HOA HỒNG 5 TẦNG THEO HỢP ĐỒNG & SỔ CÁI THU NHẬP (feat/commission-tiers-income)
+
+- **Quyết định 8.1: Mô Hình Phân Bổ Hoa Hồng 5 Tầng Theo Hợp Đồng**
+  - *Bối cảnh:* Chuỗi kinh doanh bất động sản mở rộng 5 cấp chỉ huy, đòi hỏi tính toán hoa hồng minh bạch, độc lập theo từng hợp đồng mua bán (HĐMB) và ghi nhận vào sổ cái đa tầng.
+  - *Phương án:*
+    - 5 tầng thụ hưởng chính thức:
+      1. Chuyên viên Sale (`sale` / `sale_agent`)
+      2. Nhóm / Trưởng nhóm (`team` / `team_leader`)
+      3. Giám đốc Sàn (`agency_director` / `director`)
+      4. Giám đốc Vùng (`regional_director`)
+      5. Tổng Giám Đốc (`ceo`)
+    - Hỗ trợ các tầng mở rộng cấu hình sẵn: Trưởng phòng (`department_head`), Quỹ vận hành (`ops_fund`), Đồng phụ trách (`co_sale`), Người giới thiệu (`referrer`).
+    - **Quỹ Hoa Hồng Sàn (CĐT chi)** = Giá trị giao dịch × % phí dự án.
+    - **Lợi Nhuận Công Ty Giữ Lại** = Hoa hồng Sàn − Tổng các tầng đã chia.
+
+- **Quyết định 8.2: Phương Pháp Phần Dư Lớn Nhất (Largest Remainder Method) & VND Nguyên**
+  - *Bối cảnh:* Số tiền hoa hồng tính theo tỷ lệ phần trăm thường sinh ra số thập phân. Nếu làm tròn tự do sẽ gây lệch tổng so với số tiền chủ đầu tư thanh toán, gây tranh chấp tài chính.
+  - *Phương án:*
+    - Sử dụng kiểu số nguyên `numeric(18,0)` VND, không dùng float.
+    - Áp dụng thuật toán **Largest Remainder Method (Hamilton/Hare-Niemeyer)**: Lấy phần nguyên `Math.floor()`, sắp xếp phần thập phân giảm dần để phân bổ 1 VND cho đến khi hết số dư.
+    - Sai số làm tròn phần lẻ còn lại tự động kết chuyển vào khoản "Công ty giữ lại", đảm bảo tổng các dòng luôn khớp 100% với quỹ Sàn mà không lệch dù chỉ 1 đồng.
+
+- **Quyết định 8.3: Cấu Hình Cơ Sở Tính (base_mode) & Chế Độ Chia Nhóm (team_split_mode)**
+  - *Phương án:*
+    - `base_mode`: `contract_value` (mặc định - tính trên Giá trị giao dịch) | `company_commission` (tính trên Hoa hồng Sàn).
+    - `team_split_mode`: `leader_only` (mặc định - toàn bộ phần nhóm thuộc về Trưởng nhóm) | `equal` (chia đều thành viên nhóm) | `by_ratio` (chia theo tỷ lệ đóng góp).
+    - Khấu trừ thuế TNCN tạm tính: `withholding_rate` (mặc định 0% hoặc 10%), hiển thị đồng thời Gross, PIT Tax, và Net thực nhận.
+
+- **Quyết định 8.4: Xử Lý Tầng Khuyết Nhân Sự (Unassigned) & Thao Tác Gán Kèm Audit**
+  - *Phương án:*
+    - Nếu tại thời điểm ký HĐMB chuỗi quản lý thiếu nhân sự (ví dụ Vùng chưa có Giám đốc Vùng), bút toán được ghi nhận ở trạng thái `unassigned` với badge cảnh báo "Chờ gán người nhận".
+    - Admin, CEO, hoặc Giám đốc có thẩm quyền có thể gán người nhận bổ sung qua RPC `assign_commission_recipient`. Bắt buộc nhập lý do có độ dài tối thiểu 10 ký tự và ghi audit log append-only.
+
+- **Quyết định 8.5: Ma Trận Phân Quyền Truy Cập Thu Nhập & Bảo Vệ Impersonation**
+  - *Phương án:*
+    - `sale_agent`: Chỉ xem được bút toán và thu nhập của chính mình; tuyệt đối không xem được tỷ lệ %, số tiền của các cấp bậc khác hoặc lợi nhuận công ty giữ lại.
+    - `team_leader` & `sales_manager`: Xem thu nhập của mình + tổng hợp của nhóm (mặc định không xem chi tiết cá nhân trừ khi bật cờ cấu hình).
+    - `director`: Xem bút toán của sàn mình quản lý.
+    - `regional_director`: Xem bút toán của các sàn trong vùng mình quản lý.
+    - `ceo` & `admin`: Xem toàn bộ sổ cái và thu nhập hệ thống.
+    - `marketing_manager` & `hr_admin`: Bị chặn hoàn toàn quyền xem sổ cái hoa hồng nhân sự.
+    - Khi đang ở chế độ giả lập góc nhìn (Impersonation): Cưỡng chế Chế độ chỉ đọc (Read-only), chặn hoàn toàn nút "Xuất báo cáo CSV".
+

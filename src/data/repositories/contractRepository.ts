@@ -21,11 +21,19 @@ import {
   MultiTierCommissionSnapshot,
   Team,
   Agency,
-  Region
+  Region,
+  CommissionTierRole,
+  CommissionBaseMode,
+  TeamSplitMode,
+  CommissionEntryStatus,
+  CommissionCalculationResult,
+  CommissionRun,
+  IncomeSummary
 } from '@/domain/types';
 import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES, INITIAL_LEAD_SOURCES } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { financialCalculationService, TimeRangeFilter } from '@/domain/services/financialCalculationService';
+import { commissionService, CommissionChainInfo, CalculateCommissionParams } from '@/domain/services/commissionService';
 import { authRepository } from './authRepository';
 import { assertRateLimit } from '@/lib/rateLimiter';
 import { checkOrStartIdempotency, completeIdempotency } from '@/lib/idempotency';
@@ -37,6 +45,7 @@ const STORAGE_KEY_TRANSACTIONS = 'crm_transactions';
 const STORAGE_KEY_LEADS = 'crm_leads';
 const STORAGE_KEY_INSTALLMENTS = 'crm_contract_installments';
 const STORAGE_KEY_COMMISSION_ENTRIES = 'crm_commission_entries';
+const STORAGE_KEY_COMMISSION_RUNS = 'crm_commission_runs';
 const STORAGE_KEY_CONTRACT_REVISIONS = 'crm_contract_revisions';
 const STORAGE_KEY_BANK_STATEMENTS = 'crm_bank_statements';
 
@@ -94,6 +103,16 @@ export interface CreateContractWithCustomerPayload {
   overrideReason?: string;
   notes?: string;
 
+  // Cấu hình tỷ lệ hoa hồng 5 tầng (nếu có ghi đè theo hợp đồng)
+  teamLeaderRate?: number;
+  agencyDirectorRate?: number;
+  regionalDirectorRate?: number;
+  ceoRate?: number;
+  baseMode?: CommissionBaseMode;
+  teamSplitMode?: TeamSplitMode;
+  withholdingRate?: number;
+  isSample?: boolean;
+
   // Chuỗi nhân sự đầy đủ (Sale -> Trưởng phòng / Trưởng nhóm -> Giám đốc Sàn -> Giám đốc Vùng -> CEO)
   saleId?: string;
   saleName?: string;
@@ -128,13 +147,323 @@ export class ContractRepository {
       localStorage.setItem(STORAGE_KEY_INSTALLMENTS, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES)) {
-      localStorage.setItem(STORAGE_KEY_COMMISSION_ENTRIES, JSON.stringify([]));
+      const now = Date.now();
+      const d45 = new Date(now - 45 * 86400000).toISOString();
+      const d30 = new Date(now - 30 * 86400000).toISOString();
+      const d15 = new Date(now - 15 * 86400000).toISOString();
+      const d5 = new Date(now - 5 * 86400000).toISOString();
+      const d3 = new Date(now - 3 * 86400000).toISOString();
+
+      const sampleEntries: CommissionEntry[] = [
+        // HĐ 1 (45 ngày trước - Đã chi 5 tầng đầy đủ)
+        {
+          id: 'comm-s1-sale',
+          contract_id: 'tx-sample-01',
+          contract_code: 'HĐMB-2026-001',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Trần Văn Khách Mẫu 1',
+          deal_value: 3650000000,
+          sign_date: d45,
+          recipient_id: 'aaaaaaaa-6666-1111-1111-111111111111',
+          recipient_name: 'Phạm Mai Anh',
+          recipient_role: 'sale_agent',
+          tier: 'sale',
+          rate_percent: 1.5,
+          percent: 1.5,
+          amount: 54750000,
+          base_amount: 127750000,
+          status: 'paid',
+          pit_tax_percent: 10,
+          pit_tax_amount: 5475000,
+          net_payable_amount: 49275000,
+          eligible_at: d30,
+          paid_at: d30,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          region_id: 'reg-01',
+          region_name: 'Vùng TP.HCM',
+          is_sample: true,
+          created_at: d45,
+        },
+        {
+          id: 'comm-s1-team',
+          contract_id: 'tx-sample-01',
+          contract_code: 'HĐMB-2026-001',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Trần Văn Khách Mẫu 1',
+          deal_value: 3650000000,
+          sign_date: d45,
+          recipient_id: 'aaaaaaaa-3333-1111-1111-111111111111',
+          recipient_name: 'Lê Hoàng Nam',
+          recipient_role: 'team_leader',
+          tier: 'team',
+          rate_percent: 0.3,
+          percent: 0.3,
+          amount: 10950000,
+          base_amount: 127750000,
+          status: 'paid',
+          pit_tax_percent: 10,
+          pit_tax_amount: 1095000,
+          net_payable_amount: 9855000,
+          eligible_at: d30,
+          paid_at: d30,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          region_id: 'reg-01',
+          region_name: 'Vùng TP.HCM',
+          is_sample: true,
+          created_at: d45,
+        },
+        {
+          id: 'comm-s1-agency',
+          contract_id: 'tx-sample-01',
+          contract_code: 'HĐMB-2026-001',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Trần Văn Khách Mẫu 1',
+          deal_value: 3650000000,
+          sign_date: d45,
+          recipient_id: 'aaaaaaaa-2222-1111-1111-111111111111',
+          recipient_name: 'Trần Quốc Bảo',
+          recipient_role: 'director',
+          tier: 'agency_director',
+          rate_percent: 0.2,
+          percent: 0.2,
+          amount: 7300000,
+          base_amount: 127750000,
+          status: 'paid',
+          pit_tax_percent: 10,
+          pit_tax_amount: 730000,
+          net_payable_amount: 6570000,
+          eligible_at: d30,
+          paid_at: d30,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          region_id: 'reg-01',
+          region_name: 'Vùng TP.HCM',
+          is_sample: true,
+          created_at: d45,
+        },
+        {
+          id: 'comm-s1-reg',
+          contract_id: 'tx-sample-01',
+          contract_code: 'HĐMB-2026-001',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Trần Văn Khách Mẫu 1',
+          deal_value: 3650000000,
+          sign_date: d45,
+          recipient_id: 'prof-rd-01',
+          recipient_name: 'Phạm Thị Giám Đốc Vùng',
+          recipient_role: 'regional_director',
+          tier: 'regional_director',
+          rate_percent: 0.1,
+          percent: 0.1,
+          amount: 3650000,
+          base_amount: 127750000,
+          status: 'paid',
+          pit_tax_percent: 10,
+          pit_tax_amount: 365000,
+          net_payable_amount: 3285000,
+          eligible_at: d30,
+          paid_at: d30,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          region_id: 'reg-01',
+          region_name: 'Vùng TP.HCM',
+          is_sample: true,
+          created_at: d45,
+        },
+        {
+          id: 'comm-s1-ceo',
+          contract_id: 'tx-sample-01',
+          contract_code: 'HĐMB-2026-001',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Trần Văn Khách Mẫu 1',
+          deal_value: 3650000000,
+          sign_date: d45,
+          recipient_id: 'prof-ceo-01',
+          recipient_name: 'Hoàng Văn Tổng Giám Đốc',
+          recipient_role: 'ceo',
+          tier: 'ceo',
+          rate_percent: 0.05,
+          percent: 0.05,
+          amount: 1825000,
+          base_amount: 127750000,
+          status: 'paid',
+          pit_tax_percent: 10,
+          pit_tax_amount: 182500,
+          net_payable_amount: 1642500,
+          eligible_at: d30,
+          paid_at: d30,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          region_id: 'reg-01',
+          region_name: 'Vùng TP.HCM',
+          is_sample: true,
+          created_at: d45,
+        },
+
+        // HĐ 2 (15 ngày trước - Đạt mốc eligible)
+        {
+          id: 'comm-s2-sale',
+          contract_id: 'tx-sample-02',
+          contract_code: 'HĐMB-2026-002',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Nguyễn Thị Hoa',
+          deal_value: 4200000000,
+          sign_date: d15,
+          recipient_id: 'aaaaaaaa-6666-1111-1111-111111111111',
+          recipient_name: 'Phạm Mai Anh',
+          recipient_role: 'sale_agent',
+          tier: 'sale',
+          rate_percent: 1.5,
+          percent: 1.5,
+          amount: 63000000,
+          base_amount: 147000000,
+          status: 'eligible',
+          pit_tax_percent: 10,
+          pit_tax_amount: 6300000,
+          net_payable_amount: 56700000,
+          eligible_at: d5,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          region_id: 'reg-01',
+          region_name: 'Vùng TP.HCM',
+          is_sample: true,
+          created_at: d15,
+        },
+        {
+          id: 'comm-s2-team',
+          contract_id: 'tx-sample-02',
+          contract_code: 'HĐMB-2026-002',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Nguyễn Thị Hoa',
+          deal_value: 4200000000,
+          sign_date: d15,
+          recipient_id: 'aaaaaaaa-3333-1111-1111-111111111111',
+          recipient_name: 'Lê Hoàng Nam',
+          recipient_role: 'team_leader',
+          tier: 'team',
+          rate_percent: 0.3,
+          percent: 0.3,
+          amount: 12600000,
+          base_amount: 147000000,
+          status: 'eligible',
+          pit_tax_percent: 10,
+          pit_tax_amount: 1260000,
+          net_payable_amount: 11340000,
+          eligible_at: d5,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          region_id: 'reg-01',
+          region_name: 'Vùng TP.HCM',
+          is_sample: true,
+          created_at: d15,
+        },
+
+        // HĐ 3 (3 ngày trước - Dự kiến & 1 tầng khuyết unassigned)
+        {
+          id: 'comm-s3-sale',
+          contract_id: 'tx-sample-03',
+          contract_code: 'HĐMB-2026-003',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Đặng Tuấn Anh',
+          deal_value: 2800000000,
+          sign_date: d3,
+          recipient_id: 'aaaaaaaa-6666-1111-1111-111111111111',
+          recipient_name: 'Phạm Mai Anh',
+          recipient_role: 'sale_agent',
+          tier: 'sale',
+          rate_percent: 1.5,
+          percent: 1.5,
+          amount: 42000000,
+          base_amount: 98000000,
+          status: 'pending_eligibility',
+          pit_tax_percent: 10,
+          pit_tax_amount: 4200000,
+          net_payable_amount: 37800000,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          region_id: 'reg-01',
+          region_name: 'Vùng TP.HCM',
+          is_sample: true,
+          created_at: d3,
+        },
+        {
+          id: 'comm-s3-unassigned-reg',
+          contract_id: 'tx-sample-03',
+          contract_code: 'HĐMB-2026-003',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Đặng Tuấn Anh',
+          deal_value: 2800000000,
+          sign_date: d3,
+          recipient_id: 'unassigned',
+          recipient_name: 'Chưa gán Giám Đốc Vùng',
+          recipient_role: 'regional_director',
+          tier: 'regional_director',
+          rate_percent: 0.1,
+          percent: 0.1,
+          amount: 2800000,
+          base_amount: 98000000,
+          status: 'unassigned',
+          pit_tax_percent: 0,
+          pit_tax_amount: 0,
+          net_payable_amount: 2800000,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          is_sample: true,
+          notes: 'Tầng khuyết chưa bổ nhiệm Giám đốc Vùng',
+          created_at: d3,
+        },
+
+        // Dòng thu hồi clawback mẫu
+        {
+          id: 'comm-s4-clawback',
+          contract_id: 'tx-sample-04',
+          contract_code: 'HĐMB-2025-999',
+          project_id: '33333333-1111-1111-1111-111111111111',
+          project_name: 'Vinhomes Grand Park',
+          customer_name: 'Khách Huỷ Cọc',
+          deal_value: 1000000000,
+          sign_date: d45,
+          recipient_id: 'aaaaaaaa-6666-1111-1111-111111111111',
+          recipient_name: 'Phạm Mai Anh',
+          recipient_role: 'sale_agent',
+          tier: 'sale',
+          rate_percent: 1.5,
+          percent: 1.5,
+          amount: -15000000,
+          base_amount: 35000000,
+          status: 'clawback',
+          pit_tax_percent: 10,
+          pit_tax_amount: -1500000,
+          net_payable_amount: -13500000,
+          agency_id: 'agency-01',
+          agency_name: 'Sàn Giao Dịch Quận 1',
+          is_sample: true,
+          notes: 'Thu hồi hoa hồng do khách hàng hủy cọc',
+          created_at: d15,
+        }
+      ];
+
+      localStorage.setItem(STORAGE_KEY_COMMISSION_ENTRIES, JSON.stringify(sampleEntries));
     }
     if (!localStorage.getItem(STORAGE_KEY_CONTRACT_REVISIONS)) {
       localStorage.setItem(STORAGE_KEY_CONTRACT_REVISIONS, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEY_BANK_STATEMENTS)) {
       localStorage.setItem(STORAGE_KEY_BANK_STATEMENTS, JSON.stringify([]));
+    }
+    if (!localStorage.getItem(STORAGE_KEY_COMMISSION_RUNS)) {
+      localStorage.setItem(STORAGE_KEY_COMMISSION_RUNS, JSON.stringify([]));
     }
   }
 
@@ -573,15 +902,36 @@ export class ContractRepository {
     txs.unshift(newTx);
     localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(txs));
 
-    // 6. Tính toán & lưu Multi-tier Commissions Snapshot
+    // 6. Tính toán & lưu Multi-tier Commissions Snapshot (5 tầng: Sale, Team, GĐ Sàn, GĐ Vùng, CEO)
     const snapshot = this.calculateMultiTierCommissions({
       dealValue: dealVal,
       agencyRate: commRate,
       saleRate: saleRate,
+      teamLeaderRate: payload.teamLeaderRate ?? 0.3,
+      directorRate: payload.agencyDirectorRate ?? 0.2,
+      regionalDirectorRate: payload.regionalDirectorRate ?? 0.1,
+      ceoRate: payload.ceoRate ?? 0.05,
       coSaleUserId: payload.coSaleUserId,
       coSaleUserName: payload.coSaleUserName,
       coSaleRate: payload.coSaleRate,
+      baseMode: payload.baseMode,
+      teamSplitMode: payload.teamSplitMode,
+      withholdingRate: payload.withholdingRate ?? 0,
+      chain: {
+        sale: { id: payload.saleId || targetLead.assigned_to || payload.currentUser.id, name: payload.saleName || targetLead.assigned_name || payload.currentUser.full_name },
+        team: { id: payload.teamId, name: payload.teamName, leaderId: payload.teamLeaderId, leaderName: payload.teamLeaderName },
+        agencyDirector: { id: payload.agencyDirectorId, name: payload.agencyDirectorName, agencyId: payload.agencyId, agencyName: payload.agencyName },
+        regionalDirector: { id: payload.regionalDirectorId, name: payload.regionalDirectorName, regionId: payload.regionId, regionName: payload.regionName },
+        ceo: { id: payload.ceoId, name: payload.ceoName, organizationId: payload.organizationId },
+        departmentHead: { id: payload.salesManagerId, name: payload.salesManagerName },
+      },
     });
+
+    // Cập nhật các trường hoa hồng vùng, CEO vào hợp đồng
+    newTx.regional_commission_amount = snapshot.regionalDirectorAmount;
+    newTx.regional_commission_rate = snapshot.regionalDirectorRate;
+    newTx.ceo_commission_amount = snapshot.ceoAmount;
+    newTx.ceo_commission_rate = snapshot.ceoRate;
 
     // 7. Tạo lịch thanh toán các đợt (Installments)
     const installments = this.createContractInstallments({
@@ -599,7 +949,44 @@ export class ContractRepository {
       snapshot: snapshot,
       primarySaleId: targetLead.assigned_to || payload.currentUser.id,
       primarySaleName: targetLead.assigned_name || payload.currentUser.full_name,
+      contractCode: contractCode,
+      projectId: payload.projectId,
+      projectName: payload.projectName || targetLead.project_name,
+      customerName: customerName || targetLead.customer_name,
+      dealValue: dealVal,
+      signDate: payload.contractDate || new Date().toISOString(),
+      agencyId: payload.agencyId || payload.currentUser.agency_id,
+      agencyName: payload.agencyName,
+      regionId: payload.regionId || payload.currentUser.region_id,
+      regionName: payload.regionName,
+      isSample: payload.isSample,
+      requestId: requestId,
     });
+
+    // 8b. Ghi nhật ký tính toán hoa hồng (Commission Runs)
+    const commRun: CommissionRun = {
+      id: crypto.randomUUID(),
+      contract_id: newTxId,
+      input_data: {
+        dealValue: dealVal,
+        agencyRate: commRate,
+        saleRate: saleRate,
+        teamLeaderRate: payload.teamLeaderRate,
+        directorRate: payload.agencyDirectorRate,
+        regionalDirectorRate: payload.regionalDirectorRate,
+        ceoRate: payload.ceoRate,
+        baseMode: payload.baseMode,
+        teamSplitMode: payload.teamSplitMode,
+      },
+      output_data: snapshot,
+      triggered_by: payload.currentUser.id,
+      triggered_by_name: payload.currentUser.full_name,
+      run_at: new Date().toISOString(),
+      notes: `Khởi tạo hoa hồng tự động khi tạo hợp đồng ${contractCode}`,
+    };
+    const allRuns: CommissionRun[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_RUNS) || '[]');
+    allRuns.unshift(commRun);
+    localStorage.setItem(STORAGE_KEY_COMMISSION_RUNS, JSON.stringify(allRuns));
 
     const result = {
       success: true,
@@ -1394,13 +1781,43 @@ export class ContractRepository {
     dealValue: number;
     agencyRate: number;
     saleRate: number;
+    teamLeaderRate?: number;
+    salesManagerRate?: number;
+    directorRate?: number;
+    regionalDirectorRate?: number;
+    ceoRate?: number;
     coSaleUserId?: string;
     coSaleUserName?: string;
     coSaleRate?: number;
+    baseMode?: CommissionBaseMode;
+    teamSplitMode?: TeamSplitMode;
+    withholdingRate?: number;
+    chain?: any;
   }): MultiTierCommissionSnapshot {
-    const agencyAmount = Math.round(params.dealValue * (params.agencyRate / 100));
-    const totalSaleAmount = Math.round(params.dealValue * (params.saleRate / 100));
+    const tlRate = params.teamLeaderRate ?? 0.2;
+    const smRate = params.salesManagerRate ?? 0.1;
+    const dirRate = params.directorRate ?? (params.regionalDirectorRate !== undefined ? 0.2 : 0.1);
+    const regRate = params.regionalDirectorRate ?? 0.1;
+    const ceoRate = params.ceoRate ?? 0.05;
 
+    const calcResult = commissionService.calculateCommission({
+      dealValue: params.dealValue,
+      projectCommissionRate: params.agencyRate,
+      tiers: {
+        sale: params.saleRate,
+        team: tlRate,
+        agency_director: dirRate,
+        regional_director: regRate,
+        ceo: ceoRate,
+        department_head: smRate,
+      },
+      baseMode: params.baseMode || 'contract_value',
+      teamSplitMode: params.teamSplitMode || 'leader_only',
+      withholdingRate: params.withholdingRate ?? 0,
+      chain: params.chain,
+    });
+
+    const totalSaleAmount = Math.round(params.dealValue * (params.saleRate / 100));
     let saleAmount = totalSaleAmount;
     let coSaleAmount = 0;
     const coSaleRate = params.coSaleRate || 0;
@@ -1410,31 +1827,36 @@ export class ContractRepository {
       saleAmount = totalSaleAmount - coSaleAmount;
     }
 
-    // Các tầng quản lý theo chuỗi trực thuộc (Team Leader: 0.2%, Sales Manager: 0.1%, Director: 0.1%)
-    const teamLeaderRate = 0.2;
-    const teamLeaderAmount = Math.round(params.dealValue * (teamLeaderRate / 100));
-    const salesManagerRate = 0.1;
-    const salesManagerAmount = Math.round(params.dealValue * (salesManagerRate / 100));
-    const directorRate = 0.1;
-    const directorAmount = Math.round(params.dealValue * (directorRate / 100));
+    const teamLeaderAmount = Math.round(params.dealValue * (tlRate / 100));
+    const salesManagerAmount = Math.round(params.dealValue * (smRate / 100));
+    const directorAmount = Math.round(params.dealValue * (dirRate / 100));
+    const regionalDirectorAmount = Math.round(params.dealValue * (regRate / 100));
+    const ceoAmount = Math.round(params.dealValue * (ceoRate / 100));
 
     return {
       agencyRate: params.agencyRate,
-      agencyAmount,
+      agencyAmount: calcResult.agencyCommissionAmount,
       saleRate: params.saleRate,
       saleAmount,
-      teamLeaderRate,
+      teamLeaderRate: tlRate,
       teamLeaderAmount,
-      salesManagerRate,
+      salesManagerRate: smRate,
       salesManagerAmount,
-      directorRate,
+      directorRate: dirRate,
       directorAmount,
+      regionalDirectorRate: regRate,
+      regionalDirectorAmount,
+      ceoRate: ceoRate,
+      ceoAmount,
+      companyRetainedRate: calcResult.companyRetainedRate,
+      companyRetainedAmount: calcResult.companyRetainedAmount,
       coSaleRate: params.coSaleUserId ? coSaleRate : undefined,
       coSaleAmount: params.coSaleUserId ? coSaleAmount : undefined,
       coSaleUserId: params.coSaleUserId,
       coSaleUserName: params.coSaleUserName,
       policyVersion: '2026.v1',
       createdAt: new Date().toISOString(),
+      items: calcResult.items,
     };
   }
 
@@ -1547,113 +1969,246 @@ export class ContractRepository {
     snapshot: MultiTierCommissionSnapshot;
     primarySaleId: string;
     primarySaleName: string;
+    contractCode?: string;
+    projectId?: string;
+    projectName?: string;
+    customerName?: string;
+    dealValue?: number;
+    signDate?: string;
+    agencyId?: string;
+    agencyName?: string;
+    regionId?: string;
+    regionName?: string;
+    isSample?: boolean;
+    requestId?: string;
   }): CommissionEntry[] {
     this.ensureInitialized();
     const entries: CommissionEntry[] = [];
     const nowIso = new Date().toISOString();
     const pitTaxRate = 10; // Thuế TNCN khấu trừ 10%
 
-    // 1. Sale chính
-    const salePit = Math.round(params.snapshot.saleAmount * (pitTaxRate / 100));
-    entries.push({
-      id: crypto.randomUUID(),
-      contract_id: params.contractId,
-      recipient_id: params.primarySaleId,
-      recipient_name: params.primarySaleName,
-      recipient_role: 'sale_agent',
-      rate_percent: params.snapshot.saleRate,
-      amount: params.snapshot.saleAmount,
-      status: 'pending_eligibility',
-      condition_threshold_percent: 30,
-      policy_version: params.snapshot.policyVersion,
-      pit_tax_percent: pitTaxRate,
-      pit_tax_amount: salePit,
-      net_payable_amount: params.snapshot.saleAmount - salePit,
-      notes: 'Hoa hồng chuyên viên tư vấn trực tiếp',
-      created_at: nowIso,
-    });
+    if (params.snapshot.items && params.snapshot.items.length > 0) {
+      for (const item of params.snapshot.items) {
+        let recipientId = item.recipient_id || 'unassigned';
+        let recipientName = item.recipient_name || (item.is_unassigned ? `Chưa gán (${item.label})` : 'Nhân sự');
 
-    // 2. Co-sale (nếu có)
-    if (params.snapshot.coSaleUserId && params.snapshot.coSaleAmount) {
-      const coPit = Math.round(params.snapshot.coSaleAmount * (pitTaxRate / 100));
+        if (item.tier === 'sale') {
+          recipientId = params.primarySaleId;
+          recipientName = params.primarySaleName;
+        }
+
+        const tax = (item.pit_tax_amount && item.pit_tax_amount > 0)
+          ? item.pit_tax_amount
+          : Math.round(item.amount * (pitTaxRate / 100));
+        entries.push({
+          id: crypto.randomUUID(),
+          contract_id: params.contractId,
+          recipient_id: recipientId,
+          recipient_name: recipientName,
+          recipient_role: item.recipient_role || item.tier,
+          tier: item.tier,
+          rate_percent: item.rate,
+          percent: item.rate,
+          amount: item.amount,
+          base_amount: params.snapshot.agencyAmount,
+          status: item.is_unassigned ? 'unassigned' : 'pending_eligibility',
+          condition_threshold_percent: 30,
+          policy_version: params.snapshot.policyVersion,
+          policy_version_id: params.snapshot.policyVersion,
+          pit_tax_percent: pitTaxRate,
+          pit_tax_amount: tax,
+          net_payable_amount: item.amount - tax,
+          contract_code: params.contractCode,
+          project_id: params.projectId,
+          project_name: params.projectName,
+          customer_name: params.customerName,
+          deal_value: params.dealValue,
+          sign_date: params.signDate,
+          agency_id: params.agencyId,
+          agency_name: params.agencyName,
+          region_id: params.regionId,
+          region_name: params.regionName,
+          is_sample: params.isSample || false,
+          request_id: params.requestId,
+          notes: item.notes || `Hoa hồng ${item.label}`,
+          created_at: nowIso,
+        });
+      }
+    } else {
+      // 1. Sale chính
+      const salePit = Math.round(params.snapshot.saleAmount * (pitTaxRate / 100));
       entries.push({
         id: crypto.randomUUID(),
         contract_id: params.contractId,
-        recipient_id: params.snapshot.coSaleUserId,
-        recipient_name: params.snapshot.coSaleUserName || 'Đồng Sale',
-        recipient_role: 'co_sale',
-        rate_percent: params.snapshot.coSaleRate || 0,
-        amount: params.snapshot.coSaleAmount,
+        recipient_id: params.primarySaleId,
+        recipient_name: params.primarySaleName,
+        recipient_role: 'sale_agent',
+        tier: 'sale',
+        rate_percent: params.snapshot.saleRate,
+        percent: params.snapshot.saleRate,
+        amount: params.snapshot.saleAmount,
+        base_amount: params.snapshot.agencyAmount,
         status: 'pending_eligibility',
         condition_threshold_percent: 30,
         policy_version: params.snapshot.policyVersion,
         pit_tax_percent: pitTaxRate,
-        pit_tax_amount: coPit,
-        net_payable_amount: params.snapshot.coSaleAmount - coPit,
-        notes: 'Hoa hồng đồng tư vấn (Co-sale)',
+        pit_tax_amount: salePit,
+        net_payable_amount: params.snapshot.saleAmount - salePit,
+        contract_code: params.contractCode,
+        project_id: params.projectId,
+        project_name: params.projectName,
+        customer_name: params.customerName,
+        deal_value: params.dealValue,
+        sign_date: params.signDate,
+        agency_id: params.agencyId,
+        agency_name: params.agencyName,
+        region_id: params.regionId,
+        region_name: params.regionName,
+        is_sample: params.isSample || false,
+        notes: 'Hoa hồng chuyên viên tư vấn trực tiếp',
         created_at: nowIso,
       });
+
+      // 2. Co-sale (nếu có)
+      if (params.snapshot.coSaleUserId && params.snapshot.coSaleAmount) {
+        const coPit = Math.round(params.snapshot.coSaleAmount * (pitTaxRate / 100));
+        entries.push({
+          id: crypto.randomUUID(),
+          contract_id: params.contractId,
+          recipient_id: params.snapshot.coSaleUserId,
+          recipient_name: params.snapshot.coSaleUserName || 'Đồng Sale',
+          recipient_role: 'co_sale',
+          tier: 'co_sale',
+          rate_percent: params.snapshot.coSaleRate || 0,
+          percent: params.snapshot.coSaleRate || 0,
+          amount: params.snapshot.coSaleAmount,
+          base_amount: params.snapshot.agencyAmount,
+          status: 'pending_eligibility',
+          condition_threshold_percent: 30,
+          policy_version: params.snapshot.policyVersion,
+          pit_tax_percent: pitTaxRate,
+          pit_tax_amount: coPit,
+          net_payable_amount: params.snapshot.coSaleAmount - coPit,
+          notes: 'Hoa hồng đồng tư vấn (Co-sale)',
+          created_at: nowIso,
+        });
+      }
+
+      // 3. Trưởng nhóm
+      const tlPit = Math.round(params.snapshot.teamLeaderAmount * (pitTaxRate / 100));
+      entries.push({
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        recipient_id: 'tl-default',
+        recipient_name: 'Trưởng Nhóm Kinh Doanh',
+        recipient_role: 'team_leader',
+        tier: 'team',
+        rate_percent: params.snapshot.teamLeaderRate,
+        percent: params.snapshot.teamLeaderRate,
+        amount: params.snapshot.teamLeaderAmount,
+        base_amount: params.snapshot.agencyAmount,
+        status: 'pending_eligibility',
+        condition_threshold_percent: 30,
+        policy_version: params.snapshot.policyVersion,
+        pit_tax_percent: pitTaxRate,
+        pit_tax_amount: tlPit,
+        net_payable_amount: params.snapshot.teamLeaderAmount - tlPit,
+        notes: 'Hoa hồng quản lý cấp nhóm',
+        created_at: nowIso,
+      });
+
+      // 4. Trưởng phòng
+      const smPit = Math.round(params.snapshot.salesManagerAmount * (pitTaxRate / 100));
+      entries.push({
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        recipient_id: 'sm-default',
+        recipient_name: 'Trưởng Phòng Kinh Doanh',
+        recipient_role: 'sales_manager',
+        tier: 'department_head',
+        rate_percent: params.snapshot.salesManagerRate,
+        percent: params.snapshot.salesManagerRate,
+        amount: params.snapshot.salesManagerAmount,
+        base_amount: params.snapshot.agencyAmount,
+        status: 'pending_eligibility',
+        condition_threshold_percent: 30,
+        policy_version: params.snapshot.policyVersion,
+        pit_tax_percent: pitTaxRate,
+        pit_tax_amount: smPit,
+        net_payable_amount: params.snapshot.salesManagerAmount - smPit,
+        notes: 'Hoa hồng quản lý phòng kinh doanh',
+        created_at: nowIso,
+      });
+
+      // 5. Giám đốc sàn
+      const dirPit = Math.round(params.snapshot.directorAmount * (pitTaxRate / 100));
+      entries.push({
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        recipient_id: 'dir-default',
+        recipient_name: 'Giám Đốc Sàn',
+        recipient_role: 'director',
+        tier: 'agency_director',
+        rate_percent: params.snapshot.directorRate,
+        percent: params.snapshot.directorRate,
+        amount: params.snapshot.directorAmount,
+        base_amount: params.snapshot.agencyAmount,
+        status: 'pending_eligibility',
+        condition_threshold_percent: 30,
+        policy_version: params.snapshot.policyVersion,
+        pit_tax_percent: pitTaxRate,
+        pit_tax_amount: dirPit,
+        net_payable_amount: params.snapshot.directorAmount - dirPit,
+        notes: 'Hoa hồng ban giám đốc sàn',
+        created_at: nowIso,
+      });
+
+      // 6. Giám đốc vùng (nếu có)
+      if (params.snapshot.regionalDirectorAmount && params.snapshot.regionalDirectorAmount > 0) {
+        const regPit = Math.round(params.snapshot.regionalDirectorAmount * (pitTaxRate / 100));
+        entries.push({
+          id: crypto.randomUUID(),
+          contract_id: params.contractId,
+          recipient_id: 'reg-default',
+          recipient_name: 'Giám Đốc Vùng',
+          recipient_role: 'regional_director',
+          tier: 'regional_director',
+          rate_percent: params.snapshot.regionalDirectorRate || 0.1,
+          percent: params.snapshot.regionalDirectorRate || 0.1,
+          amount: params.snapshot.regionalDirectorAmount,
+          base_amount: params.snapshot.agencyAmount,
+          status: 'pending_eligibility',
+          pit_tax_percent: pitTaxRate,
+          pit_tax_amount: regPit,
+          net_payable_amount: params.snapshot.regionalDirectorAmount - regPit,
+          notes: 'Hoa hồng lãnh đạo vùng kinh doanh',
+          created_at: nowIso,
+        });
+      }
+
+      // 7. Tổng Giám Đốc (nếu có)
+      if (params.snapshot.ceoAmount && params.snapshot.ceoAmount > 0) {
+        const ceoPit = Math.round(params.snapshot.ceoAmount * (pitTaxRate / 100));
+        entries.push({
+          id: crypto.randomUUID(),
+          contract_id: params.contractId,
+          recipient_id: 'ceo-default',
+          recipient_name: 'Tổng Giám Đốc (CEO)',
+          recipient_role: 'ceo',
+          tier: 'ceo',
+          rate_percent: params.snapshot.ceoRate || 0.05,
+          percent: params.snapshot.ceoRate || 0.05,
+          amount: params.snapshot.ceoAmount,
+          base_amount: params.snapshot.agencyAmount,
+          status: 'pending_eligibility',
+          pit_tax_percent: pitTaxRate,
+          pit_tax_amount: ceoPit,
+          net_payable_amount: params.snapshot.ceoAmount - ceoPit,
+          notes: 'Hoa hồng ban điều hành chung',
+          created_at: nowIso,
+        });
+      }
     }
-
-    // 3. Trưởng nhóm
-    const tlPit = Math.round(params.snapshot.teamLeaderAmount * (pitTaxRate / 100));
-    entries.push({
-      id: crypto.randomUUID(),
-      contract_id: params.contractId,
-      recipient_id: 'tl-default',
-      recipient_name: 'Trưởng Nhóm Kinh Doanh',
-      recipient_role: 'team_leader',
-      rate_percent: params.snapshot.teamLeaderRate,
-      amount: params.snapshot.teamLeaderAmount,
-      status: 'pending_eligibility',
-      condition_threshold_percent: 30,
-      policy_version: params.snapshot.policyVersion,
-      pit_tax_percent: pitTaxRate,
-      pit_tax_amount: tlPit,
-      net_payable_amount: params.snapshot.teamLeaderAmount - tlPit,
-      notes: 'Hoa hồng quản lý cấp nhóm',
-      created_at: nowIso,
-    });
-
-    // 4. Trưởng phòng
-    const smPit = Math.round(params.snapshot.salesManagerAmount * (pitTaxRate / 100));
-    entries.push({
-      id: crypto.randomUUID(),
-      contract_id: params.contractId,
-      recipient_id: 'sm-default',
-      recipient_name: 'Trưởng Phòng Kinh Doanh',
-      recipient_role: 'sales_manager',
-      rate_percent: params.snapshot.salesManagerRate,
-      amount: params.snapshot.salesManagerAmount,
-      status: 'pending_eligibility',
-      condition_threshold_percent: 30,
-      policy_version: params.snapshot.policyVersion,
-      pit_tax_percent: pitTaxRate,
-      pit_tax_amount: smPit,
-      net_payable_amount: params.snapshot.salesManagerAmount - smPit,
-      notes: 'Hoa hồng quản lý phòng kinh doanh',
-      created_at: nowIso,
-    });
-
-    // 5. Giám đốc sàn
-    const dirPit = Math.round(params.snapshot.directorAmount * (pitTaxRate / 100));
-    entries.push({
-      id: crypto.randomUUID(),
-      contract_id: params.contractId,
-      recipient_id: 'dir-default',
-      recipient_name: 'Giám Đốc Sàn',
-      recipient_role: 'director',
-      rate_percent: params.snapshot.directorRate,
-      amount: params.snapshot.directorAmount,
-      status: 'pending_eligibility',
-      condition_threshold_percent: 30,
-      policy_version: params.snapshot.policyVersion,
-      pit_tax_percent: pitTaxRate,
-      pit_tax_amount: dirPit,
-      net_payable_amount: params.snapshot.directorAmount - dirPit,
-      notes: 'Hoa hồng ban giám đốc sàn',
-      created_at: nowIso,
-    });
 
     const allEntries: CommissionEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES) || '[]');
     allEntries.unshift(...entries);
@@ -1805,6 +2360,224 @@ export class ContractRepository {
     if (contractId) entries = entries.filter(e => e.contract_id === contractId);
     if (recipientId) entries = entries.filter(e => e.recipient_id === recipientId);
     return entries;
+  }
+
+  /**
+   * 17a. LẤY DANH SÁCH BÚT TOÁN HOA HỒNG CÓ PHÂN QUYỀN VÀ BỘ LỌC ĐA TIÊU CHÍ
+   */
+  async getCommissionEntries(
+    filters: {
+      contractId?: string;
+      recipientId?: string;
+      tier?: CommissionTierRole;
+      status?: CommissionEntryStatus;
+      isSample?: boolean;
+      projectId?: string;
+      regionId?: string;
+      agencyId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    } = {},
+    currentUser?: UserProfile
+  ): Promise<CommissionEntry[]> {
+    this.ensureInitialized();
+    let entries: CommissionEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES) || '[]');
+
+    // Phân quyền Scoping nếu có currentUser
+    if (currentUser) {
+      entries = commissionService.filterCommissionEntriesByScope(entries, currentUser);
+    }
+
+    if (filters.contractId) entries = entries.filter(e => e.contract_id === filters.contractId);
+    if (filters.recipientId && filters.recipientId !== 'all') entries = entries.filter(e => e.recipient_id === filters.recipientId);
+    if (filters.tier) entries = entries.filter(e => e.tier === filters.tier);
+    if (filters.status) entries = entries.filter(e => e.status === filters.status);
+    if (filters.isSample !== undefined) entries = entries.filter(e => Boolean(e.is_sample) === filters.isSample);
+    if (filters.projectId && filters.projectId !== 'all') entries = entries.filter(e => e.project_id === filters.projectId);
+    if (filters.regionId && filters.regionId !== 'all') entries = entries.filter(e => e.region_id === filters.regionId);
+    if (filters.agencyId && filters.agencyId !== 'all') entries = entries.filter(e => e.agency_id === filters.agencyId);
+
+    if (filters.dateFrom || filters.dateTo) {
+      const start = filters.dateFrom ? new Date(filters.dateFrom).getTime() : 0;
+      const end = filters.dateTo ? new Date(filters.dateTo).setHours(23, 59, 59, 999) : Infinity;
+      entries = entries.filter(e => {
+        const time = new Date(e.sign_date || e.created_at).getTime();
+        return time >= start && time <= end;
+      });
+    }
+
+    return entries;
+  }
+
+  /**
+   * 17b. GÁN NGƯỜI NHẬN CHO TẦNG KHUYẾT (UNASSIGNED TIER RECIPIENT ASSIGNMENT)
+   */
+  async assignCommissionRecipient(
+    entryId: string,
+    newRecipientId: string,
+    newRecipientName: string,
+    reason: string,
+    currentUser: UserProfile
+  ): Promise<CommissionEntry> {
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('gán người nhận hoa hồng');
+    }
+    const trimmedReason = (reason || '').trim();
+    if (trimmedReason.length < 10) {
+      throw new Error('invalid_reason: Lý do gán người nhận phải có ít nhất 10 ký tự!');
+    }
+    if (!['admin', 'ceo', 'director', 'regional_director'].includes(currentUser.role)) {
+      throw new Error('forbidden: Chỉ Admin, CEO hoặc Giám đốc mới có quyền gán người nhận hoa hồng.');
+    }
+
+    this.ensureInitialized();
+    const entries: CommissionEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES) || '[]');
+    const targetIdx = entries.findIndex(e => e.id === entryId);
+    if (targetIdx === -1) throw new Error('entry_not_found: Bút toán hoa hồng không tồn tại.');
+
+    const oldEntry = { ...entries[targetIdx] };
+    entries[targetIdx].recipient_id = newRecipientId;
+    entries[targetIdx].recipient_name = newRecipientName;
+    if (entries[targetIdx].status === 'unassigned') {
+      entries[targetIdx].status = 'pending_eligibility';
+    }
+    entries[targetIdx].notes = `${entries[targetIdx].notes || ''} [Gán người nhận bởi ${currentUser.full_name}: ${trimmedReason}]`;
+    entries[targetIdx].updated_at = new Date().toISOString();
+
+    localStorage.setItem(STORAGE_KEY_COMMISSION_ENTRIES, JSON.stringify(entries));
+
+    // Ghi audit log
+    const auditLogs = JSON.parse(localStorage.getItem('crm_audit_logs') || '[]');
+    auditLogs.unshift({
+      id: crypto.randomUUID(),
+      user_id: currentUser.id,
+      actor_id: currentUser.id,
+      action: 'commission_recipient_assigned',
+      table_name: 'commission_entries',
+      record_id: entryId,
+      old_data: { recipient_id: oldEntry.recipient_id, recipient_name: oldEntry.recipient_name, status: oldEntry.status },
+      new_data: { recipient_id: newRecipientId, recipient_name: newRecipientName, reason: trimmedReason },
+      ip_address: '127.0.0.1',
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem('crm_audit_logs', JSON.stringify(auditLogs.slice(0, 1000)));
+
+    return entries[targetIdx];
+  }
+
+  /**
+   * 17c. ĐỔI TRẠNG THÁI BÚT TOÁN HOA HỒNG (CHẶN SỬA KHOẢN ĐÃ CHI)
+   */
+  async updateCommissionEntryStatus(
+    entryId: string,
+    newStatus: CommissionEntryStatus,
+    reason: string,
+    currentUser: UserProfile
+  ): Promise<CommissionEntry> {
+    if (authRepository.isImpersonating()) {
+      authRepository.assertNotImpersonating('cập nhật trạng thái hoa hồng');
+    }
+    if (!['admin', 'ceo', 'director', 'regional_director', 'accountant'].includes(currentUser.role)) {
+      throw new Error('forbidden: Bạn không có thẩm quyền thay đổi trạng thái chi trả hoa hồng.');
+    }
+
+    this.ensureInitialized();
+    const entries: CommissionEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES) || '[]');
+    const targetIdx = entries.findIndex(e => e.id === entryId);
+    if (targetIdx === -1) throw new Error('entry_not_found: Bút toán hoa hồng không tồn tại.');
+
+    const currentEntry = entries[targetIdx];
+    // Chặn sửa khoản đã chi (chỉ được tạo bút toán đảo hoặc clawback)
+    if (currentEntry.status === 'paid' && newStatus !== 'clawback') {
+      throw new Error('cannot_modify_paid_commission: Không thể sửa trực tiếp khoản hoa hồng đã chi! Phải thực hiện qua bút toán điều chỉnh hoặc thu hồi.');
+    }
+
+    const nowIso = new Date().toISOString();
+    currentEntry.status = newStatus;
+    if (newStatus === 'paid') currentEntry.paid_at = nowIso;
+    if (newStatus === 'eligible') currentEntry.eligible_at = nowIso;
+    if (newStatus === 'collected_from_developer' || newStatus === 'received') currentEntry.received_at = nowIso;
+    currentEntry.updated_at = nowIso;
+
+    localStorage.setItem(STORAGE_KEY_COMMISSION_ENTRIES, JSON.stringify(entries));
+
+    // Ghi audit log
+    const auditLogs = JSON.parse(localStorage.getItem('crm_audit_logs') || '[]');
+    auditLogs.unshift({
+      id: crypto.randomUUID(),
+      user_id: currentUser.id,
+      actor_id: currentUser.id,
+      action: 'commission_status_updated',
+      table_name: 'commission_entries',
+      record_id: entryId,
+      old_data: { status: currentEntry.status },
+      new_data: { new_status: newStatus, reason },
+      ip_address: '127.0.0.1',
+      created_at: nowIso,
+    });
+    localStorage.setItem('crm_audit_logs', JSON.stringify(auditLogs.slice(0, 1000)));
+
+    return currentEntry;
+  }
+
+  /**
+   * 17d. XEM TRƯỚC PHÂN BỔ HOA HỒNG (RPC GET_COMMISSION_PREVIEW)
+   */
+  async getCommissionPreview(params: CalculateCommissionParams): Promise<CommissionCalculationResult> {
+    return commissionService.calculateCommission(params);
+  }
+
+  /**
+   * 17e. TỔNG HỢP BÁO CÁO THU NHẬP THEO NGƯỜI DÙNG & TẦNG
+   */
+  async getIncomeSummary(
+    params: {
+      userIds?: string[];
+      tiers?: CommissionTierRole[];
+      statuses?: CommissionEntryStatus[];
+      dateBasis?: 'sign_date' | 'eligible_at' | 'paid_at';
+      dateFrom?: string;
+      dateTo?: string;
+      projectId?: string;
+      regionId?: string;
+      agencyId?: string;
+    },
+    currentUser: UserProfile
+  ) {
+    this.ensureInitialized();
+    const entries: CommissionEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES) || '[]');
+    return commissionService.calculateIncomeSummary({
+      ...params,
+      entries,
+      currentUser,
+    });
+  }
+
+  /**
+   * 17f. XUẤT CSV BÁO CÁO THU NHẬP CÓ AUDIT VÀ CHẶN IMPERSONATION
+   */
+  async exportIncomeCsv(entries: CommissionEntry[], currentUser: UserProfile): Promise<string> {
+    if (authRepository.isImpersonating()) {
+      throw new Error('impersonation_readonly: Không được phép xuất dữ liệu khi đang trong chế độ giả lập góc nhìn!');
+    }
+    const csv = commissionService.exportIncomeToCsv(entries);
+
+    // Ghi audit log xuất file
+    const auditLogs = JSON.parse(localStorage.getItem('crm_audit_logs') || '[]');
+    auditLogs.unshift({
+      id: crypto.randomUUID(),
+      user_id: currentUser.id,
+      actor_id: currentUser.id,
+      action: 'income_report_exported',
+      table_name: 'commission_entries',
+      record_id: 'export_csv',
+      new_data: { row_count: entries.length },
+      ip_address: '127.0.0.1',
+      created_at: new Date().toISOString(),
+    });
+    localStorage.setItem('crm_audit_logs', JSON.stringify(auditLogs.slice(0, 1000)));
+
+    return csv;
   }
 
   /**

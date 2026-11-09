@@ -191,6 +191,13 @@ export interface Team {
   regional_commission_rate?: number;
   ceo_commission_amount?: number;
   ceo_commission_rate?: number;
+  team_commission_amount?: number;
+  team_commission_rate?: number;
+  director_commission_amount?: number;
+  director_commission_rate?: number;
+  company_retained_amount?: number;
+  company_retained_rate?: number;
+  commission_rate?: number;
 
   // Maker-Checker đa tầng theo ngưỡng hợp đồng (L1: Sàn, L2: Vùng, L3: CEO)
   requires_l1_approval?: boolean;
@@ -229,6 +236,10 @@ export interface ProjectCommissionPolicy {
   project_id: string;
   company_commission_rate: number;
   recognition_milestone: RecognitionMilestone;
+  base_mode?: CommissionBaseMode;
+  team_split_mode?: TeamSplitMode;
+  withholding_rate?: number;
+  tier_rates?: Partial<Record<CommissionTierRole, number>>;
   valid_from: string;
   valid_to?: string | null;
   is_active: boolean;
@@ -396,6 +407,13 @@ export interface Lead {
   regional_commission_rate?: number;
   ceo_commission_amount?: number;
   ceo_commission_rate?: number;
+  team_commission_amount?: number;
+  team_commission_rate?: number;
+  director_commission_amount?: number;
+  director_commission_rate?: number;
+  company_retained_amount?: number;
+  company_retained_rate?: number;
+  commission_rate?: number;
 
   // Maker-Checker đa tầng theo ngưỡng hợp đồng (L1: Sàn, L2: Vùng, L3: CEO)
   requires_l1_approval?: boolean;
@@ -505,6 +523,13 @@ export interface Transaction {
   regional_commission_rate?: number;
   ceo_commission_amount?: number;
   ceo_commission_rate?: number;
+  team_commission_amount?: number;
+  team_commission_rate?: number;
+  director_commission_amount?: number;
+  director_commission_rate?: number;
+  company_retained_amount?: number;
+  company_retained_rate?: number;
+  commission_rate?: number;
 
   // Maker-Checker đa tầng theo ngưỡng hợp đồng (L1: Sàn, L2: Vùng, L3: CEO)
   requires_l1_approval?: boolean;
@@ -1215,6 +1240,61 @@ export interface ContractInstallment {
   updated_at?: string;
 }
 
+export type CommissionTierRole = 
+  | 'sale' 
+  | 'team' 
+  | 'agency_director' 
+  | 'regional_director' 
+  | 'ceo' 
+  | 'department_head' 
+  | 'ops_fund' 
+  | 'co_sale' 
+  | 'referrer' 
+  | 'company_retained';
+
+export type CommissionBaseMode = 'contract_value' | 'company_commission';
+export type TeamSplitMode = 'leader_only' | 'equal' | 'by_ratio';
+
+export type CommissionEntryStatus = 
+  | 'pending_eligibility'
+  | 'expected'
+  | 'eligible'
+  | 'collected_from_developer'
+  | 'received'
+  | 'paid'
+  | 'clawback'
+  | 'unassigned';
+
+export interface CommissionTierItem {
+  tier: CommissionTierRole;
+  label: string;
+  rate: number;
+  amount: number;
+  recipient_id?: string;
+  recipient_name?: string;
+  recipient_role?: string;
+  is_unassigned?: boolean;
+  notes?: string;
+  pit_tax_amount?: number;
+  net_payable_amount?: number;
+}
+
+export interface CommissionCalculationResult {
+  dealValue: number;
+  baseMode: CommissionBaseMode;
+  baseAmount: number;
+  agencyCommissionRate: number;
+  agencyCommissionAmount: number;
+  totalDistributedRate: number;
+  totalDistributedAmount: number;
+  companyRetainedRate: number;
+  companyRetainedAmount: number;
+  items: CommissionTierItem[];
+  isExceedsPool: boolean;
+  withholdingRate: number;
+  policyVersion: string;
+}
+
 export interface MultiTierCommissionSnapshot {
   agencyRate: number;
   agencyAmount: number;
@@ -1226,12 +1306,19 @@ export interface MultiTierCommissionSnapshot {
   salesManagerAmount: number;
   directorRate: number;
   directorAmount: number;
+  regionalDirectorRate?: number;
+  regionalDirectorAmount?: number;
+  ceoRate?: number;
+  ceoAmount?: number;
+  companyRetainedRate?: number;
+  companyRetainedAmount?: number;
   coSaleRate?: number;
   coSaleAmount?: number;
   coSaleUserId?: string;
   coSaleUserName?: string;
   policyVersion: string;
   createdAt: string;
+  items?: CommissionTierItem[];
 }
 
 export interface CommissionEntry {
@@ -1240,18 +1327,68 @@ export interface CommissionEntry {
   recipient_id: string;
   recipient_name?: string;
   recipient_role: string;
+  tier?: CommissionTierRole;
   rate_percent: number;
+  percent?: number;
   amount: number;
-  status: 'pending_eligibility' | 'eligible' | 'collected_from_developer' | 'paid' | 'clawback';
+  base_amount?: number;
+  status: CommissionEntryStatus;
   condition_threshold_percent?: number;
   clawback_source_id?: string;
   policy_version?: string;
+  policy_version_id?: string;
   pit_tax_percent?: number;
   pit_tax_amount?: number;
   net_payable_amount?: number;
+  eligible_at?: string;
+  received_at?: string;
+  paid_at?: string;
+  request_id?: string;
+  is_sample?: boolean;
   notes?: string;
   created_at: string;
   updated_at?: string;
+
+  // Joined fields for display
+  contract_code?: string;
+  project_id?: string;
+  project_name?: string;
+  customer_name?: string;
+  deal_value?: number;
+  sign_date?: string;
+  agency_id?: string;
+  agency_name?: string;
+  region_id?: string;
+  region_name?: string;
+}
+
+export interface CommissionRun {
+  id: string;
+  contract_id: string;
+  input_data: Record<string, any>;
+  output_data: Record<string, any>;
+  triggered_by: string;
+  triggered_by_name?: string;
+  run_at: string;
+  notes?: string;
+}
+
+export interface IncomeSummary {
+  userId: string;
+  userName: string;
+  userRole: string;
+  agencyName?: string;
+  regionName?: string;
+  totalGrossIncome: number;
+  totalNetIncome: number;
+  totalTaxAmount: number;
+  paidIncome: number;
+  eligibleIncome: number;
+  expectedIncome: number;
+  clawbackIncome: number;
+  tierBreakdown: Record<string, number>;
+  projectBreakdown: Record<string, { projectName: string; amount: number; count: number }>;
+  entryCount: number;
 }
 
 export interface ContractRevision {

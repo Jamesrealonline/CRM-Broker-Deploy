@@ -39,14 +39,33 @@ import {
   Copy,
   Trash2,
   RotateCcw,
-  Users
+  Users,
+  Coins,
+  Eye,
+  Layers,
+  Percent
 } from 'lucide-react';
 import { contractRepository } from '@/data/repositories/contractRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { leadRepository } from '@/data/repositories/leadRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
 import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
-import { Transaction, Project, Lead, ProjectUnit, LeadSource, Region, Agency, Team, UserProfile, Organization } from '@/domain/types';
+import { commissionService } from '@/domain/services/commissionService';
+import { 
+  Transaction, 
+  Project, 
+  Lead, 
+  ProjectUnit, 
+  LeadSource, 
+  Region, 
+  Agency, 
+  Team, 
+  UserProfile, 
+  Organization,
+  CommissionBaseMode,
+  TeamSplitMode,
+  CommissionEntry
+} from '@/domain/types';
 import { useAuthStore } from '@/app/useAuthStore';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -57,6 +76,8 @@ import { useDateRange } from '@/hooks/useDateRange';
 import { DateRangeFilter } from '@/components/common/DateRangeFilter';
 import { canViewFullPII, maskPhone } from '@/lib/masking';
 import { controlledDataService } from '@/domain/services/controlledDataService';
+import { IncomeLedgerTab } from './IncomeLedgerTab';
+import { ContractCommissionDetailModal } from './ContractCommissionDetailModal';
 
 export const TransactionsPage: React.FC = () => {
   const { currentUser } = useAuthStore();
@@ -161,6 +182,13 @@ export const TransactionsPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
   const [commissionRate, setCommissionRate] = useState<number>(3.5);
   const [saleCommissionRate, setSaleCommissionRate] = useState<number>(1.5);
+  const [teamLeaderRate, setTeamLeaderRate] = useState<number>(0.3);
+  const [agencyDirectorRate, setAgencyDirectorRate] = useState<number>(0.2);
+  const [regionalDirectorRate, setRegionalDirectorRate] = useState<number>(0.1);
+  const [ceoRate, setCeoRate] = useState<number>(0.05);
+  const [baseMode, setBaseMode] = useState<CommissionBaseMode>('contract_value');
+  const [teamSplitMode, setTeamSplitMode] = useState<TeamSplitMode>('leader_only');
+  const [withholdingRate, setWithholdingRate] = useState<number>(0);
   const [contractSaleId, setContractSaleId] = useState<string>('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -217,6 +245,26 @@ export const TransactionsPage: React.FC = () => {
   });
   const [includeSample, setIncludeSample] = useState(false);
   const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
+  // Tab chính: Hợp đồng vs Sổ cái thu nhập 5 cấp bậc
+  const [activeMainTab, setActiveMainTab] = useState<'contracts' | 'income'>('contracts');
+
+  // Modal Chi tiết HĐMB & Sổ cái hoa hồng 5 tầng
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailTx, setDetailTx] = useState<Transaction | null>(null);
+
+  const handleOpenDetailModal = (tx: Transaction) => {
+    setDetailTx(tx);
+    setDetailModalOpen(true);
+  };
+
+  const handleViewContractById = (contractId: string) => {
+    const found = transactions.find(t => t.id === contractId);
+    if (found) {
+      setDetailTx(found);
+      setDetailModalOpen(true);
+    }
+  };
 
   // Modal Xóa / Hủy hợp đồng có kiểm soát (Admin / Giám đốc Sàn)
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -501,6 +549,62 @@ export const TransactionsPage: React.FC = () => {
     };
   }, [contractSaleProfile, allTeams, allAgencies, allRegions, allOrganizations, allProfiles, currentUser]);
 
+  // Tính toán trước hoa hồng 5 tầng theo thời gian thực (Live Preview)
+  const liveCommissionPreview = useMemo(() => {
+    return commissionService.calculateCommission({
+      dealValue: dealValue,
+      projectCommissionRate: commissionRate,
+      tiers: {
+        sale: saleCommissionRate,
+        team: teamLeaderRate,
+        agency_director: agencyDirectorRate,
+        regional_director: regionalDirectorRate,
+        ceo: ceoRate,
+      },
+      baseMode: baseMode,
+      teamSplitMode: teamSplitMode,
+      withholdingRate: withholdingRate,
+      chain: {
+        sale: { id: contractHierarchy.saleId, name: contractHierarchy.saleName },
+        team: { 
+          id: contractHierarchy.teamId, 
+          name: contractHierarchy.teamName, 
+          leaderId: contractHierarchy.teamLeaderId, 
+          leaderName: contractHierarchy.teamLeaderName 
+        },
+        agencyDirector: { 
+          id: contractHierarchy.agencyDirectorId, 
+          name: contractHierarchy.agencyDirectorName, 
+          agencyId: contractHierarchy.agencyId, 
+          agencyName: contractHierarchy.agencyName 
+        },
+        regionalDirector: { 
+          id: contractHierarchy.regionalDirectorId, 
+          name: contractHierarchy.regionalDirectorName, 
+          regionId: contractHierarchy.regionId, 
+          regionName: contractHierarchy.regionName 
+        },
+        ceo: { 
+          id: contractHierarchy.ceoId, 
+          name: contractHierarchy.ceoName, 
+          organizationId: contractHierarchy.organizationId 
+        },
+      },
+    });
+  }, [
+    dealValue,
+    commissionRate,
+    saleCommissionRate,
+    teamLeaderRate,
+    agencyDirectorRate,
+    regionalDirectorRate,
+    ceoRate,
+    baseMode,
+    teamSplitMode,
+    withholdingRate,
+    contractHierarchy,
+  ]);
+
   // Lưu hợp đồng trong transaction atomic
   const handleCreateContract = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -541,8 +645,8 @@ export const TransactionsPage: React.FC = () => {
       setContractError('Giá trị giao dịch phải lớn hơn 0.');
       return;
     }
-    if (saleCommissionRate > commissionRate) {
-      setContractError('Tỷ lệ hoa hồng cho Sale (%) không được vượt quá % hoa hồng của Sàn (%).');
+    if (liveCommissionPreview.isExceedsPool) {
+      setContractError(`Lỗi vượt quỹ hoa hồng: Tổng tỷ lệ các tầng (${liveCommissionPreview.totalDistributedRate}%) vượt quá % Hoa hồng Sàn (${liveCommissionPreview.agencyCommissionRate}%). Công ty giữ lại bị âm (${liveCommissionPreview.companyRetainedRate}%). Vui lòng điều chỉnh lại tỷ lệ các cấp.`);
       return;
     }
 
@@ -602,6 +706,13 @@ export const TransactionsPage: React.FC = () => {
         receiptCode: receiptCode.trim() || undefined,
         commissionRate: commissionRate,
         saleCommissionRate: saleCommissionRate,
+        teamLeaderRate: teamLeaderRate,
+        agencyDirectorRate: agencyDirectorRate,
+        regionalDirectorRate: regionalDirectorRate,
+        ceoRate: ceoRate,
+        baseMode: baseMode,
+        teamSplitMode: teamSplitMode,
+        withholdingRate: withholdingRate,
         notes: notes.trim() || undefined,
 
         currentUser: currentUser,
@@ -787,22 +898,68 @@ export const TransactionsPage: React.FC = () => {
         </div>
       )}
 
-      {/* 1. TOP HEADER & CALL TO ACTION */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-        <div>
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <FileCheck className="h-5 w-5 text-blue-600" />
-            Quản Lý Giao Dịch & Hợp Đồng Khách Hàng
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Theo dõi toàn trình từ Cọc, Ký HĐMB, Đóng tiền Đợt 1, Giá trị giao dịch và đối soát Hoa hồng Sàn / Sale.
-          </p>
-        </div>
+      {/* 0. TAB CHUYỂN ĐỔI CHÍNH: HỢP ĐỒNG vs SỔ CÁI HOA HỒNG 5 TẦNG */}
+      <div className="flex items-center gap-2 bg-slate-100/90 p-1.5 rounded-xl w-fit border border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('contracts')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+            activeMainTab === 'contracts'
+              ? 'bg-white text-blue-700 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+          }`}
+        >
+          <FileCheck className="h-4 w-4" />
+          <span>Danh Sách Hợp Đồng ({transactions.length})</span>
+        </button>
 
-        <Button variant="primary" size="sm" onClick={handleOpenCreateModal}>
-          <Plus className="h-4 w-4 mr-1.5" /> Tạo Hợp Đồng Mới
-        </Button>
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('income')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+            activeMainTab === 'income'
+              ? 'bg-emerald-700 text-white shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+          }`}
+        >
+          <Coins className="h-4 w-4" />
+          <span>Thu Nhập & Sổ Cái Hoa Hồng 5 Tầng</span>
+        </button>
       </div>
+
+      {activeMainTab === 'income' ? (
+        currentUser && (
+          <IncomeLedgerTab
+            currentUser={currentUser}
+            allUsers={allProfiles}
+            projects={projects}
+            regions={allRegions}
+            agencies={allAgencies}
+            teams={allTeams}
+            dateRange={dateRange}
+            setPreset={setPreset}
+            setCustomRange={setCustomRange}
+            onViewContract={handleViewContractById}
+          />
+        )
+      ) : (
+        <>
+          {/* 1. TOP HEADER & CALL TO ACTION */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <FileCheck className="h-5 w-5 text-blue-600" />
+                Quản Lý Giao Dịch & Hợp Đồng Khách Hàng
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Theo dõi toàn trình từ Cọc, Ký HĐMB, Đóng tiền Đợt 1, Giá trị giao dịch và đối soát Hoa hồng Sàn / Sale.
+              </p>
+            </div>
+
+            <Button variant="primary" size="sm" onClick={handleOpenCreateModal}>
+              <Plus className="h-4 w-4 mr-1.5" /> Tạo Hợp Đồng Mới
+            </Button>
+          </div>
 
       {/* 2. STAT CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1023,7 +1180,10 @@ export const TransactionsPage: React.FC = () => {
                   <th className="p-3">Tiến Độ Đợt 1</th>
                   <th className="p-3">Giá Trị GD</th>
                   <th className="p-3">Hoa Hồng Sàn</th>
-                  <th className="p-3">Hoa Hồng Sale</th>
+                  <th className="p-3">Tổng Chia 5 Tầng</th>
+                  {currentUser && !['sale_agent', 'marketing_manager', 'hr_admin'].includes(currentUser.role) && (
+                    <th className="p-3">Công Ty Giữ Lại</th>
+                  )}
                   <th className="p-3 text-center">Thao Tác</th>
                 </tr>
               </thead>
@@ -1171,23 +1331,63 @@ export const TransactionsPage: React.FC = () => {
                         {formatFullVND(tx.commission_amount || Math.round((tx.deal_value || tx.amount) * 0.035))}
                       </div>
                       <div className="text-[10px] text-slate-400 mt-0.5">
-                        Tỷ lệ: {tx.sale_commission_rate ? `${(Number(tx.sale_commission_rate) + 2).toFixed(1)}%` : '3.5%'}
+                        Tỷ lệ CĐT: {tx.commission_rate ?? 3.5}%
                       </div>
                     </td>
 
-                    {/* Hoa hồng Sale */}
+                    {/* Tổng chia 5 tầng */}
                     <td className="p-3">
-                      <div className="font-bold text-amber-700">
-                        {formatFullVND(tx.sale_commission_amount || Math.round((tx.deal_value || tx.amount) * 0.015))}
-                      </div>
-                      <div className="text-[10px] text-amber-600 font-semibold mt-0.5">
-                        {tx.sale_commission_rate ?? 1.5}% GTGD
-                      </div>
+                      {(() => {
+                        const totalShared = (tx.sale_commission_amount || 0) + 
+                          (tx.team_commission_amount || 0) + 
+                          (tx.director_commission_amount || 0) + 
+                          (tx.regional_commission_amount || 0) + 
+                          (tx.ceo_commission_amount || 0);
+                        const displayTotal = totalShared > 0 
+                          ? totalShared 
+                          : Math.round((tx.deal_value || tx.amount) * 0.0215);
+                        return (
+                          <div>
+                            <div className="font-bold text-amber-700">{formatFullVND(displayTotal)}</div>
+                            <div className="text-[10px] text-amber-600 font-semibold mt-0.5">5 Cấp thụ hưởng</div>
+                          </div>
+                        );
+                      })()}
                     </td>
+
+                    {/* Công ty giữ lại */}
+                    {currentUser && !['sale_agent', 'marketing_manager', 'hr_admin'].includes(currentUser.role) && (
+                      <td className="p-3">
+                        {(() => {
+                          const agencyComm = tx.commission_amount || Math.round((tx.deal_value || tx.amount) * 0.035);
+                          const totalShared = (tx.sale_commission_amount || 0) + 
+                            (tx.team_commission_amount || 0) + 
+                            (tx.director_commission_amount || 0) + 
+                            (tx.regional_commission_amount || 0) + 
+                            (tx.ceo_commission_amount || 0);
+                          const retained = tx.company_retained_amount !== undefined 
+                            ? tx.company_retained_amount 
+                            : Math.max(0, agencyComm - (totalShared > 0 ? totalShared : Math.round((tx.deal_value || tx.amount) * 0.0215)));
+                          return (
+                            <div>
+                              <div className="font-bold text-indigo-700">{formatFullVND(retained)}</div>
+                              <div className="text-[10px] text-indigo-600 font-medium">Lợi nhuận gộp</div>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                    )}
 
                     {/* Thao tác */}
                     <td className="p-3 text-center">
                       <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => handleOpenDetailModal(tx)}
+                          className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Xem sổ cái hoa hồng 5 tầng"
+                        >
+                          <Coins className="h-4 w-4" />
+                        </button>
                         <button
                           onClick={() => handleOpenUpdateModal(tx)}
                           className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -1218,6 +1418,8 @@ export const TransactionsPage: React.FC = () => {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* MODAL TẠO GIAO DỊCH / HỢP ĐỒNG MỚI */}
       <Modal
@@ -1792,33 +1994,255 @@ export const TransactionsPage: React.FC = () => {
             )}
           </div>
 
-          {/* Tỷ lệ hoa hồng */}
-          <div className="grid grid-cols-2 gap-3 p-3 bg-amber-50/50 rounded-xl border border-amber-200/60">
-            <div>
-              <label className="block text-[11px] font-semibold text-amber-900 mb-1">% Hoa hồng Sàn (CĐT chi trả)</label>
-              <Input
-                type="number"
-                step="0.1"
-                value={commissionRate}
-                onChange={(e) => setCommissionRate(Number(e.target.value))}
-              />
-              <div className="text-[11px] font-bold text-emerald-700 mt-1">
-                = {formatFullVND(calculatedAgencyCommission)}
+          {/* 5. CƠ CẤU PHÂN BỔ HOA HỒNG 5 TẦNG & LỢI NHUẬN CÔNG TY */}
+          <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200/80 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-200/60 pb-2.5">
+              <div>
+                <label className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                  <Coins className="h-4 w-4 text-amber-600" /> 5. Phân Bổ Hoa Hồng 5 Tầng & Công Ty Giữ Lại *
+                </label>
+                <div className="text-[11px] text-amber-800 mt-0.5">
+                  Nguyên tắc: VND nguyên, phương pháp phần dư lớn nhất, không thất thoát lẻ.
+                </div>
+              </div>
+
+              {/* Tùy chọn cấu hình tính toán */}
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={baseMode}
+                  onChange={(e) => setBaseMode(e.target.value as any)}
+                  className="text-[11px] h-7 px-2 bg-white border border-amber-300 rounded-md text-slate-700 font-medium"
+                  title="Cơ sở tính toán"
+                >
+                  <option value="contract_value">Tính trên Giá Trị GD</option>
+                  <option value="company_commission">Tính trên Hoa Hồng Sàn</option>
+                </select>
+
+                <select
+                  value={withholdingRate}
+                  onChange={(e) => setWithholdingRate(Number(e.target.value))}
+                  className="text-[11px] h-7 px-2 bg-white border border-amber-300 rounded-md text-slate-700 font-medium"
+                  title="Thuế TNCN tạm tính"
+                >
+                  <option value={0}>Thuế TNCN: 0%</option>
+                  <option value={10}>Thuế TNCN: 10% (Tạm tính)</option>
+                </select>
               </div>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-semibold text-amber-900 mb-1">% Hoa hồng Sale nhận được</label>
-              <Input
-                type="number"
-                step="0.1"
-                value={saleCommissionRate}
-                onChange={(e) => setSaleCommissionRate(Number(e.target.value))}
-              />
-              <div className="text-[11px] font-bold text-amber-700 mt-1">
-                = {formatFullVND(calculatedSaleCommission)}
+            {/* Quỹ Hoa Hồng Sàn */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-2.5 bg-white rounded-lg border border-amber-100">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  % Hoa hồng Sàn (CĐT chi trả) *
+                </label>
+                <Input
+                  type="number"
+                  step="0.05"
+                  value={commissionRate}
+                  onChange={(e) => setCommissionRate(Number(e.target.value))}
+                />
+              </div>
+              <div className="flex flex-col justify-end">
+                <div className="text-[10px] text-slate-500 font-semibold uppercase">Tổng Quỹ Hoa Hồng Sàn</div>
+                <div className="text-sm font-black text-emerald-700">
+                  = {formatFullVND(liveCommissionPreview.agencyCommissionAmount)}
+                </div>
               </div>
             </div>
+
+            {/* Bảng phân bổ 5 tầng trực quan */}
+            <div className="border border-amber-200 rounded-lg overflow-hidden bg-white">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-amber-100/60 text-[10px] font-bold text-amber-950 uppercase border-b border-amber-200">
+                  <tr>
+                    <th className="p-2">Cấp Bậc Thụ Hưởng</th>
+                    <th className="p-2">Người Nhận</th>
+                    <th className="p-2 w-20 text-center">% Tỷ Lệ</th>
+                    <th className="p-2 text-right">Số Tiền (Gross)</th>
+                    <th className="p-2 text-right">Net Thực Nhận</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-amber-100">
+                  {/* 1. Sale */}
+                  {(() => {
+                    const item = liveCommissionPreview.items.find(t => t.tier === 'sale');
+                    const gross = item?.amount || 0;
+                    const net = item?.net_payable_amount ?? gross;
+                    return (
+                      <tr className="hover:bg-amber-50/40">
+                        <td className="p-2 font-bold text-blue-900">1. Chuyên Viên (Sale)</td>
+                        <td className="p-2 text-slate-700 truncate max-w-[120px]" title={contractHierarchy.saleName}>
+                          {contractHierarchy.saleName}
+                        </td>
+                        <td className="p-1.5">
+                          <input
+                            type="number"
+                            step="0.05"
+                            value={saleCommissionRate}
+                            onChange={(e) => setSaleCommissionRate(Number(e.target.value))}
+                            className="w-full text-xs py-1 px-1.5 text-center font-bold border border-slate-300 rounded focus:ring-1 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-900">
+                          {formatFullVND(gross)}
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-emerald-700">
+                          {formatFullVND(net)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
+
+                  {/* 2. Nhóm */}
+                  {(() => {
+                    const item = liveCommissionPreview.items.find(t => t.tier === 'team');
+                    const gross = item?.amount || 0;
+                    const net = item?.net_payable_amount ?? gross;
+                    return (
+                      <tr className="hover:bg-amber-50/40">
+                        <td className="p-2 font-bold text-indigo-900">2. Nhóm / Trưởng Nhóm</td>
+                        <td className="p-2 text-slate-700 truncate max-w-[120px]" title={contractHierarchy.teamLeaderName}>
+                          {contractHierarchy.teamLeaderName || <span className="text-amber-600 italic">Chờ gán</span>}
+                        </td>
+                        <td className="p-1.5">
+                          <input
+                            type="number"
+                            step="0.05"
+                            value={teamLeaderRate}
+                            onChange={(e) => setTeamLeaderRate(Number(e.target.value))}
+                            className="w-full text-xs py-1 px-1.5 text-center font-bold border border-slate-300 rounded focus:ring-1 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-900">
+                          {formatFullVND(gross)}
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-emerald-700">
+                          {formatFullVND(net)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
+
+                  {/* 3. Giám đốc Sàn */}
+                  {(() => {
+                    const item = liveCommissionPreview.items.find(t => t.tier === 'agency_director');
+                    const gross = item?.amount || 0;
+                    const net = item?.net_payable_amount ?? gross;
+                    return (
+                      <tr className="hover:bg-amber-50/40">
+                        <td className="p-2 font-bold text-purple-900">3. Giám Đốc Sàn</td>
+                        <td className="p-2 text-slate-700 truncate max-w-[120px]" title={contractHierarchy.agencyDirectorName}>
+                          {contractHierarchy.agencyDirectorName || <span className="text-amber-600 italic">Chờ gán</span>}
+                        </td>
+                        <td className="p-1.5">
+                          <input
+                            type="number"
+                            step="0.05"
+                            value={agencyDirectorRate}
+                            onChange={(e) => setAgencyDirectorRate(Number(e.target.value))}
+                            className="w-full text-xs py-1 px-1.5 text-center font-bold border border-slate-300 rounded focus:ring-1 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-900">
+                          {formatFullVND(gross)}
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-emerald-700">
+                          {formatFullVND(net)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
+
+                  {/* 4. Giám đốc Vùng */}
+                  {(() => {
+                    const item = liveCommissionPreview.items.find(t => t.tier === 'regional_director');
+                    const gross = item?.amount || 0;
+                    const net = item?.net_payable_amount ?? gross;
+                    return (
+                      <tr className="hover:bg-amber-50/40">
+                        <td className="p-2 font-bold text-amber-900">4. Giám Đốc Vùng</td>
+                        <td className="p-2 text-slate-700 truncate max-w-[120px]" title={contractHierarchy.regionalDirectorName}>
+                          {contractHierarchy.regionalDirectorName || <span className="text-amber-600 italic">Chờ gán</span>}
+                        </td>
+                        <td className="p-1.5">
+                          <input
+                            type="number"
+                            step="0.05"
+                            value={regionalDirectorRate}
+                            onChange={(e) => setRegionalDirectorRate(Number(e.target.value))}
+                            className="w-full text-xs py-1 px-1.5 text-center font-bold border border-slate-300 rounded focus:ring-1 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-900">
+                          {formatFullVND(gross)}
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-emerald-700">
+                          {formatFullVND(net)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
+
+                  {/* 5. Tổng Giám Đốc (CEO) */}
+                  {(() => {
+                    const item = liveCommissionPreview.items.find(t => t.tier === 'ceo');
+                    const gross = item?.amount || 0;
+                    const net = item?.net_payable_amount ?? gross;
+                    return (
+                      <tr className="hover:bg-amber-50/40">
+                        <td className="p-2 font-bold text-emerald-900">5. Tổng Giám Đốc (CEO)</td>
+                        <td className="p-2 text-slate-700 truncate max-w-[120px]" title={contractHierarchy.ceoName}>
+                          {contractHierarchy.ceoName || <span className="text-amber-600 italic">Chờ gán</span>}
+                        </td>
+                        <td className="p-1.5">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={ceoRate}
+                            onChange={(e) => setCeoRate(Number(e.target.value))}
+                            className="w-full text-xs py-1 px-1.5 text-center font-bold border border-slate-300 rounded focus:ring-1 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-900">
+                          {formatFullVND(gross)}
+                        </td>
+                        <td className="p-2 text-right font-mono font-bold text-emerald-700">
+                          {formatFullVND(net)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Dòng Tổng Kết & Công Ty Giữ Lại */}
+            <div className="grid grid-cols-2 gap-3 p-2.5 bg-amber-100/50 rounded-lg border border-amber-200">
+              <div>
+                <div className="text-[10px] text-amber-900 font-bold uppercase">Tổng Chia 5 Tầng ({liveCommissionPreview.totalDistributedRate}%)</div>
+                <div className="text-sm font-black text-amber-800">
+                  {formatFullVND(liveCommissionPreview.totalDistributedAmount)}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] text-indigo-900 font-bold uppercase">Công Ty Giữ Lại ({liveCommissionPreview.companyRetainedRate}%)</div>
+                <div className={`text-sm font-black ${liveCommissionPreview.isExceedsPool ? 'text-rose-600' : 'text-indigo-800'}`}>
+                  {formatFullVND(liveCommissionPreview.companyRetainedAmount)}
+                </div>
+              </div>
+            </div>
+
+            {/* Cảnh báo vượt quỹ */}
+            {liveCommissionPreview.isExceedsPool && (
+              <div className="p-2.5 bg-rose-50 border border-rose-300 text-rose-800 rounded-lg text-xs flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>
+                  <strong>Cảnh báo vượt quỹ:</strong> Tổng % các cấp ({liveCommissionPreview.totalDistributedRate}%) vượt quá % Hoa hồng Sàn ({liveCommissionPreview.agencyCommissionRate}%). Vui lòng hạ tỷ lệ các cấp.
+                </span>
+              </div>
+            )}
           </div>
 
           <div>
@@ -1994,6 +2418,15 @@ export const TransactionsPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* MODAL CHI TIẾT HOA HỒNG 5 TẦNG */}
+      <ContractCommissionDetailModal
+        isOpen={detailModalOpen}
+        onClose={() => setDetailModalOpen(false)}
+        transaction={detailTx}
+        onUpdated={loadData}
+        allUsers={allProfiles}
+      />
     </div>
   );
 };
