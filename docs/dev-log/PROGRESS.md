@@ -16,7 +16,7 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | **Giai đoạn 5** | Quản trị sàn: cây cấp bậc, thi đua nhân sự, điều chuyển, nhân sự 360° | **Xong** | `8d17b06` |
 | **Giai đoạn 6** | Marketing, vận hành/CI-CD, quyền riêng tư, thiết kế multi-tenant, PWA | **Xong** | `a094112` |
 | **Giai đoạn 7** | Quản trị dữ liệu: Admin & Giám đốc Sàn sửa/xóa có kiểm soát, Thùng rác | **Xong** | `54354f1` |
-| **Giai đoạn 8** | Kho tri thức dự án, thư viện script đa ngữ cảnh, AI script, playbooks | **Chưa làm** | --- |
+| **Giai đoạn 8** | Kho tri thức dự án, thư viện script đa ngữ cảnh, AI script, playbooks | **Xong** | `98bc324` |
 | **Giai đoạn 9** | Hoàn thiện UX, tích hợp chéo, hồi quy toàn hệ thống | **Chưa làm** | --- |
 
 ---
@@ -96,11 +96,12 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 
 ---
 
-### Giai đoạn 8 – Kho tri thức dự án & Script bán hàng đa ngữ cảnh
-- [ ] **8.1** Kho tri thức dự án `project_knowledge_items` có kiểm duyệt (`verified`).
-- [ ] **8.2** Thư viện script đa ngữ cảnh `script_templates` (9 nhóm ngữ cảnh chuẩn).
-- [ ] **8.3** AI Script Generator & Compliance Linter chặn cam kết sai sự thật.
-- [ ] **8.4 - 8.5** Script tích hợp trong Lead 360°, theo dõi hiệu quả `script_usage`, Care playbooks tự động.
+### Giai đoạn 8 – Kho tri thức dự án & Script bán hàng đa ngữ cảnh (HOÀN THÀNH)
+- [x] **8.1** Kho tri thức dự án `project_knowledge_items` có kiểm duyệt (`verifyKnowledgeItem`). Quy tắc tin cậy bắt buộc hiển thị nhãn "cần xác nhận với Chủ đầu tư" nếu thông tin giá/pháp lý/tiến độ chưa xác minh hoặc hết hạn.
+- [x] **8.2** Thư viện script đa ngữ cảnh `script_templates` (seed đầy đủ 9 nhóm ngữ cảnh chuẩn BĐS). Thay thế biến an toàn `renderScript` sạch sẽ không sót biến.
+- [x] **8.3** Bộ lọc tuân thủ quảng cáo BĐS `lintCompliance`: Chặn cam kết lợi nhuận, cam kết tăng giá, bao pháp lý sai sự thật.
+- [x] **8.4** Ghi nhận nhật ký sử dụng `script_usages` và đo lường tỷ lệ chuyển đổi hiệu quả của từng script (`getScriptEffectiveness`).
+- [x] **8.5** Kịch bản chăm sóc (Care Playbooks) tự động tạo `care_tasks`, tôn trọng cờ `do_not_contact` và tự động chuyển giao task khi lead được điều chuyển sang sale mới.
 
 ---
 

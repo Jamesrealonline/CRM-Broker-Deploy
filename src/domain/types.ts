@@ -1427,3 +1427,106 @@ export interface ControlledAuditEntry {
   diffs: FieldDiff[];
   created_at: string;
 }
+
+// ========================================================
+// PHASE 8: PROJECT KNOWLEDGE & CONTEXT-AWARE SCRIPTS
+// ========================================================
+
+export type KnowledgeCategory = 
+  | 'usp' 
+  | 'location' 
+  | 'product' 
+  | 'price_policy' 
+  | 'legal' 
+  | 'construction_progress' 
+  | 'developer' 
+  | 'competitor_comparison' 
+  | 'faq' 
+  | 'objection_handling';
+
+export interface ProjectKnowledgeItem {
+  id: string;
+  project_id: string;
+  category: KnowledgeCategory;
+  title: string;
+  content: string;
+  source_url?: string;
+  status: 'draft' | 'published' | 'archived';
+  verified_by?: string;
+  verified_at?: string;
+  expires_at?: string;
+  version: number;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type ScriptContextCode = 
+  | 'approach' 
+  | 'qualifying' 
+  | 'introduction' 
+  | 'appointment' 
+  | 'objection' 
+  | 'closing' 
+  | 'post_contract' 
+  | 're_engage' 
+  | 'special';
+
+export type ScriptChannel = 'call' | 'zalo' | 'sms' | 'email' | 'in_person';
+export type ScriptTone = 'friendly' | 'professional' | 'concise';
+
+export interface ScriptTemplate {
+  id: string;
+  project_id?: string;
+  context_code: ScriptContextCode;
+  journey_stage?: string;
+  channel: ScriptChannel;
+  persona?: string;
+  tone: ScriptTone;
+  title: string;
+  objective: string;
+  opening: string;
+  questions?: string;
+  main_content: string;
+  objection_handling?: string;
+  cta: string;
+  compliance_notes?: string;
+  status: 'draft' | 'published' | 'archived';
+  version: number;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ScriptUsage {
+  id: string;
+  script_id: string;
+  lead_id: string;
+  sale_id: string;
+  channel: string;
+  outcome?: 'responded' | 'appointment_set' | 'stage_advanced' | 'rejected' | 'no_answer';
+  rating?: number;
+  feedback?: string;
+  created_at: string;
+}
+
+export interface CareTask {
+  id: string;
+  lead_id: string;
+  sale_id: string;
+  title: string;
+  due_date: string;
+  status: 'pending' | 'completed' | 'cancelled';
+  script_id?: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+export interface ComplianceLintResult {
+  isCompliant: boolean;
+  violations: Array<{
+    term: string;
+    reason: string;
+    severity: 'error' | 'warning';
+  }>;
+}
