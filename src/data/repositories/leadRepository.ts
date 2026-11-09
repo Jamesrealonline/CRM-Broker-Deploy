@@ -42,6 +42,7 @@ const STORAGE_KEY_SOURCES = 'crm_lead_sources';
 export interface LeadFilters {
   search?: string;
   projectId?: string;
+  ceoId?: string;
   regionId?: string;
   agencyId?: string;
   teamId?: string;
@@ -248,6 +249,13 @@ export class LeadRepository {
     allLeads = branchHierarchyService.filterLeads(currentUser, allLeads);
 
     // Lọc theo bộ lọc người dùng
+    if (filters.ceoId && filters.ceoId !== 'all') {
+      const profiles: UserProfile[] = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('crm_profiles') || '[]') : [];
+      const targetCeo = profiles.find(p => p.id === filters.ceoId);
+      if (targetCeo?.organization_id) {
+        allLeads = allLeads.filter(l => !l.organization_id || l.organization_id === targetCeo.organization_id);
+      }
+    }
     if (filters.regionId && filters.regionId !== 'all') {
       const agencies: Agency[] = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('crm_agencies') || '[]') : [];
       const agencyIdsInRegion = new Set(agencies.filter(a => a.region_id === filters.regionId).map(a => a.id));

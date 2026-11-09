@@ -70,13 +70,15 @@ export const DashboardPage: React.FC = () => {
   const [includeSample, setIncludeSample] = useState(true);
   const [hrKpi, setHrKpi] = useState<HRKpiSummary | null>(null);
 
-  // Bộ lọc 4 cấp phân cấp: Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale
+  // Bộ lọc 5 cấp phân cấp: CEO -> Giám Đốc Vùng -> Sàn Giao Dịch -> Đội Nhóm -> Dự Án
+  const [ceoId, setCeoId] = useState<string>('');
   const [projectId, setProjectId] = useState<string>('');
   const [regionId, setRegionId] = useState<string>('');
   const [agencyId, setAgencyId] = useState<string>('');
   const [teamId, setTeamId] = useState<string>('');
   const [saleId, setSaleId] = useState<string>('');
 
+  const [ceos, setCeos] = useState<UserProfile[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
@@ -97,6 +99,8 @@ export const DashboardPage: React.FC = () => {
         teamRepository.getProfiles(),
       ]);
       setProjects(pList);
+      const ceoList = profList.filter(p => p.role === 'ceo');
+      setCeos(ceoList.length > 0 ? ceoList : (currentUser?.role === 'ceo' ? [currentUser] : []));
       setRegions(branchHierarchyService.filterRegions(currentUser, rList));
       setAgencies(branchHierarchyService.filterAgencies(currentUser, aList));
       setTeams(branchHierarchyService.filterTeams(currentUser, tList));
@@ -106,10 +110,21 @@ export const DashboardPage: React.FC = () => {
     loadDropdowns();
   }, [currentUser]);
 
+  const visibleRegions = useMemo(() => {
+    if (!ceoId) return regions;
+    const targetCeo = ceos.find(c => c.id === ceoId);
+    if (!targetCeo?.organization_id) return regions;
+    return regions.filter(r => !r.organization_id || r.organization_id === targetCeo.organization_id);
+  }, [regions, ceoId, ceos]);
+
   const visibleAgencies = useMemo(() => {
-    if (!regionId) return agencies;
+    if (!regionId) {
+      if (!ceoId) return agencies;
+      const regionIds = new Set(visibleRegions.map(r => r.id));
+      return agencies.filter(a => !a.region_id || regionIds.has(a.region_id));
+    }
     return agencies.filter(a => a.region_id === regionId);
-  }, [agencies, regionId]);
+  }, [agencies, regionId, ceoId, visibleRegions]);
 
   const visibleTeams = useMemo(() => {
     if (!agencyId) {
@@ -140,6 +155,7 @@ export const DashboardPage: React.FC = () => {
         const [kpi, hrData] = await Promise.all([
           dashboardRepository.getDashboardKpi(
             { 
+              ceoId: ceoId || undefined,
               projectId: projectId || undefined, 
               regionId: regionId || undefined,
               agencyId: agencyId || undefined,
@@ -162,7 +178,7 @@ export const DashboardPage: React.FC = () => {
       }
     };
     fetchData();
-  }, [currentUser, projectId, regionId, agencyId, teamId, saleId, dateRange, includeSample]);
+  }, [currentUser, ceoId, projectId, regionId, agencyId, teamId, saleId, dateRange, includeSample]);
 
   return (
     <div className="space-y-6">
@@ -185,8 +201,27 @@ export const DashboardPage: React.FC = () => {
             onChange={(val) => updateRange(val.preset || 'custom', val.from, val.to, val.compare)}
           />
 
-          {/* Bộ lọc 4 cấp: Giám Đốc Vùng -> Giám Đốc Sàn -> Đội Nhóm -> Nhân Viên Sale */}
-          {regions.length > 0 && (
+          {/* Bộ lọc phân cấp: CEO -> Giám Đốc Vùng -> Sàn Giao Dịch -> Đội Nhóm -> Dự Án */}
+          {ceos.length > 0 && (
+            <select
+              value={ceoId}
+              onChange={(e) => {
+                setCeoId(e.target.value);
+                setRegionId('');
+                setAgencyId('');
+                setTeamId('');
+                setSaleId('');
+              }}
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-semibold text-slate-800 shadow-sm"
+            >
+              <option value="">Tất cả Tổng Giám Đốc (CEO)</option>
+              {ceos.map((c) => (
+                <option key={c.id} value={c.id}>{c.full_name}</option>
+              ))}
+            </select>
+          )}
+
+          {visibleRegions.length > 0 && (
             <select
               value={regionId}
               onChange={(e) => {
@@ -195,11 +230,13 @@ export const DashboardPage: React.FC = () => {
                 setTeamId('');
                 setSaleId('');
               }}
-              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700"
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700 shadow-sm"
             >
-              <option value="">Tất cả Vùng (GĐ Vùng)</option>
-              {regions.map((r) => (
-                <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
+              <option value="">Tất cả Giám Đốc Vùng</option>
+              {visibleRegions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} {r.regional_director_name ? `(${r.regional_director_name})` : `(${r.code})`}
+                </option>
               ))}
             </select>
           )}
@@ -212,11 +249,13 @@ export const DashboardPage: React.FC = () => {
                 setTeamId('');
                 setSaleId('');
               }}
-              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700"
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700 shadow-sm"
             >
-              <option value="">Tất cả Sàn (GĐ Sàn)</option>
+              <option value="">Tất cả Sàn Giao Dịch</option>
               {visibleAgencies.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>
+                  {a.name} {a.director_name ? `(${a.director_name})` : ''}
+                </option>
               ))}
             </select>
           )}
@@ -228,11 +267,13 @@ export const DashboardPage: React.FC = () => {
                 setTeamId(e.target.value);
                 setSaleId('');
               }}
-              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 text-slate-700"
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700 shadow-sm"
             >
               <option value="">Tất cả Đội Nhóm</option>
               {visibleTeams.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
+                <option key={t.id} value={t.id}>
+                  {t.name} {t.leader_name ? `(${t.leader_name})` : ''}
+                </option>
               ))}
             </select>
           )}
@@ -241,7 +282,7 @@ export const DashboardPage: React.FC = () => {
             <select
               value={saleId}
               onChange={(e) => setSaleId(e.target.value)}
-              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 text-slate-700"
+              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 text-slate-700 shadow-sm"
             >
               <option value="">Tất cả Sale</option>
               {visibleSales.map((s) => (
@@ -253,15 +294,31 @@ export const DashboardPage: React.FC = () => {
           <select
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
-            className="text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700"
+            className="text-xs bg-white border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500 font-medium text-slate-700 shadow-sm"
           >
-            <option value="">Tất cả dự án</option>
+            <option value="">Tất cả Dự Án</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
           </select>
+
+          {(ceoId || regionId || agencyId || teamId || projectId || saleId) && (
+            <button
+              onClick={() => {
+                setCeoId('');
+                setRegionId('');
+                setAgencyId('');
+                setTeamId('');
+                setProjectId('');
+                setSaleId('');
+              }}
+              className="text-xs text-blue-600 hover:text-blue-800 underline font-medium px-2 py-1 select-none"
+            >
+              Bỏ lọc
+            </button>
+          )}
 
           {/* Toggle Hiện Dữ Liệu Mẫu */}
           <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100">
