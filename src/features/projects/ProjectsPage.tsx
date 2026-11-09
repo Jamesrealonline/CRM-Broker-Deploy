@@ -28,6 +28,7 @@ export const ProjectsPage: React.FC = () => {
   const [priceRange, setPriceRange] = useState('');
   const [commissionRate, setCommissionRate] = useState('3.5');
   const [saleCommissionRate, setSaleCommissionRate] = useState('1.5');
+  const [progressiveCommission, setProgressiveCommission] = useState('Đạt >= 5 căn: +0.3%, Đạt >= 10 căn: +0.6%');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export const ProjectsPage: React.FC = () => {
         property_type: propertyType,
         expected_price_range: priceRange,
         commission_rate: Number(commissionRate) || 3.5,
+        progressive_commission: progressiveCommission,
         sale_commission_rate: Number(saleCommissionRate) || 1.5,
       });
       setCreateModalOpen(false);
@@ -242,6 +244,18 @@ export const ProjectsPage: React.FC = () => {
               />
               <p className="text-[10px] text-amber-700 mt-1 font-medium">Tỷ lệ chi trả trực tiếp cho Sale</p>
             </div>
+          </div>
+
+          <div>
+            <Input
+              label="Phí thưởng luỹ tiến khi đạt chỉ tiêu"
+              value={progressiveCommission}
+              onChange={(e) => setProgressiveCommission(e.target.value)}
+              placeholder="Đạt >= 5 căn: +0.3%, Đạt >= 10 căn: +0.6%"
+            />
+            <p className="text-[10px] text-slate-500 mt-1">
+              Mức thưởng luỹ tiến cộng thêm khi Sale đạt mốc số lượng giao dịch thành công.
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

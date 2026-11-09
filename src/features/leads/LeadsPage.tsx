@@ -34,7 +34,7 @@ import { projectRepository } from '@/data/repositories/projectRepository';
 import { teamRepository } from '@/data/repositories/teamRepository';
 import { autoTransferService } from '@/domain/services/autoTransferService';
 import { notificationService } from '@/domain/services/notificationService';
-import { Lead, Project, LeadStatus, UserProfile } from '@/domain/types';
+import { Lead, Project, LeadStatus, UserProfile, LeadSource } from '@/domain/types';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -85,6 +85,13 @@ export const LeadsPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Nguồn khách hàng (Lead Sources)
+  const [leadSources, setLeadSources] = useState<LeadSource[]>([]);
+  const [selectedSourceId, setSelectedSourceId] = useState('');
+  const [isAddingNewSource, setIsAddingNewSource] = useState(false);
+  const [newSourceName, setNewSourceName] = useState('');
+  const [isCreatingSource, setIsCreatingSource] = useState(false);
+
   // Bulk Assign State (Module 6 & 7)
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [sales, setSales] = useState<UserProfile[]>([]);
@@ -107,7 +114,29 @@ export const LeadsPage: React.FC = () => {
         setTargetSaleId(activeSales[0].id);
       }
     });
+    leadRepository.getLeadSources().then((sources) => {
+      setLeadSources(sources);
+      if (sources.length > 0 && !selectedSourceId) {
+        setSelectedSourceId(sources[0].id);
+      }
+    });
   }, [newProjectId]);
+
+  const handleAddNewSource = async () => {
+    if (!newSourceName.trim()) return;
+    setIsCreatingSource(true);
+    try {
+      const created = await leadRepository.createLeadSource(newSourceName.trim());
+      setLeadSources(prev => [...prev.filter(s => s.id !== created.id), created]);
+      setSelectedSourceId(created.id);
+      setNewSourceName('');
+      setIsAddingNewSource(false);
+    } catch (err: any) {
+      alert(err.message || 'Không thể tạo nguồn lead mới');
+    } finally {
+      setIsCreatingSource(false);
+    }
+  };
 
   const toggleSelectAll = () => {
     if (selectedLeadIds.length === leads.length) {
@@ -208,11 +237,14 @@ export const LeadsPage: React.FC = () => {
     setIsSubmitting(true);
     setSubmitError(null);
 
+    const chosenSource = leadSources.find(s => s.id === selectedSourceId);
     const res = await leadRepository.createLead({
       fullName: newFullName,
       phone: newPhone,
       email: newEmail,
       projectId: newProjectId,
+      sourceId: selectedSourceId,
+      sourceName: chosenSource?.name,
       budgetMin: Number(newBudgetMin),
       budgetMax: Number(newBudgetMax),
       purpose: newPurpose,
@@ -420,6 +452,7 @@ export const LeadsPage: React.FC = () => {
                     />
                   </th>
                   <th className="py-3 px-4">Khách Hàng</th>
+                  <th className="py-3 px-3">Nguồn Lead</th>
                   <th className="py-3 px-4">Dự Án</th>
                   <th className="py-3 px-4">Trạng Thái</th>
                   <th className="py-3 px-4">Đồng Hồ 24h</th>
@@ -469,6 +502,12 @@ export const LeadsPage: React.FC = () => {
                           <Phone className="h-3 w-3 text-slate-400" />
                           <span>{displayPhone}</span>
                         </div>
+                      </td>
+
+                      <td className="py-3.5 px-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                          {lead.source_name || 'Hotline'}
+                        </span>
                       </td>
 
                       <td className="py-3.5 px-4 font-medium text-slate-700">
@@ -615,18 +654,76 @@ export const LeadsPage: React.FC = () => {
               placeholder="khachhang@gmail.com"
             />
             <div className="space-y-1">
-              <label className="block text-xs font-semibold text-slate-700">Dự án quan tâm *</label>
-              <select
-                required
-                value={newProjectId}
-                onChange={(e) => setNewProjectId(e.target.value)}
-                className="w-full text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-blue-500"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-700">Nguồn Lead *</label>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingNewSource(!isAddingNewSource)}
+                  className="text-[11px] text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  {isAddingNewSource ? 'Chọn nguồn có sẵn' : '+ Thêm nguồn mới'}
+                </button>
+              </div>
+              {!isAddingNewSource ? (
+                <select
+                  required
+                  value={selectedSourceId}
+                  onChange={(e) => {
+                    if (e.target.value === '__add_new__') {
+                      setIsAddingNewSource(true);
+                    } else {
+                      setSelectedSourceId(e.target.value);
+                    }
+                  }}
+                  className="w-full text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-blue-500"
+                >
+                  {leadSources.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                  <option value="__add_new__">+ Thêm nguồn mới...</option>
+                </select>
+              ) : (
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={newSourceName}
+                    onChange={(e) => setNewSourceName(e.target.value)}
+                    placeholder="Ví dụ: Hội thảo, Billboard..."
+                    className="flex-1 text-xs h-9 px-2.5 rounded-lg border border-slate-300 focus:outline-none focus:border-blue-500"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddNewSource();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAddNewSource}
+                    isLoading={isCreatingSource}
+                    className="text-xs px-2.5 h-9"
+                  >
+                    Thêm
+                  </Button>
+                </div>
+              )}
             </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-slate-700">Dự án quan tâm *</label>
+            <select
+              required
+              value={newProjectId}
+              onChange={(e) => setNewProjectId(e.target.value)}
+              className="w-full text-xs h-9 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-blue-500"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

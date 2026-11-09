@@ -8,6 +8,7 @@ import { LeadStatus, UserRole } from './types';
 export const USER_ROLES: { value: UserRole; label: string; description: string }[] = [
   { value: 'admin', label: 'Quản Trị Viên (Admin)', description: 'Toàn quyền quản trị hệ thống, phân quyền, cấu hình' },
   { value: 'director', label: 'Ban Giám Đốc (Director)', description: 'Xem toàn bộ báo cáo, KPI doanh số và điều phối toàn hệ thống' },
+  { value: 'hr_admin', label: 'Quản Trị Nhân Sự (HR Admin)', description: 'Quản lý vòng đời nhân sự, tuyển dụng, hợp đồng, chứng chỉ, nghỉ phép' },
   { value: 'marketing_manager', label: 'Marketing Manager', description: 'Quản lý chiến dịch, nguồn lead, chi phí & tỷ lệ chuyển đổi' },
   { value: 'sales_manager', label: 'Giám Đốc Sàn (Sales Manager)', description: 'Quản lý toàn bộ Team và doanh số thuộc Sàn phân phối' },
   { value: 'team_leader', label: 'Trưởng Nhóm (Team Leader)', description: 'Quản lý giỏ Lead và hỗ trợ chốt deal của Team' },
@@ -41,12 +42,27 @@ export const JOURNEY_STAGES: {
 ];
 
 export const LEAD_SOURCES_DEFAULT = [
-  { code: 'website_form', name: 'Website Form' },
-  { code: 'facebook_ads', name: 'Facebook Ads' },
-  { code: 'google_search', name: 'Google Search' },
-  { code: 'zalo_oa', name: 'Zalo OA' },
-  { code: 'referral', name: 'Giới thiệu' },
-  { code: 'hotline', name: 'Hotline trực tiếp' },
+  { code: 'facebook_ads', name: 'Facebook Ads', requires_detail: false },
+  { code: 'tiktok_ads', name: 'TikTok Ads', requires_detail: false },
+  { code: 'google_ads', name: 'Google Ads', requires_detail: false },
+  { code: 'zalo', name: 'Zalo', requires_detail: false },
+  { code: 'website_landing', name: 'Website / Landing page', requires_detail: false },
+  { code: 'gioi_thieu', name: 'Giới thiệu', requires_detail: true },
+  { code: 'su_kien_roadshow', name: 'Sự kiện / Roadshow', requires_detail: false },
+  { code: 'khach_cu_data_cu', name: 'Khách cũ / Data cũ', requires_detail: false },
+  { code: 'hotline', name: 'Hotline', requires_detail: false },
+  { code: 'walk_in', name: 'Khách tại sàn (walk-in)', requires_detail: false },
+  { code: 'khac', name: 'Khác', requires_detail: true },
+];
+
+export const LEAD_LOSS_REASONS_DEFAULT = [
+  { code: 'gia_cao', name: 'Giá vượt quá ngân sách khách hàng', is_active: true, sort_order: 1 },
+  { code: 'vi_tri', name: 'Vị trí dự án không phù hợp nhu cầu', is_active: true, sort_order: 2 },
+  { code: 'phap_ly', name: 'Lo ngại về tiến độ pháp lý dự án', is_active: true, sort_order: 3 },
+  { code: 'tai_chinh', name: 'Không vay được ngân hàng / Không đủ vốn tự có', is_active: true, sort_order: 4 },
+  { code: 'mua_noi_khac', name: 'Khách đã mua dự án bất động sản khác', is_active: true, sort_order: 5 },
+  { code: 'khong_nhu_cau', name: 'Khách không còn nhu cầu mua BĐS', is_active: true, sort_order: 6 },
+  { code: 'khac', name: 'Lý do khác (Bắt buộc ghi chú chi tiết)', is_active: true, sort_order: 7 },
 ];
 
 export const STAGE_CONFIG_MAP = new Map(JOURNEY_STAGES.map(s => [s.id, s]));

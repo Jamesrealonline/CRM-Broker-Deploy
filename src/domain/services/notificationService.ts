@@ -16,6 +16,16 @@ import {
 const STORAGE_KEY_CONFIG = 'crm_email_notification_config';
 const STORAGE_KEY_LOGS = 'crm_notification_logs';
 
+export function escapeHtml(str: string | undefined | null): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export const DEFAULT_EMAIL_CONFIG: EmailNotificationConfig = {
   enabled: true,
   enable_new_assign: true,
@@ -190,7 +200,17 @@ ${leadListPlain}
    */
   async saveEmailConfig(config: Partial<EmailNotificationConfig>): Promise<EmailNotificationConfig> {
     const current = await this.getEmailConfig();
-    const updated = { ...current, ...config };
+    const cleanConfig = { ...config };
+
+    // Không ghi đè nếu giá trị là dạng che (••••)
+    if (cleanConfig.smtp_pass && cleanConfig.smtp_pass.includes('••')) {
+      cleanConfig.smtp_pass = current.smtp_pass;
+    }
+    if (cleanConfig.resend_api_key && cleanConfig.resend_api_key.includes('••')) {
+      cleanConfig.resend_api_key = current.resend_api_key;
+    }
+
+    const updated = { ...current, ...cleanConfig };
 
     if (isLiveSupabaseConfigured) {
       await supabase
@@ -247,15 +267,25 @@ ${leadListPlain}
     let title = '';
     let bodyContent = '';
 
+    // XSS Sanitization: Thoát toàn bộ ký tự HTML người dùng đưa vào template
+    const v: Record<string, string> = {};
+    for (const [key, val] of Object.entries(variables)) {
+      if (key === 'lead_table_html') {
+        v[key] = val; // Bản thân các ô bên trong lead_table_html đã được escape bằng escapeHtml
+      } else {
+        v[key] = escapeHtml(val);
+      }
+    }
+
     if (isBulk) {
-      title = `[CRM Broker] Tổng hợp giao ${variables.lead_count || ''} Lead mới cho bạn`;
+      title = `[CRM Broker] Tổng hợp giao ${v.lead_count || ''} Lead mới cho bạn`;
       bodyContent = `
-        <h3 style="color: #0f172a; font-size: 16px; margin-top: 0;">Xin chào ${variables.ten_sale},</h3>
+        <h3 style="color: #0f172a; font-size: 16px; margin-top: 0;">Xin chào ${v.ten_sale},</h3>
         <p style="color: #334155; line-height: 1.6; font-size: 13px;">
-          Quản lý <strong>${variables.nguoi_giao || 'Hệ thống'}</strong> vừa phân bổ <strong>${variables.lead_count} khách hàng tiềm năng</strong> mới cho bạn vào lúc ${variables.thoi_gian}.
+          Quản lý <strong>${v.nguoi_giao || 'Hệ thống'}</strong> vừa phân bổ <strong>${v.lead_count} khách hàng tiềm năng</strong> mới cho bạn vào lúc ${v.thoi_gian}.
         </p>
         <div style="margin: 16px 0; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-          ${variables.lead_table_html || ''}
+          ${v.lead_table_html || ''}
         </div>
         <div style="background-color: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 18px 0; border-radius: 4px; font-size: 12px; color: #1e40af;">
           ⏱ <strong>Quy tắc SLA 24 giờ liên tục:</strong> Vui lòng liên hệ và cập nhật tình trạng chăm sóc hoặc ghi nhận hoạt động cho các Lead trước hạn để tránh bị hệ thống tự động thu hồi.
@@ -263,28 +293,28 @@ ${leadListPlain}
         ${buttonHtml(`${siteUrl}/leads`, 'Xem Danh Sách Lead Của Bạn')}
       `;
     } else if (eventType === 'new_assign' || eventType === 'lead_transferred' || eventType === 'auto_transferred_new') {
-      title = `[CRM Broker] Bàn giao Lead khách hàng: ${variables.ten_khach_hang || 'Khách hàng'} - ${variables.du_an || 'Dự án'}`;
+      title = `[CRM Broker] Bàn giao Lead khách hàng: ${v.ten_khach_hang || 'Khách hàng'} - ${v.du_an || 'Dự án'}`;
       bodyContent = `
         <h3 style="color: #0f172a; font-size: 16px; margin-top: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-          Xin chào ${variables.ten_sale || 'bạn'},
+          Xin chào ${v.ten_sale || 'bạn'},
         </h3>
         <p style="color: #334155; line-height: 1.6; font-size: 13px;">
-          Bạn vừa được bàn giao phụ trách khách hàng tiềm năng <strong>${variables.ten_khach_hang}</strong> quan tâm dự án <strong>${variables.du_an}</strong>. Dưới đây là thông tin liên hệ, chân dung khách hàng, bước kịch bản hiện tại và gợi ý tư vấn từ Trợ lý AI:
+          Bạn vừa được bàn giao phụ trách khách hàng tiềm năng <strong>${v.ten_khach_hang}</strong> quan tâm dự án <strong>${v.du_an}</strong>. Dưới đây là thông tin liên hệ, chân dung khách hàng, bước kịch bản hiện tại và gợi ý tư vấn từ Trợ lý AI:
         </p>
 
         <!-- BẢNG THÔNG TIN KHÁCH HÀNG -->
         <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden;">
           <tr style="border-bottom: 1px solid #e2e8f0;">
             <td style="padding: 10px 14px; color: #64748b; width: 140px; font-weight: 500;">👤 Khách hàng:</td>
-            <td style="padding: 10px 14px; font-weight: bold; color: #0f172a;">${variables.ten_khach_hang}</td>
+            <td style="padding: 10px 14px; font-weight: bold; color: #0f172a;">${v.ten_khach_hang}</td>
           </tr>
           <tr style="border-bottom: 1px solid #e2e8f0;">
             <td style="padding: 10px 14px; color: #64748b; font-weight: 500;">📞 Số điện thoại:</td>
-            <td style="padding: 10px 14px; font-weight: bold; color: #2563eb; font-size: 14px;">${variables.so_dien_thoai}</td>
+            <td style="padding: 10px 14px; font-weight: bold; color: #2563eb; font-size: 14px;">${v.so_dien_thoai}</td>
           </tr>
           <tr>
             <td style="padding: 10px 14px; color: #64748b; font-weight: 500;">🏢 Dự án quan tâm:</td>
-            <td style="padding: 10px 14px; font-weight: bold; color: #0f172a;">${variables.du_an}</td>
+            <td style="padding: 10px 14px; font-weight: bold; color: #0f172a;">${v.du_an}</td>
           </tr>
         </table>
 
@@ -296,19 +326,19 @@ ${leadListPlain}
           <table style="width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.6;">
             <tr>
               <td style="padding: 4px 0; color: #64748b; width: 140px;">Mục đích sở hữu:</td>
-              <td style="padding: 4px 0; font-weight: 600; color: #0f172a;">${variables.muc_dich || 'Đầu tư sinh lời / Mua an cư'}</td>
+              <td style="padding: 4px 0; font-weight: 600; color: #0f172a;">${v.muc_dich || 'Đầu tư sinh lời / Mua an cư'}</td>
             </tr>
             <tr>
               <td style="padding: 4px 0; color: #64748b;">Ngân sách dự kiến:</td>
-              <td style="padding: 4px 0; font-weight: 600; color: #0f172a;">${variables.ngan_sach || 'Theo tầm giá phân khúc dự án'}</td>
+              <td style="padding: 4px 0; font-weight: 600; color: #0f172a;">${v.ngan_sach || 'Theo tầm giá phân khúc dự án'}</td>
             </tr>
             <tr>
               <td style="padding: 4px 0; color: #64748b;">Loại BĐS ưu tiên:</td>
-              <td style="padding: 4px 0; color: #334155;">${variables.loai_bds || 'Căn hộ cao cấp / Nhà phố liền kề'}</td>
+              <td style="padding: 4px 0; color: #334155;">${v.loai_bds || 'Căn hộ cao cấp / Nhà phố liền kề'}</td>
             </tr>
             <tr>
               <td style="padding: 4px 0; color: #64748b; vertical-align: top;">Ghi chú & Nhu cầu:</td>
-              <td style="padding: 4px 0; color: #334155; font-style: italic;">"${variables.ghi_chu || 'Khách đang tìm hiểu dự án, cần tư vấn giỏ hàng và phương án tài chính.'}"</td>
+              <td style="padding: 4px 0; color: #334155; font-style: italic;">"${v.ghi_chu || 'Khách đang tìm hiểu dự án, cần tư vấn giỏ hàng và phương án tài chính.'}"</td>
             </tr>
           </table>
         </div>
@@ -319,7 +349,7 @@ ${leadListPlain}
             📍 GIAI ĐOẠN TRONG KỊCH BẢN BÁN HÀNG (SALES SCRIPT STAGE)
           </div>
           <p style="margin: 0; color: #15803d; font-size: 13px; font-weight: 600;">
-            ${variables.buoc_kich_ban || 'Bước 1: Tiếp cận ban đầu & Khai thác nhu cầu cốt lõi'}
+            ${v.buoc_kich_ban || 'Bước 1: Tiếp cận ban đầu & Khai thác nhu cầu cốt lõi'}
           </p>
         </div>
 
@@ -329,24 +359,24 @@ ${leadListPlain}
             ✨ GỢI Ý KỊCH BẢN TƯ VẤN PHÙ HỢP (TRỢ LÝ AI)
           </div>
           <div style="background-color: #ffffff; border: 1px dashed #d8b4fe; border-radius: 6px; padding: 12px; font-size: 12px; color: #3b0764; line-height: 1.6; font-style: italic;">
-            "${variables.ai_script || 'Dạ em chào Anh/Chị! Em là chuyên viên tư vấn dự án... Em vừa nhận được thông tin Anh/Chị đang quan tâm căn hộ/nhà phố phù hợp tầm tài chính. Em xin phép chia sẻ 2 phương án căn đẹp nhất đợt này nhé ạ!'}"
+            "${v.ai_script || 'Dạ em chào Anh/Chị! Em là chuyên viên tư vấn dự án... Em vừa nhận được thông tin Anh/Chị đang quan tâm căn hộ/nhà phố phù hợp tầm tài chính. Em xin phép chia sẻ 2 phương án căn đẹp nhất đợt này nhé ạ!'}"
           </div>
         </div>
 
         <!-- KHỐI 4: HẠN CHÓT SLA 24 GIỜ -->
         <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 16px; margin: 18px 0; border-radius: 4px; font-size: 12px; color: #991b1b;">
-          ⏱ <strong>Hạn chót chăm sóc (SLA 24 giờ):</strong> ${variables.han_cham_soc || 'Trong vòng 24 giờ kể từ thời điểm nhận'}.<br/>
+          ⏱ <strong>Hạn chót chăm sóc (SLA 24 giờ):</strong> ${v.han_cham_soc || 'Trong vòng 24 giờ kể từ thời điểm nhận'}.<br/>
           <span style="font-size: 11px; color: #7f1d1d;">Lưu ý: Vui lòng liên hệ và cập nhật tình trạng chăm sóc hoặc ghi nhận cuộc gọi/lịch hẹn trước thời hạn để giữ Lead.</span>
         </div>
 
-        ${buttonHtml(`${siteUrl}/leads/${variables.lead_id}`, 'Xem Chi Tiết Lead & Trợ Lý AI Tư Vấn')}
+        ${buttonHtml(`${siteUrl}/leads/${v.lead_id}`, 'Xem Chi Tiết Lead & Trợ Lý AI Tư Vấn')}
       `;
     } else if (eventType === 'lead_revoked' || eventType === 'auto_transferred_old') {
-      title = `[CRM Broker] Thông báo thu hồi Lead: ${variables.ten_khach_hang}`;
+      title = `[CRM Broker] Thông báo thu hồi Lead: ${v.ten_khach_hang}`;
       bodyContent = `
-        <h3 style="color: #0f172a; font-size: 16px; margin-top: 0;">Xin chào ${variables.ten_sale},</h3>
+        <h3 style="color: #0f172a; font-size: 16px; margin-top: 0;">Xin chào ${v.ten_sale},</h3>
         <p style="color: #334155; line-height: 1.6; font-size: 13px;">
-          Hệ thống thông báo Lead <strong>${variables.ten_khach_hang}</strong> (${variables.du_an}) đã được thu hồi và điều chuyển cho nhân sự khác ${eventType === 'auto_transferred_old' ? 'do quá hạn 24 giờ liên tục không có hoạt động chăm sóc' : 'theo yêu cầu của Trưởng phòng kinh doanh'}.
+          Hệ thống thông báo Lead <strong>${v.ten_khach_hang}</strong> (${v.du_an}) đã được thu hồi và điều chuyển cho nhân sự khác ${eventType === 'auto_transferred_old' ? 'do quá hạn 24 giờ liên tục không có hoạt động chăm sóc' : 'theo yêu cầu của Trưởng phòng kinh doanh'}.
         </p>
         <div style="background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 18px 0; border-radius: 4px; font-size: 12px; color: #92400e;">
           💡 <strong>Mẹo:</strong> Hãy luôn cập nhật tình trạng chăm sóc hoặc tạo lịch hẹn tương lai để giữ Lead và tối ưu tỷ lệ chuyển đổi.
@@ -549,10 +579,10 @@ ${leadListPlain}
 
     // Tạo bảng HTML danh sách các lead được giao - đảm bảo không bị undefined
     const rows = leads.map((l, idx) => {
-      const customerName = l.customer_name || (l as any).full_name || (l as any).customer?.full_name || 'Khách hàng';
-      const customerPhone = l.customer_phone || (l as any).phone || (l as any).customer?.phone || '---';
-      const projectName = l.project_name || (l as any).project?.name || 'Dự án';
-      const notes = l.notes || '---';
+      const customerName = escapeHtml(l.customer_name || (l as any).full_name || (l as any).customer?.full_name || 'Khách hàng');
+      const customerPhone = escapeHtml(l.customer_phone || (l as any).phone || (l as any).customer?.phone || '---');
+      const projectName = escapeHtml(l.project_name || (l as any).project?.name || 'Dự án');
+      const notes = escapeHtml(l.notes || '---');
 
       return `
         <tr style="border-bottom: 1px solid #e2e8f0; background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
@@ -613,13 +643,25 @@ ${leadListPlain}
 
         // Nếu đã cấu hình tài khoản Gmail, Apps Script hoặc Resend, gọi API serverless thực để gửi ra ngoài
         if (hasLiveCredentials && typeof window !== 'undefined') {
+          let authToken = 'test-mock-token-client';
+          if (isLiveSupabaseConfigured) {
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (sessionData?.session?.access_token) {
+              authToken = sessionData.session.access_token;
+            }
+          }
+
           const res = await fetch('/api/send-email', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`,
+            },
             body: JSON.stringify({
               to: log.recipient_email,
               subject: log.title,
               html: log.content,
+              idempotencyKey: log.idempotency_key,
               fromName: config.smtp_from_name || 'CRM Bất Động Sản',
               fromEmail: config.smtp_from_email || config.smtp_user,
               config: {
@@ -627,8 +669,8 @@ ${leadListPlain}
                 smtp_host: config.smtp_host || 'smtp.gmail.com',
                 smtp_port: config.smtp_port || 465,
                 smtp_user: config.smtp_user,
-                smtp_pass: config.smtp_pass,
-                resend_api_key: config.resend_api_key,
+                smtp_pass: config.smtp_pass && !config.smtp_pass.includes('••') ? config.smtp_pass : undefined,
+                resend_api_key: config.resend_api_key && !config.resend_api_key.includes('••') ? config.resend_api_key : undefined,
                 google_apps_script_url: config.google_apps_script_url,
               },
             }),
@@ -690,9 +732,20 @@ ${leadListPlain}
     }
 
     try {
+      let authToken = 'test-mock-token-client';
+      if (isLiveSupabaseConfigured) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.access_token) {
+          authToken = sessionData.session.access_token;
+        }
+      }
+
       const res = await fetch('/api/send-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
         body: JSON.stringify({
           to: targetEmail,
           subject: '[CRM Broker] Xác Nhận Kết Nối Email Thành Công 🎉',
@@ -704,7 +757,7 @@ ${leadListPlain}
               </div>
               <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; font-size: 13px; line-height: 1.6; color: #334155;">
                 <p style="margin: 0 0 8px 0;">Xin chào,</p>
-                <p style="margin: 0 0 8px 0;">Email này được gửi thử từ hệ thống CRM Broker qua tài khoản gửi: <strong>${config.smtp_user || config.smtp_from_email || 'Google Apps Script / Resend'}</strong>.</p>
+                <p style="margin: 0 0 8px 0;">Email này được gửi thử từ hệ thống CRM Broker qua tài khoản gửi: <strong>${escapeHtml(config.smtp_user || config.smtp_from_email || 'Google Apps Script / Resend')}</strong>.</p>
                 <p style="margin: 0;">Cấu hình cổng gửi email đã hoạt động chính xác. Từ bây giờ các Sale sẽ nhận được email ngay cả khi hệ thống tự động đảo lead lúc nửa đêm!</p>
               </div>
               <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center;">
@@ -719,8 +772,8 @@ ${leadListPlain}
             smtp_host: config.smtp_host || 'smtp.gmail.com',
             smtp_port: config.smtp_port || 465,
             smtp_user: config.smtp_user,
-            smtp_pass: config.smtp_pass,
-            resend_api_key: config.resend_api_key,
+            smtp_pass: config.smtp_pass && !config.smtp_pass.includes('••') ? config.smtp_pass : undefined,
+            resend_api_key: config.resend_api_key && !config.resend_api_key.includes('••') ? config.resend_api_key : undefined,
             google_apps_script_url: config.google_apps_script_url,
           },
         }),
