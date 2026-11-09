@@ -87,6 +87,10 @@ export interface Organization {
   phone?: string;
   email?: string;
   address?: string;
+  ceo_id?: string;
+  ceo_name?: string;
+  status?: 'active' | 'inactive';
+  created_at?: string;
 }
 
 export interface Region {

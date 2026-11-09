@@ -10,6 +10,7 @@ import {
   UserProfile, 
   UserRole,
   Region,
+  Organization,
   Division,
   CompanySettings,
   OrgPositionLevel,
@@ -26,6 +27,7 @@ import {
   INITIAL_ORG_POSITIONS
 } from '../mockData';
 
+const STORAGE_KEY_ORGANIZATIONS = 'crm_organizations';
 const STORAGE_KEY_AGENCIES = 'crm_agencies';
 const STORAGE_KEY_TEAMS = 'crm_teams';
 const STORAGE_KEY_PROFILES = 'crm_profiles';
@@ -34,12 +36,23 @@ const STORAGE_KEY_DIVISIONS = 'crm_divisions';
 const STORAGE_KEY_COMPANY_SETTINGS = 'crm_company_settings';
 const STORAGE_KEY_ORG_POSITIONS = 'crm_org_positions';
 
+export interface CreateOrganizationInput {
+  name: string;
+  code: string;
+  tax_number?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  ceo_id?: string | null;
+}
+
 export interface CreateUserInput {
   email: string;
   password?: string;
   full_name: string;
   phone: string;
   role: UserRole;
+  organization_id?: string | null;
   agency_id?: string | null;
   team_id?: string | null;
   region_id?: string | null;
@@ -50,6 +63,7 @@ export interface CreateUserInput {
 export interface CreateAgencyInput {
   name: string;
   code: string;
+  organization_id?: string | null;
   region_id?: string | null;
   address?: string;
   phone?: string;
@@ -60,6 +74,7 @@ export interface CreateAgencyInput {
 export interface CreateRegionInput {
   name: string;
   code: string;
+  organization_id?: string | null;
   description?: string;
   regional_director_id?: string | null;
 }
@@ -72,6 +87,103 @@ export interface CreateTeamInput {
 }
 
 export class TeamRepository {
+  /**
+   * ==========================================
+   * 0. DOANH NGHIỆP / TỔ CHỨC (CEO)
+   * ==========================================
+   */
+  async getOrganizations(): Promise<Organization[]> {
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('organizations')
+        .select('*')
+        .order('name');
+      if (!error && data) {
+        const orgs = data as Organization[];
+        const profiles = await this.getProfiles();
+        return orgs.map(o => {
+          const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
+          return {
+            ...o,
+            ceo_id: o.ceo_id || ceo?.id,
+            ceo_name: o.ceo_name || ceo?.full_name,
+          };
+        });
+      }
+    }
+
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_ORGANIZATIONS) : null;
+    const list: Organization[] = raw ? JSON.parse(raw) : INITIAL_ORGS;
+    if (typeof localStorage !== 'undefined' && !raw) {
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(INITIAL_ORGS));
+    }
+
+    const profiles = await this.getProfiles();
+    return list.map(o => {
+      const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
+      return {
+        ...o,
+        ceo_id: o.ceo_id || ceo?.id,
+        ceo_name: o.ceo_name || ceo?.full_name,
+      };
+    });
+  }
+
+  async createOrganization(input: CreateOrganizationInput): Promise<{ success: boolean; organization?: Organization; error?: string }> {
+    const cleanCode = input.code.trim().toUpperCase();
+    const orgs = await this.getOrganizations();
+    if (orgs.some(o => o.code === cleanCode)) {
+      return { success: false, error: `Mã doanh nghiệp '${cleanCode}' đã tồn tại trong hệ thống.` };
+    }
+
+    const newOrg: Organization = {
+      id: `org-${Date.now()}`,
+      name: input.name.trim(),
+      code: cleanCode,
+      tax_number: input.tax_number?.trim(),
+      phone: input.phone?.trim(),
+      email: input.email?.trim(),
+      address: input.address?.trim(),
+      ceo_id: input.ceo_id || undefined,
+      status: 'active',
+      created_at: new Date().toISOString(),
+    };
+
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.from('organizations').insert({
+        name: newOrg.name,
+        code: newOrg.code,
+        tax_number: newOrg.tax_number || null,
+        phone: newOrg.phone || null,
+        email: newOrg.email || null,
+        address: newOrg.address || null,
+      }).select().single();
+      if (error) return { success: false, error: error.message };
+      if (data) newOrg.id = data.id;
+    }
+
+    const updated = [...orgs, newOrg];
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updated));
+    }
+
+    if (input.ceo_id) {
+      await this.assignRole(input.ceo_id, 'ceo', null, null);
+      const rawProfiles = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_PROFILES) : null;
+      if (rawProfiles) {
+        const profs: UserProfile[] = JSON.parse(rawProfiles);
+        const idx = profs.findIndex(p => p.id === input.ceo_id);
+        if (idx !== -1) {
+          profs[idx].organization_id = newOrg.id;
+          profs[idx].role = 'ceo';
+          localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profs));
+        }
+      }
+    }
+
+    return { success: true, organization: newOrg };
+  }
+
   async getAgencies(): Promise<Agency[]> {
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase
@@ -203,6 +315,8 @@ export class TeamRepository {
       full_name: input.full_name.trim(),
       phone: input.phone.trim(),
       role: input.role,
+      organization_id: input.organization_id || undefined,
+      region_id: input.region_id || undefined,
       agency_id: input.agency_id || undefined,
       team_id: input.team_id || undefined,
       status: 'active',
@@ -236,13 +350,14 @@ export class TeamRepository {
   // ==========================================
   async createAgency(input: CreateAgencyInput): Promise<{ success: boolean; agency?: Agency; error?: string }> {
     const cleanCode = input.code.trim().toUpperCase();
-    const orgId = INITIAL_ORGS[0].id;
+    const orgId = input.organization_id || INITIAL_ORGS[0].id;
 
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase
         .from('agencies')
         .insert({
           organization_id: orgId,
+          region_id: input.region_id || null,
           name: input.name.trim(),
           code: cleanCode,
           address: input.address?.trim() || null,
@@ -278,6 +393,7 @@ export class TeamRepository {
     const newAgency: Agency = {
       id: `local-agency-${Date.now()}`,
       organization_id: orgId,
+      region_id: input.region_id || undefined,
       name: input.name.trim(),
       code: cleanCode,
       address: input.address?.trim(),
@@ -404,7 +520,9 @@ export class TeamRepository {
     userId: string,
     role: UserRole,
     agencyId?: string | null,
-    teamId?: string | null
+    teamId?: string | null,
+    regionId?: string | null,
+    organizationId?: string | null
   ): Promise<{ success: boolean; error?: string }> {
     if (isLiveSupabaseConfigured) {
       const payload: any = {
@@ -413,6 +531,8 @@ export class TeamRepository {
       };
       if (agencyId !== undefined) payload.agency_id = agencyId;
       if (teamId !== undefined) payload.team_id = teamId;
+      if (regionId !== undefined) payload.region_id = regionId;
+      if (organizationId !== undefined) payload.organization_id = organizationId;
 
       const { error } = await supabase.from('profiles').update(payload).eq('id', userId);
       if (error) return { success: false, error: error.message };
@@ -427,6 +547,8 @@ export class TeamRepository {
           role,
           agency_id: agencyId !== undefined ? (agencyId || undefined) : p.agency_id,
           team_id: teamId !== undefined ? (teamId || undefined) : p.team_id,
+          region_id: regionId !== undefined ? (regionId || undefined) : p.region_id,
+          organization_id: organizationId !== undefined ? (organizationId || undefined) : p.organization_id,
         };
       }
       return p;
@@ -479,6 +601,7 @@ export class TeamRepository {
 
     const newRegion: Region = {
       id: `reg-${Date.now()}`,
+      organization_id: input.organization_id || undefined,
       name: input.name.trim(),
       code: cleanCode,
       description: input.description,
@@ -490,6 +613,7 @@ export class TeamRepository {
 
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase.from('regions').insert({
+        organization_id: newRegion.organization_id || null,
         name: newRegion.name,
         code: newRegion.code,
         description: newRegion.description,
@@ -507,6 +631,16 @@ export class TeamRepository {
 
     if (input.regional_director_id) {
       await this.assignRole(input.regional_director_id, 'regional_director', null, null);
+      const rawProfiles = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_PROFILES) : null;
+      if (rawProfiles) {
+        const profs: UserProfile[] = JSON.parse(rawProfiles);
+        const idx = profs.findIndex(p => p.id === input.regional_director_id);
+        if (idx !== -1) {
+          profs[idx].region_id = newRegion.id;
+          if (input.organization_id) profs[idx].organization_id = input.organization_id;
+          localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profs));
+        }
+      }
     }
 
     return { success: true, region: newRegion };

@@ -46,7 +46,9 @@ import {
   Trash2,
   History,
   FileText,
-  Database
+  Database,
+  Layers,
+  Building
 } from 'lucide-react';
 import { useAuthStore } from '@/app/useAuthStore';
 import { AgencyPerformanceModal } from '@/components/AgencyPerformanceModal';
@@ -54,7 +56,9 @@ import {
   teamRepository, 
   CreateUserInput, 
   CreateAgencyInput, 
-  CreateTeamInput 
+  CreateTeamInput,
+  CreateRegionInput,
+  CreateOrganizationInput
 } from '@/data/repositories/teamRepository';
 import { auditRepository } from '@/data/repositories/auditRepository';
 import { leadRepository } from '@/data/repositories/leadRepository';
@@ -65,6 +69,8 @@ import {
   UserProfile, 
   Agency, 
   Team, 
+  Region,
+  Organization,
   AuditLog, 
   UserRole,
   AutoTransferConfig,
@@ -90,6 +96,8 @@ export const AdminPage: React.FC = () => {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [trashItems, setTrashItems] = useState<TrashBinItem[]>([]);
   const [controlledAuditLogs, setControlledAuditLogs] = useState<ControlledAuditEntry[]>([]);
@@ -136,10 +144,34 @@ export const AdminPage: React.FC = () => {
     email: '',
     phone: '',
     role: 'sale_agent',
+    organization_id: '',
+    region_id: '',
     agency_id: '',
     team_id: '',
     password: 'password123',
     must_change_password: true,
+  });
+
+  // Modal: Create Organization (Thành Lập Doanh Nghiệp Mới - CEO)
+  const [isOrgModalOpen, setIsOrgModalOpen] = useState(false);
+  const [newOrg, setNewOrg] = useState<CreateOrganizationInput>({
+    name: '',
+    code: '',
+    tax_number: '',
+    phone: '',
+    email: '',
+    address: '',
+    ceo_id: '',
+  });
+
+  // Modal: Create Region (Thành Lập Vùng Kinh Doanh Mới)
+  const [isRegionModalOpen, setIsRegionModalOpen] = useState(false);
+  const [newRegion, setNewRegion] = useState<CreateRegionInput>({
+    name: '',
+    code: '',
+    organization_id: '',
+    regional_director_id: '',
+    description: '',
   });
 
   // Modal: Create Agency (Thêm Sàn Giao Dịch Mới)
@@ -147,6 +179,8 @@ export const AdminPage: React.FC = () => {
   const [newAgency, setNewAgency] = useState<CreateAgencyInput>({
     name: '',
     code: '',
+    organization_id: '',
+    region_id: '',
     address: '',
     phone: '',
     email: '',
@@ -172,6 +206,8 @@ export const AdminPage: React.FC = () => {
   const [perfModalOpen, setPerfModalOpen] = useState(false);
   const [targetAgencyId, setTargetAgencyId] = useState<string>('');
   const [targetTeamId, setTargetTeamId] = useState<string>('');
+  const [targetRegionId, setTargetRegionId] = useState<string>('');
+  const [targetOrgId, setTargetOrgId] = useState<string>('');
 
   // Settings state
   const [maxLeads, setMaxLeads] = useState(30);
@@ -180,10 +216,12 @@ export const AdminPage: React.FC = () => {
 
   const reloadData = async () => {
     setLoading(true);
-    const [uList, aList, tList, logs, aConfig, eConfig, nLogs] = await Promise.all([
+    const [uList, aList, tList, rList, oList, logs, aConfig, eConfig, nLogs] = await Promise.all([
       teamRepository.getProfiles(),
       teamRepository.getAgencies(),
       teamRepository.getTeams(),
+      teamRepository.getRegions(),
+      teamRepository.getOrganizations(),
       auditRepository.getAuditLogs(),
       autoTransferService.getConfig(),
       notificationService.getEmailConfig(),
@@ -192,6 +230,8 @@ export const AdminPage: React.FC = () => {
     setProfiles(uList);
     setAgencies(aList);
     setTeams(tList);
+    setRegions(rList);
+    setOrganizations(oList);
     setAuditLogs(logs);
     setAutoTransferConfig(aConfig);
     setEmailConfig(eConfig);
@@ -392,6 +432,71 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  // 1b. Xử lý tạo Doanh Nghiệp (CEO) mới
+  const handleCreateOrganizationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError(null);
+    setIsSubmitting(true);
+
+    try {
+      const result = await teamRepository.createOrganization({
+        ...newOrg,
+        ceo_id: newOrg.ceo_id || null,
+      });
+
+      if (result.success && result.organization) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'organization_create',
+          { org_code: result.organization.code, org_name: result.organization.name }
+        );
+        await reloadData();
+        setIsOrgModalOpen(false);
+        setNewOrg({ name: '', code: '', tax_number: '', phone: '', email: '', address: '', ceo_id: '' });
+      } else {
+        setModalError(result.error || 'Không thể tạo doanh nghiệp mới.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi tạo doanh nghiệp.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 1c. Xử lý tạo Vùng Kinh Doanh mới & Bổ nhiệm Giám đốc vùng
+  const handleCreateRegionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError(null);
+    setIsSubmitting(true);
+
+    try {
+      const result = await teamRepository.createRegion({
+        ...newRegion,
+        organization_id: newRegion.organization_id || null,
+        regional_director_id: newRegion.regional_director_id || null,
+      });
+
+      if (result.success && result.region) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'region_create',
+          { region_code: result.region.code, region_name: result.region.name }
+        );
+        await reloadData();
+        setIsRegionModalOpen(false);
+        setNewRegion({ name: '', code: '', organization_id: '', regional_director_id: '', description: '' });
+      } else {
+        setModalError(result.error || 'Không thể tạo vùng kinh doanh mới.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi tạo vùng kinh doanh.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // 2. Xử lý tạo Sàn Giao Dịch mới & Bổ nhiệm Giám đốc sàn
   const handleCreateAgencySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -401,6 +506,8 @@ export const AdminPage: React.FC = () => {
     try {
       const result = await teamRepository.createAgency({
         ...newAgency,
+        organization_id: newAgency.organization_id || null,
+        region_id: newAgency.region_id || null,
         director_id: newAgency.director_id || null,
       });
 
@@ -413,7 +520,7 @@ export const AdminPage: React.FC = () => {
         );
         await reloadData();
         setIsAgencyModalOpen(false);
-        setNewAgency({ name: '', code: '', address: '', phone: '', email: '', director_id: '' });
+        setNewAgency({ name: '', code: '', organization_id: '', region_id: '', address: '', phone: '', email: '', director_id: '' });
       } else {
         setModalError(result.error || 'Không thể tạo sàn giao dịch mới.');
       }
@@ -462,6 +569,8 @@ export const AdminPage: React.FC = () => {
     setTargetRole(user.role);
     setTargetAgencyId(user.agency_id || '');
     setTargetTeamId(user.team_id || '');
+    setTargetRegionId(user.region_id || '');
+    setTargetOrgId(user.organization_id || '');
     setModalError(null);
     setIsRoleModalOpen(true);
   };
@@ -478,7 +587,9 @@ export const AdminPage: React.FC = () => {
         selectedUserForRole.id,
         targetRole,
         targetAgencyId || null,
-        targetTeamId || null
+        targetTeamId || null,
+        targetRegionId || null,
+        targetOrgId || null
       );
 
       if (result.success) {
@@ -596,7 +707,29 @@ export const AdminPage: React.FC = () => {
             )}
 
             {activeTab === 'teams' && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setModalError(null);
+                    setIsOrgModalOpen(true);
+                  }}
+                  className="font-semibold text-xs py-2 shadow-sm border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100"
+                >
+                  <Crown className="h-4 w-4 mr-1.5 text-amber-500" /> Thêm Doanh Nghiệp (CEO)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setModalError(null);
+                    setIsRegionModalOpen(true);
+                  }}
+                  className="font-semibold text-xs py-2 shadow-sm border-purple-200 text-purple-700 bg-purple-50/50 hover:bg-purple-100"
+                >
+                  <Layers className="h-4 w-4 mr-1.5 text-purple-600" /> Thêm Vùng Kinh Doanh
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -627,8 +760,8 @@ export const AdminPage: React.FC = () => {
         <div className="flex flex-wrap border-b border-slate-200 gap-4 text-xs font-semibold">
           {[
             { id: 'users', label: `Tài khoản & Nhân sự (${profiles.length})`, icon: Users },
-            { id: 'teams', label: `Cơ cấu Sàn (${agencies.length}) & Team (${teams.length})`, icon: Building2 },
-            { id: 'permissions', label: 'Ma trận Phân quyền 6 Vai trò', icon: KeyRound },
+            { id: 'teams', label: `Cơ cấu Tổ Chức (${organizations.length} DN • ${regions.length} Vùng • ${agencies.length} Sàn • ${teams.length} Team)`, icon: Building2 },
+            { id: 'permissions', label: 'Ma Trận Phân Quyền 9 Vai Trò', icon: KeyRound },
             { id: 'auto_transfer', label: 'Tự Động Chuyển Lead & Email', icon: Clock },
             { id: 'trash_bin', label: `Thùng Rác Quản Trị (${trashItems.length})`, icon: Trash2 },
             { id: 'audit_diff', label: 'Nhật Ký Kiểm Toán (Audit Diff)', icon: History },
@@ -814,10 +947,152 @@ export const AdminPage: React.FC = () => {
         </Card>
       )}
 
-      {/* 3. TAB 2: TEAMS & AGENCIES MANAGEMENT */}
+      {/* 3. TAB 2: TEAMS, AGENCIES, REGIONS & ORGANIZATIONS MANAGEMENT */}
       {activeTab === 'teams' && (
         <div className="space-y-6">
-          {/* SÀN PHÂN PHỐI */}
+          {/* 1. DOANH NGHIỆP / TỔ CHỨC (CEO) */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Crown className="h-4 w-4 text-amber-500" />
+                  Danh Sách Doanh Nghiệp & Tổng Giám Đốc (CEO) ({organizations.length} Doanh Nghiệp)
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  Cấp quản trị cao nhất, mỗi doanh nghiệp có CEO trực tiếp điều hành toàn bộ các Vùng, Sàn, Marketing và HR.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setModalError(null);
+                  setIsOrgModalOpen(true);
+                }}
+                className="text-xs border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100 font-semibold"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Thêm Doanh Nghiệp (CEO)
+              </Button>
+            </CardHeader>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+              {organizations.map((org) => {
+                const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === org.id) || profiles.find(p => p.id === org.ceo_id);
+                const regionsInOrg = regions.filter(r => r.organization_id === org.id);
+                const agenciesInOrg = agencies.filter(a => a.organization_id === org.id);
+                const staffInOrg = profiles.filter(p => p.organization_id === org.id);
+
+                return (
+                  <div key={org.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:border-indigo-400 transition-all shadow-sm flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <Badge variant="info" className="mb-1 text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200">{org.code}</Badge>
+                          <h3 className="text-sm font-bold text-slate-900 line-clamp-1">{org.name}</h3>
+                        </div>
+                        <Badge variant="success">Hoạt động</Badge>
+                      </div>
+
+                      <div className="mt-3 space-y-1.5 text-xs text-slate-600">
+                        <div className="flex items-center gap-1.5">
+                          <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                          <span>Tổng Giám Đốc (CEO): <strong className="text-indigo-950 font-bold">{ceo?.full_name || org.ceo_name || '(Chưa bổ nhiệm)'}</strong></span>
+                        </div>
+                        {org.tax_number && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                            <span className="font-mono">MST: {org.tax_number}</span>
+                          </div>
+                        )}
+                        {org.phone && (
+                          <div className="flex items-center gap-1.5">
+                            <Phone className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <span>{org.phone}</span>
+                          </div>
+                        )}
+                        <div className="text-[11px] text-slate-400 truncate">
+                          {org.address || 'Chưa có địa chỉ trụ sở'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                      <span><strong>{regionsInOrg.length}</strong> Vùng • <strong>{agenciesInOrg.length}</strong> Sàn • <strong>{staffInOrg.length}</strong> Nhân sự</span>
+                      <span className="text-[10px] text-indigo-700 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">Khối DN</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* 2. VÙNG KINH DOANH (REGIONS) */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-purple-600" />
+                  Danh Sách Vùng Kinh Doanh ({regions.length} Vùng)
+                </CardTitle>
+                <p className="text-xs text-slate-500">
+                  Quản lý tập trung các Sàn giao dịch theo khu vực địa lý do Giám Đốc Vùng điều phối.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setModalError(null);
+                  setIsRegionModalOpen(true);
+                }}
+                className="text-xs border-purple-200 text-purple-700 bg-purple-50/50 hover:bg-purple-100 font-semibold"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Thêm Vùng Kinh Doanh
+              </Button>
+            </CardHeader>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+              {regions.map((reg) => {
+                const director = profiles.find(p => p.id === reg.regional_director_id);
+                const parentOrg = organizations.find(o => o.id === reg.organization_id);
+                const agenciesInReg = agencies.filter(a => a.region_id === reg.id);
+                const staffInReg = profiles.filter(p => p.region_id === reg.id);
+
+                return (
+                  <div key={reg.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:border-purple-400 transition-all shadow-sm flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <Badge variant="info" className="mb-1 text-[10px] bg-purple-50 text-purple-700 border-purple-200">{reg.code}</Badge>
+                          <h3 className="text-sm font-bold text-slate-900">{reg.name}</h3>
+                        </div>
+                        <Badge variant="success">Hoạt động</Badge>
+                      </div>
+
+                      <div className="mt-3 space-y-1.5 text-xs text-slate-600">
+                        <div className="flex items-center gap-1.5">
+                          <UserCheck className="h-3.5 w-3.5 text-purple-600 shrink-0" />
+                          <span>Giám Đốc Vùng: <strong className="text-purple-950 font-bold">{director?.full_name || reg.regional_director_name || '(Chưa bổ nhiệm)'}</strong></span>
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Trực thuộc: <span className="font-semibold text-slate-700">{parentOrg?.name || 'Tập đoàn'}</span>
+                        </div>
+                        {reg.description && (
+                          <div className="text-[11px] text-slate-400 line-clamp-2">
+                            {reg.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                      <span><strong>{agenciesInReg.length}</strong> Sàn • <strong>{staffInReg.length}</strong> Nhân sự</span>
+                      <span className="text-[10px] text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded border border-purple-200">Cấp Vùng</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* 3. SÀN PHÂN PHỐI */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
@@ -833,15 +1108,16 @@ export const AdminPage: React.FC = () => {
                   setModalError(null);
                   setIsAgencyModalOpen(true);
                 }}
-                className="text-xs"
+                className="text-xs font-semibold"
               >
                 <Plus className="h-3.5 w-3.5 mr-1" /> Thêm Sàn Giao Dịch
               </Button>
             </CardHeader>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
               {agencies.map((a) => {
                 const teamsInAgency = teams.filter(t => t.agency_id === a.id);
                 const salesInAgency = profiles.filter(p => p.agency_id === a.id);
+                const regionObj = regions.find(r => r.id === a.region_id);
 
                 return (
                   <div key={a.id} className="p-4 rounded-xl border border-slate-200 bg-white hover:border-blue-400 transition-all shadow-sm flex flex-col justify-between space-y-3">
@@ -858,6 +1134,9 @@ export const AdminPage: React.FC = () => {
                         <div className="flex items-center gap-1.5">
                           <Crown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                           <span>Giám đốc sàn: <strong>{a.director_name || '(Chưa bổ nhiệm)'}</strong></span>
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Vùng: <span className="font-semibold text-slate-700">{regionObj?.name || a.region_name || 'Chưa gán vùng'}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Phone className="h-3.5 w-3.5 text-slate-400 shrink-0" />
@@ -887,7 +1166,7 @@ export const AdminPage: React.FC = () => {
             </div>
           </Card>
 
-          {/* ĐỘI NHÓM KINH DOANH (TEAMS) */}
+          {/* 4. ĐỘI NHÓM KINH DOANH (TEAMS) */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
@@ -903,12 +1182,12 @@ export const AdminPage: React.FC = () => {
                   setModalError(null);
                   setIsTeamModalOpen(true);
                 }}
-                className="text-xs"
+                className="text-xs font-semibold"
               >
                 <Plus className="h-3.5 w-3.5 mr-1" /> Thêm Team Kinh Doanh
               </Button>
             </CardHeader>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
               {teams.map((t) => {
                 const agency = agencies.find(a => a.id === t.agency_id);
                 const members = profiles.filter(p => p.team_id === t.id);
@@ -947,16 +1226,16 @@ export const AdminPage: React.FC = () => {
         </div>
       )}
 
-      {/* 4. TAB 3: PERMISSION MATRIX */}
+      {/* 4. TAB 3: PERMISSION MATRIX 9 VAI TRÒ */}
       {activeTab === 'permissions' && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <KeyRound className="h-5 w-5 text-blue-600" />
               <div>
-                <CardTitle className="text-sm">Ma Trận Phân Quyền Theo 6 Vai Trò (RBAC)</CardTitle>
+                <CardTitle className="text-sm">Ma Trận Phân Quyền Toàn Diện Theo 9 Vai Trò (RBAC & Multi-tenant)</CardTitle>
                 <p className="text-xs text-slate-500">
-                  Quy định chi tiết phạm vi dữ liệu và quyền hạn của Giám đốc sàn, Trưởng phòng kinh doanh, Trưởng nhóm và Sale Agent.
+                  Quy định chi tiết phạm vi dữ liệu và quyền hạn của Quản trị viên, Tổng Giám Đốc, Giám Đốc Vùng, Giám Đốc Sàn, Giám Đốc Marketing, Giám Đốc HR, Trưởng Phòng, Trưởng Nhóm và Chuyên Viên Tư Vấn.
                 </p>
               </div>
             </div>
@@ -967,34 +1246,45 @@ export const AdminPage: React.FC = () => {
                 <tr className="bg-slate-50 border-y border-slate-200 text-slate-700 font-bold uppercase text-[10px]">
                   <th className="py-3 px-4 text-left">Chức năng & Màn hình</th>
                   <th className="bg-blue-50/60 text-blue-800">Admin (Quản trị)</th>
-                  <th>Director (GĐ Sàn)</th>
+                  <th className="bg-indigo-50/60 text-indigo-800">CEO (Tổng GĐ)</th>
+                  <th className="bg-purple-50/60 text-purple-800">GĐ Vùng (Regional)</th>
+                  <th>GĐ Sàn (Director)</th>
                   <th>Marketing</th>
-                  <th>Sales Manager (Trưởng phòng)</th>
+                  <th>HR Admin</th>
+                  <th>Trưởng Phòng (Sales Mgr)</th>
                   <th>Team Leader (Trưởng nhóm)</th>
                   <th>Sale Agent (Tư vấn)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {[
-                  { name: 'Dashboard KPI & Doanh số', a: 'Toàn hệ thống', d: 'Toàn sàn phụ trách', m: 'Toàn hệ thống', sm: 'Theo sàn & các team', tl: 'Chỉ trong team', sa: 'Cá nhân' },
-                  { name: 'Phạm vi xem Lead (RLS)', a: 'Tất cả 100%', d: 'Toàn sàn phụ trách', m: 'Tất cả (Ẩn SĐT)', sm: 'Toàn sàn phụ trách', tl: 'Lead thuộc team', sa: 'Chỉ Lead được giao' },
-                  { name: 'Kéo thả Journey & Xác nhận Deal', a: true, d: true, m: false, sm: true, tl: true, sa: true },
-                  { name: 'Phân bổ Round Robin (Lead Pool)', a: true, d: true, m: false, sm: true, tl: true, sa: false },
-                  { name: 'Bổ nhiệm Leader & Quản lý Team', a: true, d: true, m: false, sm: true, tl: false, sa: false },
-                  { name: 'Xuất dữ liệu Lead ra CSV', a: true, d: true, m: true, sm: true, tl: true, sa: false },
-                  { name: 'Chỉnh sửa Tri thức Dự án & FAQ', a: true, d: true, m: true, sm: true, tl: false, sa: false },
-                  { name: 'Tùy chỉnh Sales Scripts theo sàn', a: true, d: true, m: true, sm: true, tl: false, sa: false },
-                  { name: 'Thêm Sàn, Team & Tạo tài khoản', a: 'Chỉ Admin', d: false, m: false, sm: false, tl: false, sa: false },
-                  { name: 'Chuyển đổi góc nhìn vai trò (Góc nhìn)', a: 'Chỉ Admin', d: false, m: false, sm: false, tl: false, sa: false },
-                  { name: 'Cấu hình tham số & Xem Audit Logs', a: 'Chỉ Admin', d: false, m: false, sm: false, tl: false, sa: false },
+                  { name: 'Dashboard KPI & Báo cáo', a: 'Toàn hệ thống (Tất cả CEO)', ceo: 'Toàn DN (Cô lập chéo)', rd: 'Toàn vùng phụ trách', d: 'Toàn sàn phụ trách', m: 'Toàn DN trực thuộc', hr: 'Toàn DN trực thuộc', sm: 'Theo sàn & các team', tl: 'Chỉ trong team', sa: 'Cá nhân' },
+                  { name: 'Phạm vi xem Lead (RLS)', a: 'Tất cả 100%', ceo: 'Toàn DN thuộc quyền', rd: 'Toàn vùng phụ trách', d: 'Toàn sàn phụ trách', m: 'Toàn DN (Ẩn SĐT NĐ 13)', hr: 'Toàn DN (HR)', sm: 'Toàn sàn phụ trách', tl: 'Lead thuộc team', sa: 'Chỉ Lead được giao' },
+                  { name: 'Kéo thả Journey & Xác nhận Deal', a: true, ceo: true, rd: true, d: true, m: false, hr: false, sm: true, tl: true, sa: true },
+                  { name: 'Tạo Doanh Nghiệp, Vùng, Sàn, Team', a: 'Toàn quyền', ceo: 'Vùng/Sàn/Team DN', rd: false, d: false, m: false, hr: false, sm: false, tl: false, sa: false },
+                  { name: 'Duyệt HĐMB Maker-Checker đa tầng', a: 'Toàn quyền (L1/L2/L3)', ceo: 'Duyệt L3 (>15 tỷ)', rd: 'Duyệt L2 (5-15 tỷ)', d: 'Duyệt L1 (<5 tỷ)', m: false, hr: false, sm: 'Kiểm tra hồ sơ', tl: 'Đề xuất', sa: false },
+                  { name: 'Xem SĐT & CCCD Nhân sự (NĐ 13)', a: 'Đầy đủ 100%', ceo: 'Đầy đủ 100%', rd: 'Đầy đủ vùng', d: 'Đầy đủ sàn', m: 'Đầy đủ DN', hr: 'Toàn quyền xem & sửa', sm: 'Đầy đủ sàn', tl: 'Đầy đủ team', sa: 'Đầy đủ cá nhân' },
+                  { name: 'Bổ nhiệm Leader & Quản lý Team', a: true, ceo: true, rd: 'Đề xuất', d: true, m: false, hr: 'Thực thi hồ sơ', sm: true, tl: false, sa: false },
+                  { name: 'Quản trị Marketing Ads & CPL', a: true, ceo: 'Xem ROI/CPL', rd: 'Xem vùng', d: 'Xem sàn', m: 'Toàn quyền quản trị', hr: false, sm: false, tl: false, sa: false },
+                  { name: 'Quản lý Vòng đời HR (ATS & Phép)', a: true, ceo: 'Duyệt cấp cao', rd: 'Duyệt nghỉ vùng', d: 'Duyệt nghỉ sàn', m: 'Duyệt MKT', hr: 'Toàn quyền vận hành', sm: 'Duyệt phòng', tl: 'Duyệt nhóm', sa: 'Đệ trình đơn' },
+                  { name: 'Chuyển đổi góc nhìn (Impersonate)', a: 'Chỉ Admin', ceo: false, rd: false, d: false, m: false, hr: false, sm: false, tl: false, sa: false },
+                  { name: 'Cấu hình tham số & Xem Audit Logs', a: 'Chỉ Admin', ceo: false, rd: false, d: false, m: false, hr: false, sm: false, tl: false, sa: false },
+                  { name: 'Xóa vĩnh viễn Thùng rác (Hard Delete)', a: 'Chỉ Admin', ceo: false, rd: false, d: false, m: false, hr: false, sm: false, tl: false, sa: false },
                 ].map((row, i) => (
                   <tr key={i} className="hover:bg-slate-50">
                     <td className="py-3 px-4 text-left font-semibold text-slate-900">{row.name}</td>
                     <td className="py-3 px-2 font-bold text-blue-700 bg-blue-50/40">
                       {typeof row.a === 'boolean' ? (row.a ? '✓ Toàn quyền' : '-') : row.a}
                     </td>
+                    <td className="py-3 px-2 font-bold text-indigo-700 bg-indigo-50/30">
+                      {typeof row.ceo === 'boolean' ? (row.ceo ? '✓ Có' : '-') : row.ceo}
+                    </td>
+                    <td className="py-3 px-2 font-semibold text-purple-700 bg-purple-50/20">
+                      {typeof row.rd === 'boolean' ? (row.rd ? '✓ Có' : '-') : row.rd}
+                    </td>
                     <td className="py-3 px-2 font-medium">{typeof row.d === 'boolean' ? (row.d ? '✓ Có' : '-') : row.d}</td>
                     <td className="py-3 px-2">{typeof row.m === 'boolean' ? (row.m ? '✓ Có' : '-') : row.m}</td>
+                    <td className="py-3 px-2">{typeof row.hr === 'boolean' ? (row.hr ? '✓ Có' : '-') : row.hr}</td>
                     <td className="py-3 px-2 font-medium">{typeof row.sm === 'boolean' ? (row.sm ? '✓ Có' : '-') : row.sm}</td>
                     <td className="py-3 px-2">{typeof row.tl === 'boolean' ? (row.tl ? '✓ Có' : '-') : row.tl}</td>
                     <td className="py-3 px-2">{typeof row.sa === 'boolean' ? (row.sa ? '✓ Có' : '-') : row.sa}</td>
@@ -2282,7 +2572,7 @@ function doGet(e) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Vai trò (Role) <span className="text-red-500">*</span>
@@ -2294,6 +2584,40 @@ function doGet(e) {
               >
                 {USER_ROLES.map((r) => (
                   <option key={r.value} value={r.value}>{r.label.split('(')[0]}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Thuộc Doanh Nghiệp (CEO)
+              </label>
+              <select
+                value={newUser.organization_id || ''}
+                onChange={(e) => setNewUser({ ...newUser, organization_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán DN / Mặc định)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Thuộc Vùng kinh doanh
+              </label>
+              <select
+                value={newUser.region_id || ''}
+                onChange={(e) => setNewUser({ ...newUser, region_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán vùng)</option>
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
                 ))}
               </select>
             </div>
@@ -2382,6 +2706,255 @@ function doGet(e) {
         </form>
       </Modal>
 
+      {/* 8a. MODAL: THÀNH LẬP DOANH NGHIỆP MỚI (CEO) */}
+      <Modal
+        isOpen={isOrgModalOpen}
+        onClose={() => setIsOrgModalOpen(false)}
+        title="Thành Lập Doanh Nghiệp Mới (Tổ Chức / CEO)"
+      >
+        <form onSubmit={handleCreateOrganizationSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tên Doanh Nghiệp / Công Ty <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={newOrg.name}
+              onChange={(e) => setNewOrg({ ...newOrg, name: e.target.value })}
+              placeholder="Công ty Cổ phần BĐS Địa Ốc Vàng Miền Trung"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 font-medium"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã Doanh Nghiệp <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={newOrg.code}
+                onChange={(e) => setNewOrg({ ...newOrg, code: e.target.value })}
+                placeholder="ORG-MTRUNG"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã Số Thuế (MST)
+              </label>
+              <input
+                type="text"
+                value={newOrg.tax_number || ''}
+                onChange={(e) => setNewOrg({ ...newOrg, tax_number: e.target.value })}
+                placeholder="0312984729"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Bổ nhiệm Tổng Giám Đốc (CEO)
+            </label>
+            <select
+              value={newOrg.ceo_id || ''}
+              onChange={(e) => setNewOrg({ ...newOrg, ceo_id: e.target.value || null })}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            >
+              <option value="">(Chọn nhân sự làm Tổng Giám Đốc CEO)</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({p.role}) - {p.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Số Điện Thoại Doanh Nghiệp
+              </label>
+              <input
+                type="tel"
+                value={newOrg.phone || ''}
+                onChange={(e) => setNewOrg({ ...newOrg, phone: e.target.value })}
+                placeholder="028.7777.8888"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Email Doanh Nghiệp
+              </label>
+              <input
+                type="email"
+                value={newOrg.email || ''}
+                onChange={(e) => setNewOrg({ ...newOrg, email: e.target.value })}
+                placeholder="contact@diaocvang.vn"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Địa Chỉ Trụ Sở Doanh Nghiệp
+            </label>
+            <input
+              type="text"
+              value={newOrg.address || ''}
+              onChange={(e) => setNewOrg({ ...newOrg, address: e.target.value })}
+              placeholder="Tòa nhà Bitexco, Q.1, TP.HCM"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsOrgModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Thành Lập Doanh Nghiệp
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 8b. MODAL: THÀNH LẬP VÙNG KINH DOANH MỚI */}
+      <Modal
+        isOpen={isRegionModalOpen}
+        onClose={() => setIsRegionModalOpen(false)}
+        title="Thành Lập Vùng Kinh Doanh Mới"
+      >
+        <form onSubmit={handleCreateRegionSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tên Vùng Kinh Doanh <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={newRegion.name}
+              onChange={(e) => setNewRegion({ ...newRegion, name: e.target.value })}
+              placeholder="Vùng Đông Sài Gòn (Thủ Đức - Q9 - Q2)"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 font-medium"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã Viết Tắt Vùng <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={newRegion.code}
+                onChange={(e) => setNewRegion({ ...newRegion, code: e.target.value })}
+                placeholder="REG-EAST"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Thuộc Doanh Nghiệp (CEO)
+              </label>
+              <select
+                value={newRegion.organization_id || ''}
+                onChange={(e) => setNewRegion({ ...newRegion, organization_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+              >
+                <option value="">(Chọn Doanh nghiệp trực thuộc)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Bổ nhiệm Giám Đốc Vùng (Regional Director)
+            </label>
+            <select
+              value={newRegion.regional_director_id || ''}
+              onChange={(e) => setNewRegion({ ...newRegion, regional_director_id: e.target.value || null })}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            >
+              <option value="">(Chọn nhân sự làm Giám Đốc Vùng)</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({p.role}) - {p.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Mô Tả & Địa Bàn Hoạt Động
+            </label>
+            <input
+              type="text"
+              value={newRegion.description || ''}
+              onChange={(e) => setNewRegion({ ...newRegion, description: e.target.value })}
+              placeholder="Bao gồm các dự án và sàn tại khu vực TP. Thủ Đức và lân cận"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsRegionModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Thành Lập Vùng Kinh Doanh
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
       {/* 8. MODAL: THÊM SÀN GIAO DỊCH MỚI */}
       <Modal
         isOpen={isAgencyModalOpen}
@@ -2408,6 +2981,40 @@ function doGet(e) {
               placeholder="Sàn Giao Dịch Bình Thạnh"
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
             />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Trực thuộc Doanh Nghiệp (CEO)
+              </label>
+              <select
+                value={newAgency.organization_id || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, organization_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Chọn Doanh nghiệp)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Trực thuộc Vùng Kinh Doanh
+              </label>
+              <select
+                value={newAgency.region_id || ''}
+                onChange={(e) => setNewAgency({ ...newAgency, region_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Chọn Vùng kinh doanh)</option>
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2647,6 +3254,40 @@ function doGet(e) {
               {targetRole === 'team_leader' && 'Trưởng nhóm: Điều hành team, đôn đốc lịch hẹn và chốt deal.'}
               {targetRole === 'sale_agent' && 'Chuyên viên tư vấn: Chăm sóc khách hàng và tiếp nhận Lead.'}
             </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Phân công Doanh Nghiệp (CEO)
+              </label>
+              <select
+                value={targetOrgId}
+                onChange={(e) => setTargetOrgId(e.target.value)}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán DN / Mặc định)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Phân công Vùng Kinh Doanh
+              </label>
+              <select
+                value={targetRegionId}
+                onChange={(e) => setTargetRegionId(e.target.value)}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán vùng)</option>
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
