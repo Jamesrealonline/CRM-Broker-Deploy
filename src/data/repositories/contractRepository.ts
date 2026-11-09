@@ -12,7 +12,13 @@ import {
   LeadStatus,
   UserRole,
   UserProfile,
-  Lead
+  Lead,
+  ContractInstallment,
+  CommissionEntry,
+  ContractRevision,
+  BankStatement,
+  DebtAgingReport,
+  MultiTierCommissionSnapshot
 } from '@/domain/types';
 import { INITIAL_TRANSACTIONS, INITIAL_AGENCIES, INITIAL_TEAMS, INITIAL_PROFILES, INITIAL_LEAD_SOURCES } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
@@ -25,6 +31,10 @@ import { assertNoMockPIIInProduction } from '@/lib/storageGuard';
 
 const STORAGE_KEY_TRANSACTIONS = 'crm_transactions';
 const STORAGE_KEY_LEADS = 'crm_leads';
+const STORAGE_KEY_INSTALLMENTS = 'crm_contract_installments';
+const STORAGE_KEY_COMMISSION_ENTRIES = 'crm_commission_entries';
+const STORAGE_KEY_CONTRACT_REVISIONS = 'crm_contract_revisions';
+const STORAGE_KEY_BANK_STATEMENTS = 'crm_bank_statements';
 
 export interface ContractFilters {
   projectId?: string;
@@ -69,6 +79,10 @@ export interface CreateContractWithCustomerPayload {
   paymentMethod?: string;
   commissionRate?: number;
   saleCommissionRate?: number;
+  coSaleUserId?: string;
+  coSaleUserName?: string;
+  coSaleRate?: number;
+  overrideReason?: string;
   notes?: string;
 
   currentUser: UserProfile;
@@ -79,6 +93,18 @@ export class ContractRepository {
   private ensureInitialized() {
     if (!localStorage.getItem(STORAGE_KEY_TRANSACTIONS)) {
       localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(INITIAL_TRANSACTIONS));
+    }
+    if (!localStorage.getItem(STORAGE_KEY_INSTALLMENTS)) {
+      localStorage.setItem(STORAGE_KEY_INSTALLMENTS, JSON.stringify([]));
+    }
+    if (!localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES)) {
+      localStorage.setItem(STORAGE_KEY_COMMISSION_ENTRIES, JSON.stringify([]));
+    }
+    if (!localStorage.getItem(STORAGE_KEY_CONTRACT_REVISIONS)) {
+      localStorage.setItem(STORAGE_KEY_CONTRACT_REVISIONS, JSON.stringify([]));
+    }
+    if (!localStorage.getItem(STORAGE_KEY_BANK_STATEMENTS)) {
+      localStorage.setItem(STORAGE_KEY_BANK_STATEMENTS, JSON.stringify([]));
     }
   }
 
@@ -333,6 +359,17 @@ export class ContractRepository {
       throw new Error('invalid_commission_rate: Tỷ lệ hoa hồng cho Sale (%) không được vượt quá % hoa hồng của Sàn (%).');
     }
 
+    // Cưỡng chế trần hoa hồng Sale (chỉ Quản lý sàn / Giám đốc / Admin mới được override vượt 2.0% kèm lý do)
+    if (saleRate > 2.0) {
+      const isManager = ['admin', 'director', 'sales_manager'].includes(payload.currentUser.role);
+      if (!isManager) {
+        throw new Error('forbidden_rate: Chuyên viên tư vấn không được phép vượt tỷ lệ hoa hồng tối đa (2.0%) của dự án!');
+      }
+      if (!payload.overrideReason || !payload.overrideReason.trim()) {
+        throw new Error('missing_override_reason: Bắt buộc nhập lý do phê duyệt khi điều chỉnh hoa hồng vượt định mức!');
+      }
+    }
+
     const commAmount = Math.round(dealVal * (commRate / 100));
     const saleCommAmount = Math.round(dealVal * (saleRate / 100));
     const firstInstallment = payload.firstInstallmentAmount ?? Math.round(dealVal * 0.1);
@@ -460,6 +497,34 @@ export class ContractRepository {
     txs.unshift(newTx);
     localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(txs));
 
+    // 6. Tính toán & lưu Multi-tier Commissions Snapshot
+    const snapshot = this.calculateMultiTierCommissions({
+      dealValue: dealVal,
+      agencyRate: commRate,
+      saleRate: saleRate,
+      coSaleUserId: payload.coSaleUserId,
+      coSaleUserName: payload.coSaleUserName,
+      coSaleRate: payload.coSaleRate,
+    });
+
+    // 7. Tạo lịch thanh toán các đợt (Installments)
+    const installments = this.createContractInstallments({
+      contractId: newTxId,
+      dealValue: dealVal,
+      firstInstallmentAmount: firstInstallment,
+      firstInstallmentPaid: Boolean(payload.firstInstallmentPaid),
+      firstInstallmentDate: payload.firstInstallmentDate,
+      receiptCode: payload.receiptCode,
+    });
+
+    // 8. Tạo các bút toán hoa hồng (Commission Entries)
+    const commEntries = this.createCommissionEntries({
+      contractId: newTxId,
+      snapshot: snapshot,
+      primarySaleId: targetLead.assigned_to || payload.currentUser.id,
+      primarySaleName: targetLead.assigned_name || payload.currentUser.full_name,
+    });
+
     const result = {
       success: true,
       transaction_id: newTxId,
@@ -471,6 +536,9 @@ export class ContractRepository {
       commission_amount: commAmount,
       sale_commission_amount: saleCommAmount,
       status: 'pending',
+      multi_tier_commissions: snapshot,
+      installments_count: installments.length,
+      commission_entries_count: commEntries.length,
     };
 
     await completeIdempotency(requestId, 'contracts/create_with_customer', result);
@@ -1101,6 +1169,576 @@ export class ContractRepository {
       ...item,
       rank: index + 1,
     }));
+  }
+
+  // ========================================================
+  // PHASE 3: MULTI-TIER COMMISSIONS, CONTRACT REVISIONS & DEBT AGING
+  // ========================================================
+
+  /**
+   * 11. TÍNH TOÁN VÀ LƯU SNAPSHOT HOA HỒNG ĐA TẦNG (MULTI-TIER COMMISSIONS)
+   */
+  calculateMultiTierCommissions(params: {
+    dealValue: number;
+    agencyRate: number;
+    saleRate: number;
+    coSaleUserId?: string;
+    coSaleUserName?: string;
+    coSaleRate?: number;
+  }): MultiTierCommissionSnapshot {
+    const agencyAmount = Math.round(params.dealValue * (params.agencyRate / 100));
+    const totalSaleAmount = Math.round(params.dealValue * (params.saleRate / 100));
+
+    let saleAmount = totalSaleAmount;
+    let coSaleAmount = 0;
+    const coSaleRate = params.coSaleRate || 0;
+
+    if (params.coSaleUserId && coSaleRate > 0) {
+      coSaleAmount = Math.round(totalSaleAmount * (coSaleRate / 100));
+      saleAmount = totalSaleAmount - coSaleAmount;
+    }
+
+    // Các tầng quản lý theo chuỗi trực thuộc (Team Leader: 0.2%, Sales Manager: 0.1%, Director: 0.1%)
+    const teamLeaderRate = 0.2;
+    const teamLeaderAmount = Math.round(params.dealValue * (teamLeaderRate / 100));
+    const salesManagerRate = 0.1;
+    const salesManagerAmount = Math.round(params.dealValue * (salesManagerRate / 100));
+    const directorRate = 0.1;
+    const directorAmount = Math.round(params.dealValue * (directorRate / 100));
+
+    return {
+      agencyRate: params.agencyRate,
+      agencyAmount,
+      saleRate: params.saleRate,
+      saleAmount,
+      teamLeaderRate,
+      teamLeaderAmount,
+      salesManagerRate,
+      salesManagerAmount,
+      directorRate,
+      directorAmount,
+      coSaleRate: params.coSaleUserId ? coSaleRate : undefined,
+      coSaleAmount: params.coSaleUserId ? coSaleAmount : undefined,
+      coSaleUserId: params.coSaleUserId,
+      coSaleUserName: params.coSaleUserName,
+      policyVersion: '2026.v1',
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 12. TẠO LỊCH THANH TOÁN CÁC ĐỢT (INSTALLMENTS)
+   */
+  createContractInstallments(params: {
+    contractId: string;
+    dealValue: number;
+    firstInstallmentAmount?: number;
+    firstInstallmentPaid?: boolean;
+    firstInstallmentDate?: string;
+    receiptCode?: string;
+  }): ContractInstallment[] {
+    this.ensureInitialized();
+    const firstAmount = params.firstInstallmentAmount || Math.round(params.dealValue * 0.1);
+    const firstPaid = Boolean(params.firstInstallmentPaid);
+    const now = Date.now();
+    const firstDate = params.firstInstallmentDate || new Date(now + 14 * 86400000).toISOString();
+
+    const inst2 = Math.round(params.dealValue * 0.2);
+    const inst3 = Math.round(params.dealValue * 0.2);
+    const inst4 = Math.round(params.dealValue * 0.2);
+    const inst5 = Math.round(params.dealValue * 0.25);
+    const inst6 = params.dealValue - (firstAmount + inst2 + inst3 + inst4 + inst5);
+
+    const installments: ContractInstallment[] = [
+      {
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        installment_number: 1,
+        due_date: firstDate,
+        amount: firstAmount,
+        paid_amount: firstPaid ? firstAmount : 0,
+        status: firstPaid ? 'paid' : 'pending',
+        paid_date: firstPaid ? new Date().toISOString() : undefined,
+        receipt_code: firstPaid ? (params.receiptCode || `PT-01-${Date.now().toString().slice(-4)}`) : undefined,
+        notes: 'Đợt 1: Ký hợp đồng mua bán (10%)',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        installment_number: 2,
+        due_date: new Date(now + 45 * 86400000).toISOString(),
+        amount: inst2,
+        paid_amount: 0,
+        status: 'pending',
+        notes: 'Đợt 2: Hoàn thành móng cọc (20%)',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        installment_number: 3,
+        due_date: new Date(now + 90 * 86400000).toISOString(),
+        amount: inst3,
+        paid_amount: 0,
+        status: 'pending',
+        notes: 'Đợt 3: Đổ sàn tầng 10 (20%)',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        installment_number: 4,
+        due_date: new Date(now + 150 * 86400000).toISOString(),
+        amount: inst4,
+        paid_amount: 0,
+        status: 'pending',
+        notes: 'Đợt 4: Cất nóc dự án (20%)',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        installment_number: 5,
+        due_date: new Date(now + 270 * 86400000).toISOString(),
+        amount: inst5,
+        paid_amount: 0,
+        status: 'pending',
+        notes: 'Đợt 5: Bàn giao nhận nhà (25%)',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        installment_number: 6,
+        due_date: new Date(now + 360 * 86400000).toISOString(),
+        amount: inst6,
+        paid_amount: 0,
+        status: 'pending',
+        notes: 'Đợt 6: Nhận giấy chứng nhận quyền sở hữu (5%)',
+        created_at: new Date().toISOString(),
+      },
+    ];
+
+    const allInst: ContractInstallment[] = JSON.parse(localStorage.getItem(STORAGE_KEY_INSTALLMENTS) || '[]');
+    allInst.unshift(...installments);
+    localStorage.setItem(STORAGE_KEY_INSTALLMENTS, JSON.stringify(allInst));
+
+    return installments;
+  }
+
+  /**
+   * 13. TẠO CÁC BÚT TOÁN HOA HỒNG (COMMISSION LEDGER)
+   */
+  createCommissionEntries(params: {
+    contractId: string;
+    snapshot: MultiTierCommissionSnapshot;
+    primarySaleId: string;
+    primarySaleName: string;
+  }): CommissionEntry[] {
+    this.ensureInitialized();
+    const entries: CommissionEntry[] = [];
+    const nowIso = new Date().toISOString();
+    const pitTaxRate = 10; // Thuế TNCN khấu trừ 10%
+
+    // 1. Sale chính
+    const salePit = Math.round(params.snapshot.saleAmount * (pitTaxRate / 100));
+    entries.push({
+      id: crypto.randomUUID(),
+      contract_id: params.contractId,
+      recipient_id: params.primarySaleId,
+      recipient_name: params.primarySaleName,
+      recipient_role: 'sale_agent',
+      rate_percent: params.snapshot.saleRate,
+      amount: params.snapshot.saleAmount,
+      status: 'pending_eligibility',
+      condition_threshold_percent: 30,
+      policy_version: params.snapshot.policyVersion,
+      pit_tax_percent: pitTaxRate,
+      pit_tax_amount: salePit,
+      net_payable_amount: params.snapshot.saleAmount - salePit,
+      notes: 'Hoa hồng chuyên viên tư vấn trực tiếp',
+      created_at: nowIso,
+    });
+
+    // 2. Co-sale (nếu có)
+    if (params.snapshot.coSaleUserId && params.snapshot.coSaleAmount) {
+      const coPit = Math.round(params.snapshot.coSaleAmount * (pitTaxRate / 100));
+      entries.push({
+        id: crypto.randomUUID(),
+        contract_id: params.contractId,
+        recipient_id: params.snapshot.coSaleUserId,
+        recipient_name: params.snapshot.coSaleUserName || 'Đồng Sale',
+        recipient_role: 'co_sale',
+        rate_percent: params.snapshot.coSaleRate || 0,
+        amount: params.snapshot.coSaleAmount,
+        status: 'pending_eligibility',
+        condition_threshold_percent: 30,
+        policy_version: params.snapshot.policyVersion,
+        pit_tax_percent: pitTaxRate,
+        pit_tax_amount: coPit,
+        net_payable_amount: params.snapshot.coSaleAmount - coPit,
+        notes: 'Hoa hồng đồng tư vấn (Co-sale)',
+        created_at: nowIso,
+      });
+    }
+
+    // 3. Trưởng nhóm
+    const tlPit = Math.round(params.snapshot.teamLeaderAmount * (pitTaxRate / 100));
+    entries.push({
+      id: crypto.randomUUID(),
+      contract_id: params.contractId,
+      recipient_id: 'tl-default',
+      recipient_name: 'Trưởng Nhóm Kinh Doanh',
+      recipient_role: 'team_leader',
+      rate_percent: params.snapshot.teamLeaderRate,
+      amount: params.snapshot.teamLeaderAmount,
+      status: 'pending_eligibility',
+      condition_threshold_percent: 30,
+      policy_version: params.snapshot.policyVersion,
+      pit_tax_percent: pitTaxRate,
+      pit_tax_amount: tlPit,
+      net_payable_amount: params.snapshot.teamLeaderAmount - tlPit,
+      notes: 'Hoa hồng quản lý cấp nhóm',
+      created_at: nowIso,
+    });
+
+    // 4. Trưởng phòng
+    const smPit = Math.round(params.snapshot.salesManagerAmount * (pitTaxRate / 100));
+    entries.push({
+      id: crypto.randomUUID(),
+      contract_id: params.contractId,
+      recipient_id: 'sm-default',
+      recipient_name: 'Trưởng Phòng Kinh Doanh',
+      recipient_role: 'sales_manager',
+      rate_percent: params.snapshot.salesManagerRate,
+      amount: params.snapshot.salesManagerAmount,
+      status: 'pending_eligibility',
+      condition_threshold_percent: 30,
+      policy_version: params.snapshot.policyVersion,
+      pit_tax_percent: pitTaxRate,
+      pit_tax_amount: smPit,
+      net_payable_amount: params.snapshot.salesManagerAmount - smPit,
+      notes: 'Hoa hồng quản lý phòng kinh doanh',
+      created_at: nowIso,
+    });
+
+    // 5. Giám đốc sàn
+    const dirPit = Math.round(params.snapshot.directorAmount * (pitTaxRate / 100));
+    entries.push({
+      id: crypto.randomUUID(),
+      contract_id: params.contractId,
+      recipient_id: 'dir-default',
+      recipient_name: 'Giám Đốc Sàn',
+      recipient_role: 'director',
+      rate_percent: params.snapshot.directorRate,
+      amount: params.snapshot.directorAmount,
+      status: 'pending_eligibility',
+      condition_threshold_percent: 30,
+      policy_version: params.snapshot.policyVersion,
+      pit_tax_percent: pitTaxRate,
+      pit_tax_amount: dirPit,
+      net_payable_amount: params.snapshot.directorAmount - dirPit,
+      notes: 'Hoa hồng ban giám đốc sàn',
+      created_at: nowIso,
+    });
+
+    const allEntries: CommissionEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES) || '[]');
+    allEntries.unshift(...entries);
+    localStorage.setItem(STORAGE_KEY_COMMISSION_ENTRIES, JSON.stringify(allEntries));
+
+    return entries;
+  }
+
+  /**
+   * 14. YÊU CẦU ĐIỀU CHỈNH HỢP ĐỒNG (CONTRACT REVISION)
+   */
+  async requestContractRevision(payload: {
+    contractId: string;
+    revisionType: 'unit_change' | 'transfer' | 'cancellation' | 'penalty';
+    newData?: Record<string, any>;
+    reason: string;
+    currentUser: UserProfile;
+  }): Promise<ContractRevision> {
+    const trimmedReason = (payload.reason || '').trim();
+    if (trimmedReason.length < 10) {
+      throw new Error('invalid_reason: Lý do yêu cầu điều chỉnh phải có ít nhất 10 ký tự!');
+    }
+
+    this.ensureInitialized();
+    const txs: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+    const tx = txs.find(t => t.id === payload.contractId);
+    if (!tx) throw new Error('contract_not_found: Hợp đồng không tồn tại!');
+
+    const revision: ContractRevision = {
+      id: crypto.randomUUID(),
+      contract_id: payload.contractId,
+      revision_type: payload.revisionType,
+      old_data: {
+        unit_code: tx.unit_code,
+        customer_name: tx.customer_name,
+        amount: tx.amount,
+        status: tx.status,
+      },
+      new_data: payload.newData || {},
+      reason: trimmedReason,
+      requested_by: payload.currentUser.id,
+      requested_by_name: payload.currentUser.full_name,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    };
+
+    const revisions: ContractRevision[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CONTRACT_REVISIONS) || '[]');
+    revisions.unshift(revision);
+    localStorage.setItem(STORAGE_KEY_CONTRACT_REVISIONS, JSON.stringify(revisions));
+
+    return revision;
+  }
+
+  /**
+   * 15. DUYỆT ĐIỀU CHỈNH HỢP ĐỒNG (MAKER-CHECKER ENFORCEMENT)
+   */
+  async approveContractRevision(payload: {
+    revisionId: string;
+    approverUser: UserProfile;
+    action: 'approved' | 'rejected';
+    notes?: string;
+  }): Promise<{ success: boolean; action: 'approved' | 'rejected'; revision: ContractRevision }> {
+    this.ensureInitialized();
+    const revisions: ContractRevision[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CONTRACT_REVISIONS) || '[]');
+    const rev = revisions.find(r => r.id === payload.revisionId);
+    if (!rev) throw new Error('revision_not_found: Không tìm thấy yêu cầu điều chỉnh hợp đồng!');
+
+    if (rev.status !== 'pending') {
+      throw new Error('already_processed: Yêu cầu điều chỉnh này đã được xử lý trước đó!');
+    }
+
+    // Maker-Checker: Người tạo không được tự duyệt
+    if (rev.requested_by === payload.approverUser.id) {
+      throw new Error('maker_checker_violation: Người tạo yêu cầu không được phép tự duyệt!');
+    }
+
+    // Role check
+    if (!['admin', 'director', 'sales_manager'].includes(payload.approverUser.role)) {
+      throw new Error('forbidden: Chỉ Quản lý sàn, Giám đốc hoặc Admin mới có quyền duyệt!');
+    }
+
+    rev.status = payload.action;
+    rev.approved_by = payload.approverUser.id;
+    rev.approved_by_name = payload.approverUser.full_name;
+    rev.approved_at = new Date().toISOString();
+    rev.notes = payload.notes;
+    rev.updated_at = new Date().toISOString();
+
+    if (payload.action === 'approved') {
+      const txs: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+      const txIdx = txs.findIndex(t => t.id === rev.contract_id);
+
+      if (txIdx !== -1) {
+        if (rev.revision_type === 'cancellation') {
+          txs[txIdx].status = 'cancelled';
+          txs[txIdx].updated_at = new Date().toISOString();
+
+          // Kích hoạt Clawback hoa hồng
+          const commEntries: CommissionEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES) || '[]');
+          const contractEntries = commEntries.filter(c => c.contract_id === rev.contract_id && c.status !== 'clawback');
+
+          for (const orig of contractEntries) {
+            commEntries.unshift({
+              id: crypto.randomUUID(),
+              contract_id: rev.contract_id,
+              recipient_id: orig.recipient_id,
+              recipient_name: orig.recipient_name,
+              recipient_role: orig.recipient_role,
+              rate_percent: orig.rate_percent,
+              amount: -orig.amount,
+              status: 'clawback',
+              clawback_source_id: orig.id,
+              pit_tax_percent: orig.pit_tax_percent,
+              pit_tax_amount: orig.pit_tax_amount ? -orig.pit_tax_amount : 0,
+              net_payable_amount: orig.net_payable_amount ? -orig.net_payable_amount : -orig.amount,
+              notes: `Thu hồi hoa hồng do hủy hợp đồng (Theo duyệt của ${payload.approverUser.full_name})`,
+              created_at: new Date().toISOString(),
+            });
+          }
+          localStorage.setItem(STORAGE_KEY_COMMISSION_ENTRIES, JSON.stringify(commEntries));
+        } else if (rev.revision_type === 'unit_change' && rev.new_data?.unit_code) {
+          txs[txIdx].unit_code = rev.new_data.unit_code;
+          txs[txIdx].updated_at = new Date().toISOString();
+        }
+
+        localStorage.setItem(STORAGE_KEY_TRANSACTIONS, JSON.stringify(txs));
+      }
+    }
+
+    localStorage.setItem(STORAGE_KEY_CONTRACT_REVISIONS, JSON.stringify(revisions));
+    return { success: true, action: payload.action, revision: rev };
+  }
+
+  /**
+   * 16. LẤY DANH SÁCH YÊU CẦU ĐIỀU CHỈNH HỢP ĐỒNG
+   */
+  async getContractRevisions(contractId?: string): Promise<ContractRevision[]> {
+    this.ensureInitialized();
+    const revisions: ContractRevision[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CONTRACT_REVISIONS) || '[]');
+    return contractId ? revisions.filter(r => r.contract_id === contractId) : revisions;
+  }
+
+  /**
+   * 17. SỔ CÁI HOA HỒNG (COMMISSION LEDGER)
+   */
+  async getCommissionLedger(contractId?: string, recipientId?: string): Promise<CommissionEntry[]> {
+    this.ensureInitialized();
+    let entries: CommissionEntry[] = JSON.parse(localStorage.getItem(STORAGE_KEY_COMMISSION_ENTRIES) || '[]');
+    if (contractId) entries = entries.filter(e => e.contract_id === contractId);
+    if (recipientId) entries = entries.filter(e => e.recipient_id === recipientId);
+    return entries;
+  }
+
+  /**
+   * 18. LẤY LỊCH THANH TOÁN TIẾN ĐỘ
+   */
+  async getContractInstallments(contractId: string): Promise<ContractInstallment[]> {
+    this.ensureInitialized();
+    const installments: ContractInstallment[] = JSON.parse(localStorage.getItem(STORAGE_KEY_INSTALLMENTS) || '[]');
+    return installments
+      .filter(i => i.contract_id === contractId)
+      .sort((a, b) => a.installment_number - b.installment_number);
+  }
+
+  /**
+   * 19. BÁO CÁO AGING CÔNG NỢ KHÁCH HÀNG (TUỔI NỢ)
+   */
+  async getDebtAgingReport(projectId?: string): Promise<DebtAgingReport[]> {
+    this.ensureInitialized();
+    const txs: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+    const installments: ContractInstallment[] = JSON.parse(localStorage.getItem(STORAGE_KEY_INSTALLMENTS) || '[]');
+    const now = Date.now();
+
+    const filteredTxs = txs.filter(t => 
+      t.type === 'contract' && 
+      t.status !== 'cancelled' && 
+      (!projectId || t.project_id === projectId)
+    );
+
+    const reports: DebtAgingReport[] = [];
+
+    for (const tx of filteredTxs) {
+      const txInsts = installments.filter(i => i.contract_id === tx.id);
+      let notYetDue = 0;
+      let overdue1To30 = 0;
+      let overdue31To60 = 0;
+      let overdueOver60 = 0;
+      let totalPaid = 0;
+
+      for (const inst of txInsts) {
+        totalPaid += inst.paid_amount || 0;
+        const remaining = inst.amount - (inst.paid_amount || 0);
+
+        if (remaining > 0) {
+          const diffDays = Math.floor((now - new Date(inst.due_date).getTime()) / 86400000);
+          if (diffDays <= 0) {
+            notYetDue += remaining;
+          } else if (diffDays <= 30) {
+            overdue1To30 += remaining;
+          } else if (diffDays <= 60) {
+            overdue31To60 += remaining;
+          } else {
+            overdueOver60 += remaining;
+          }
+        }
+      }
+
+      const totalReceivable = notYetDue + overdue1To30 + overdue31To60 + overdueOver60;
+
+      reports.push({
+        contractId: tx.id,
+        contractCode: tx.contract_code || tx.code,
+        customerName: tx.customer_name || 'Khách hàng',
+        customerPhone: tx.customer_phone,
+        totalDealValue: tx.deal_value || tx.amount,
+        paidAmount: totalPaid,
+        remainingAmount: totalReceivable,
+        aging: {
+          notYetDue,
+          overdue1To30,
+          overdue31To60,
+          overdueOver60,
+          totalReceivable,
+        },
+        installments: txInsts,
+      });
+    }
+
+    return reports;
+  }
+
+  /**
+   * 20. ĐỐI SOÁT SAO KÊ NGÂN HÀNG CHỐNG GHI NHẬN TRÙNG
+   */
+  async reconcileBankStatement(payload: {
+    statement: {
+      bank_ref_code: string;
+      trans_date: string;
+      amount: number;
+      description: string;
+    };
+    currentUser: UserProfile;
+  }): Promise<{ matched: boolean; statement: BankStatement; installment?: ContractInstallment }> {
+    this.ensureInitialized();
+    const statements: BankStatement[] = JSON.parse(localStorage.getItem(STORAGE_KEY_BANK_STATEMENTS) || '[]');
+
+    if (statements.some(s => s.bank_ref_code === payload.statement.bank_ref_code)) {
+      throw new Error('duplicate_statement: Mã giao dịch ngân hàng này đã được nhập trước đó!');
+    }
+
+    const installments: ContractInstallment[] = JSON.parse(localStorage.getItem(STORAGE_KEY_INSTALLMENTS) || '[]');
+    const txs: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSACTIONS) || '[]');
+
+    const desc = payload.statement.description.toLowerCase();
+
+    const matchedInst = installments.find(inst => {
+      if (inst.status === 'paid') return false;
+      if (inst.amount !== payload.statement.amount) return false;
+      const tx = txs.find(t => t.id === inst.contract_id);
+      if (!tx) return false;
+      const codeMatch = Boolean(tx.contract_code && desc.includes(tx.contract_code.toLowerCase()));
+      const txCodeMatch = Boolean(tx.code && desc.includes(tx.code.toLowerCase()));
+      const receiptMatch = Boolean(inst.receipt_code && desc.includes(inst.receipt_code.toLowerCase()));
+      return codeMatch || txCodeMatch || receiptMatch;
+    });
+
+    const newStmt: BankStatement = {
+      id: crypto.randomUUID(),
+      bank_ref_code: payload.statement.bank_ref_code,
+      trans_date: payload.statement.trans_date,
+      amount: payload.statement.amount,
+      description: payload.statement.description,
+      status: matchedInst ? 'matched' : 'unmatched',
+      matched_contract_id: matchedInst ? matchedInst.contract_id : undefined,
+      matched_installment_id: matchedInst ? matchedInst.id : undefined,
+      reconciled_by: payload.currentUser.id,
+      reconciled_at: matchedInst ? new Date().toISOString() : undefined,
+      created_at: new Date().toISOString(),
+    };
+
+    if (matchedInst) {
+      matchedInst.paid_amount = payload.statement.amount;
+      matchedInst.status = 'paid';
+      matchedInst.paid_date = payload.statement.trans_date;
+      localStorage.setItem(STORAGE_KEY_INSTALLMENTS, JSON.stringify(installments));
+    }
+
+    statements.unshift(newStmt);
+    localStorage.setItem(STORAGE_KEY_BANK_STATEMENTS, JSON.stringify(statements));
+
+    return { matched: Boolean(matchedInst), statement: newStmt, installment: matchedInst };
+  }
+
+  async getBankStatements(status?: string): Promise<BankStatement[]> {
+    this.ensureInitialized();
+    const statements: BankStatement[] = JSON.parse(localStorage.getItem(STORAGE_KEY_BANK_STATEMENTS) || '[]');
+    return status ? statements.filter(s => s.status === status) : statements;
   }
 }
 

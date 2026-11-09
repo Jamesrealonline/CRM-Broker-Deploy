@@ -10,8 +10,8 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | Giai đoạn | Nội dung | Trạng thái | Commit Hash |
 | :--- | :--- | :---: | :---: |
 | **Giai đoạn 1** | Nền tảng an toàn: bảo mật, toàn vẹn dữ liệu, AI/Edge | **Xong** | `35d33c3` |
-| **Giai đoạn 2** | SLA chống gian lận, Lead Pool, giữ căn, giám sát job nền | **Xong** | (chuẩn bị commit) |
-| **Giai đoạn 3** | Hợp đồng (khách mới + nguồn lead), hoa hồng, vòng đời, công nợ | **Xong một phần** | `ffc5b5a` |
+| **Giai đoạn 2** | SLA chống gian lận, Lead Pool, giữ căn, giám sát job nền | **Xong** | `0359e43` |
+| **Giai đoạn 3** | Hợp đồng (khách mới + nguồn lead), hoa hồng, vòng đời, công nợ | **Xong** | (chuẩn bị commit) |
 | **Giai đoạn 4** | Quy trình bán hàng: lịch hẹn, công cụ tư vấn, nhập lead, quản lý khách | **Chưa làm** | --- |
 | **Giai đoạn 5** | Quản trị sàn: cây cấp bậc, thi đua nhân sự, điều chuyển, nhân sự 360° | **Xong một phần** | `35da8c3` |
 | **Giai đoạn 6** | Marketing, vận hành/CI-CD, quyền riêng tư, thiết kế multi-tenant, PWA | **Chưa làm** | --- |
@@ -44,12 +44,12 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 
 ---
 
-### Giai đoạn 3 – Hợp đồng, Hoa hồng & Tài chính (TIẾP TỤC HOÀN THIỆN)
+### Giai đoạn 3 – Hợp đồng, Hoa hồng & Tài chính (HOÀN THÀNH)
 - [x] **3.1 - 3.3** Form hợp đồng với Khách hàng mới + 11 nguồn lead chuẩn + First-touch attribution + Atomic RPC `create_contract_with_customer` + Bảo hộ SĐT. `commit ffc5b5a`
-- [ ] **3.4** Hoa hồng nhiều tầng đúng chuỗi trực thuộc tại thời điểm ký (Sàn, Sale, Trưởng nhóm, Trưởng phòng, Giám đốc, Co-sale, Giới thiệu).
-- [ ] **3.5** Vòng đời hợp đồng: `contract_revisions`, hủy, đổi căn, chuyển nhượng, hoàn cọc, clawback.
-- [ ] **3.6** Sổ cái hoa hồng `commission_entries`, mốc giải ngân theo tiến độ thu tiền, chính sách phiên bản và khấu trừ thuế TNCN.
-- [ ] **3.7** Aging công nợ khách hàng (chưa đến hạn, 1-30, 31-60, >60 ngày) và đối soát sao kê ngân hàng chống ghi nhận trùng.
+- [x] **3.4** Hoa hồng nhiều tầng đúng chuỗi trực thuộc tại thời điểm ký (Sàn, Sale, Trưởng nhóm, Trưởng phòng, Giám đốc, Co-sale, Giới thiệu).
+- [x] **3.5** Vòng đời hợp đồng: `contract_revisions`, hủy, đổi căn, chuyển nhượng, hoàn cọc, clawback.
+- [x] **3.6** Sổ cái hoa hồng `commission_entries`, mốc giải ngân theo tiến độ thu tiền, chính sách phiên bản và khấu trừ thuế TNCN.
+- [x] **3.7** Aging công nợ khách hàng (chưa đến hạn, 1-30, 31-60, >60 ngày) và đối soát sao kê ngân hàng chống ghi nhận trùng.
 
 ---
 

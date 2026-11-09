@@ -314,6 +314,7 @@ export interface Transaction {
   notes?: string;
   created_by?: string;
   created_at?: string;
+  updated_at?: string;
 
   // Chi tiết hợp đồng, sản phẩm & hoa hồng (Module Tài chính & Hợp đồng)
   unit_code?: string;
@@ -1005,4 +1006,114 @@ export interface DeadLetterMessage {
   retry_count: number;
   status: 'unresolved' | 'resolved' | 'discarded' | 'dead';
   created_at: string;
+}
+
+// ========================================================
+// PHASE 3: CONTRACT INSTALLMENTS, MULTI-TIER COMMISSIONS & DEBT AGING
+// ========================================================
+
+export interface ContractInstallment {
+  id: string;
+  contract_id: string;
+  installment_number: number;
+  due_date: string;
+  amount: number;
+  paid_amount: number;
+  status: 'pending' | 'partially_paid' | 'paid' | 'overdue';
+  paid_date?: string;
+  receipt_code?: string;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface MultiTierCommissionSnapshot {
+  agencyRate: number;
+  agencyAmount: number;
+  saleRate: number;
+  saleAmount: number;
+  teamLeaderRate: number;
+  teamLeaderAmount: number;
+  salesManagerRate: number;
+  salesManagerAmount: number;
+  directorRate: number;
+  directorAmount: number;
+  coSaleRate?: number;
+  coSaleAmount?: number;
+  coSaleUserId?: string;
+  coSaleUserName?: string;
+  policyVersion: string;
+  createdAt: string;
+}
+
+export interface CommissionEntry {
+  id: string;
+  contract_id: string;
+  recipient_id: string;
+  recipient_name?: string;
+  recipient_role: string;
+  rate_percent: number;
+  amount: number;
+  status: 'pending_eligibility' | 'eligible' | 'collected_from_developer' | 'paid' | 'clawback';
+  condition_threshold_percent?: number;
+  clawback_source_id?: string;
+  policy_version?: string;
+  pit_tax_percent?: number;
+  pit_tax_amount?: number;
+  net_payable_amount?: number;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ContractRevision {
+  id: string;
+  contract_id: string;
+  revision_type: 'unit_change' | 'transfer' | 'cancellation' | 'penalty';
+  old_data: Record<string, any>;
+  new_data: Record<string, any>;
+  reason: string;
+  requested_by: string;
+  requested_by_name?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approved_by?: string;
+  approved_by_name?: string;
+  approved_at?: string;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface BankStatement {
+  id: string;
+  bank_ref_code: string;
+  trans_date: string;
+  amount: number;
+  description: string;
+  matched_contract_id?: string;
+  matched_installment_id?: string;
+  status: 'unmatched' | 'matched' | 'disputed';
+  reconciled_by?: string;
+  reconciled_at?: string;
+  created_at: string;
+}
+
+export interface DebtAgingBucket {
+  notYetDue: number; // Chưa đến hạn
+  overdue1To30: number; // 1-30 ngày
+  overdue31To60: number; // 31-60 ngày
+  overdueOver60: number; // >60 ngày
+  totalReceivable: number;
+}
+
+export interface DebtAgingReport {
+  contractId: string;
+  contractCode?: string;
+  customerName: string;
+  customerPhone?: string;
+  totalDealValue: number;
+  paidAmount: number;
+  remainingAmount: number;
+  aging: DebtAgingBucket;
+  installments: ContractInstallment[];
 }
