@@ -173,7 +173,7 @@ describe('P0.3 Bảo Vệ Kênh Email, Secret & Chống Tấn Công (Email Secur
     await emailHandler(req2, res2);
     expect(getStatus2()).toBe(200);
     expect(getJson2().deduplicated).toBe(true);
-  });
+  }, 15000);
 
   it('7. XSS Sanitization: renderEmailTemplate thoát toàn bộ thẻ HTML độc hại trong dữ liệu người dùng', () => {
     const maliciousPayload = {

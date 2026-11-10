@@ -1360,6 +1360,7 @@ export interface CommissionEntry {
   agency_name?: string;
   region_id?: string;
   region_name?: string;
+  organization_id?: string;
 }
 
 export interface CommissionRun {

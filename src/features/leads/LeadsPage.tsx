@@ -135,13 +135,14 @@ export const LeadsPage: React.FC = () => {
   const [selectedSale, setSelectedSale] = useState('');
 
   useEffect(() => {
-    projectRepository.getProjects().then((list) => {
-      setProjects(list);
-      if (list.length > 0 && !newProjectId) setNewProjectId(list[0].id);
+    projectRepository.getProjects(currentUser || undefined).then((list) => {
+      const filteredProjects = branchHierarchyService.filterProjects(currentUser, list);
+      setProjects(filteredProjects);
+      if (filteredProjects.length > 0 && !newProjectId) setNewProjectId(filteredProjects[0].id);
     });
 
-    teamRepository.getOrganizations().then((orgs) => {
-      teamRepository.getProfiles().then((profs) => {
+    teamRepository.getOrganizations(currentUser || undefined).then((orgs) => {
+      teamRepository.getProfiles(undefined, undefined, currentUser || undefined).then((profs) => {
         let ceoList = profs.filter(p => p.role === 'ceo');
         if (ceoList.length === 0) {
           ceoList = orgs.map(o => ({
@@ -156,20 +157,20 @@ export const LeadsPage: React.FC = () => {
             totp_enabled: false,
           }));
         }
-        setAllCeos(currentUser?.role === 'ceo' ? ceoList.filter(c => c.id === currentUser.id || c.organization_id === currentUser.organization_id) : ceoList);
+        setAllCeos(currentUser?.role !== 'admin' ? ceoList.filter(c => c.id === currentUser?.id || c.organization_id === currentUser?.organization_id) : ceoList);
       });
     });
 
-    teamRepository.getRegions().then((regs) => {
+    teamRepository.getRegions(currentUser || undefined).then((regs) => {
       setAllRegions(branchHierarchyService.filterRegions(currentUser, regs));
     });
-    teamRepository.getAgencies().then((ags) => {
+    teamRepository.getAgencies(undefined, currentUser || undefined).then((ags) => {
       setAllAgencies(branchHierarchyService.filterAgencies(currentUser, ags));
     });
-    teamRepository.getTeams().then((tms) => {
+    teamRepository.getTeams(undefined, currentUser || undefined).then((tms) => {
       setAllTeams(branchHierarchyService.filterTeams(currentUser, tms));
     });
-    teamRepository.getProfiles().then((profs) => {
+    teamRepository.getProfiles(undefined, undefined, currentUser || undefined).then((profs) => {
       const activeSales = profs.filter(p => (p.role === 'sale_agent' || p.role === 'team_leader') && p.status === 'active');
       setSales(activeSales);
       setAllSales(branchHierarchyService.filterSales(currentUser, activeSales));
@@ -183,7 +184,7 @@ export const LeadsPage: React.FC = () => {
         setSelectedSourceId(sources[0].id);
       }
     });
-  }, [newProjectId, currentUser]);
+  }, [currentUser, newProjectId]);
 
   const visibleRegions = useMemo(() => {
     if (!selectedCeo) return allRegions;

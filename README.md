@@ -2,7 +2,7 @@
 *(Hệ Thống Quản Trị Bất Động Sản Doanh Nghiệp, Phân Bổ Lead & Hoa Hồng 5 Tầng)*
 
 [![Production Deployment](https://img.shields.io/badge/Vercel-Production%20Live-brightgreen?logo=vercel)](https://crm-broker-platform.vercel.app)
-[![Tests Passing](https://img.shields.io/badge/Vitest-281%2F281%20Passing-success?logo=vitest)](https://github.com/)
+[![Tests Passing](https://img.shields.io/badge/Vitest-309%2F309%20Passing-success?logo=vitest)](https://github.com/)
 [![TypeScript Strict](https://img.shields.io/badge/TypeScript-5.5%20Strict-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Database](https://img.shields.io/badge/PostgreSQL-Supabase%20RLS-3ECF8E?logo=supabase)](https://supabase.com/)
 
@@ -52,12 +52,16 @@ Hệ thống quản trị quan hệ khách hàng, phân bổ lead tự động, 
   - Lọc theo Người dùng (theo Scope), Tầng vai trò, Trạng thái bút toán, Dự án và Căn cứ ngày (`sign_date`, `eligible_at`, `paid_at`).
   - Chức năng xuất file CSV an toàn: Che mờ PII nhạy cảm, ghi log kiểm toán, **nghiêm cấm xuất CSV trong chế độ đóng vai (Impersonation)**.
 
-### 🏛️ Cơ cấu Tổ chức 9 Cấp bậc & Phân quyền Chặt chẽ
-- **Mô hình chuỗi lãnh đạo dọc**:
-  $$\text{Admin} \longrightarrow \text{CEO} \longrightarrow \text{Giám Đốc Vùng} \longrightarrow \text{Giám Đốc Sàn} \longrightarrow \text{Trưởng Phòng} \longrightarrow \text{Trưởng Nhóm} \longrightarrow \text{Chuyên Viên Sale}$$
-- **Khối Marketing & Khối Nhân sự (HR)**: Trực thuộc Tổng Giám Đốc (CEO).
-- **Cách ly CEO độc lập**: Mỗi Tổng Giám Đốc (CEO) chỉ quản lý và xem dữ liệu trong nhánh các vùng trực thuộc; không xem chéo dữ liệu giữa các CEO khác nhau.
-- **Quản trị viên (Admin)**: Có cờ `isGlobalViewer = true`, nắm toàn quyền kiểm soát và quan sát toàn bộ các CEO trên hệ thống.
+### 🏛️ Mô hình SaaS Multi-Tenant & Cách ly Dữ liệu Theo Nhánh CEO
+- **CEO đóng vai trò như Khách hàng Doanh nghiệp (Tenant / Client)**:
+  - Mỗi Tổng Giám Đốc (CEO) chỉ xem và quản lý dữ liệu thuộc nhánh của họ: **Dự án của họ**, **Giám Đốc Vùng của họ**, **Hợp đồng của họ**, **Nhân sự của họ**, **Sàn/Team của họ**, và **Sổ cái hoa hồng của họ**.
+  - **Cách ly tuyệt đối giữa các CEO**: CEO của doanh nghiệp này không thể xem chéo bất kỳ dự án, nhân sự, hợp đồng, hoa hồng hay doanh số nào của CEO doanh nghiệp khác.
+  - Khi CEO tạo dự án mới hoặc tuyển dụng nhân sự mới, dữ liệu tự động được định danh theo `organization_id` của CEO đó.
+  - Truy cập trực tiếp qua ID vào dự án hay hồ sơ 360 của đối tác khác sẽ bị từ chối truy cập ngay lập tức.
+- **Mô hình chuỗi lãnh đạo dọc trong từng Tenant**:
+  $$\text{Admin (Global)} \longrightarrow \text{CEO (Tenant)} \longrightarrow \text{Giám Đốc Vùng} \longrightarrow \text{Giám Đốc Sàn} \longrightarrow \text{Trưởng Phòng} \longrightarrow \text{Trưởng Nhóm} \longrightarrow \text{Chuyên Viên Sale}$$
+- **Khối Marketing & Khối Nhân sự (HR)**: Trực thuộc Tổng Giám Đốc (CEO) của tổ chức mình, xem toàn bộ các vùng trong tổ chức đó.
+- **Quản trị viên Nền tảng (Admin)**: Có cờ `isGlobalViewer = true`, nắm toàn quyền quan sát và quản trị kỹ thuật toàn bộ các CEO/Doanh nghiệp trên hệ thống SaaS.
 - **Quyền hạn khối Nhân sự (HR Admin)**:
   - Khởi tạo Vùng kinh doanh mới, Sàn mới, Đội nhóm mới và Tài khoản Sale.
   - Xác lập cây tổ chức rõ ràng (thuộc CEO nào, Vùng nào, Sàn nào, Nhóm nào).
@@ -228,7 +232,7 @@ npm run build
 ```
 
 **Kết quả kiểm tra thực tế:**
-- **Unit & Integration Tests**: `30/30 test files PASSED`, **`281/281 tests PASSED (100%)`**.
+- **Unit & Integration Tests**: `31/31 test files PASSED`, **`309/309 tests PASSED (100%)`**.
 - **TypeScript Strict**: `0 errors`.
 - **Bundle Optimization**: Tối ưu hóa code-splitting và caching thông qua Vite.
 

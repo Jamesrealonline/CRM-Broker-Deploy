@@ -109,8 +109,10 @@ export const LeaderboardPage: React.FC = () => {
 
   // Load Projects once
   useEffect(() => {
-    projectRepository.getProjects().then(setProjects).catch(console.error);
-  }, []);
+    projectRepository.getProjects(currentUser || undefined).then((list) => {
+      setProjects(branchHierarchyService.filterProjects(currentUser, list));
+    }).catch(console.error);
+  }, [currentUser]);
 
   // Load Leaderboard when Tab, Project, DateRange, Metric, or Filters change
   useEffect(() => {

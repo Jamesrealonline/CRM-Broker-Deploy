@@ -53,10 +53,12 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { useAuthStore } from '@/app/useAuthStore';
 
 export const ProjectKnowledgePage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { currentUser } = useAuthStore();
 
   const [project, setProject] = useState<Project | null>(null);
   const [knowledge, setKnowledge] = useState<ProjectKnowledge | null>(null);
@@ -132,7 +134,7 @@ export const ProjectKnowledgePage: React.FC = () => {
     setLoading(true);
     try {
       const [proj, know, faqList, stats, unitList] = await Promise.all([
-        projectRepository.getProjectById(id),
+        projectRepository.getProjectById(id, currentUser || undefined),
         projectRepository.getProjectKnowledge(id),
         projectRepository.getProjectFaqs(id),
         projectRepository.getProjectFinancialStats(id, { preset: currentTimeFilter }),
@@ -165,7 +167,7 @@ export const ProjectKnowledgePage: React.FC = () => {
 
   useEffect(() => {
     fetchProjectData();
-  }, [id, timeFilter]);
+  }, [id, timeFilter, currentUser]);
 
   // Handler for adding a new progressive tier
   const handleAddTier = () => {
@@ -369,7 +371,7 @@ export const ProjectKnowledgePage: React.FC = () => {
   }
 
   if (!project) {
-    return <div className="p-8 text-center text-slate-500">Không tìm thấy thông tin dự án.</div>;
+    return <div className="p-8 text-center text-slate-500">Không tìm thấy thông tin dự án hoặc bạn không có quyền truy cập vào dự án này.</div>;
   }
 
   return (

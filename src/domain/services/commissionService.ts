@@ -349,8 +349,32 @@ export class CommissionService {
   ): boolean {
     if (!currentUser) return false;
 
-    // 1. Quản trị viên (admin) và CEO: Toàn quyền xem toàn công ty
-    if (currentUser.role === 'admin' || currentUser.role === 'ceo') {
+    // 1. Quản trị viên (admin): Toàn quyền xem toàn hệ thống (isGlobalViewer)
+    if (currentUser.role === 'admin') {
+      return true;
+    }
+
+    // 1b. Tổng Giám Đốc (CEO): Chỉ xem hoa hồng thuộc nhánh/doanh nghiệp của mình, KHÔNG xem của CEO khác
+    if (currentUser.role === 'ceo') {
+      // Chặn xem dòng của CEO khác
+      if (entry.tier === 'ceo' && entry.recipient_id !== currentUser.id) {
+        return false;
+      }
+      // Chặn xem nếu entry thuộc organization khác
+      if (entry.organization_id && currentUser.organization_id && entry.organization_id !== currentUser.organization_id) {
+        return false;
+      }
+      // Đối soát qua region nếu có
+      if (entry.region_id && currentUser.organization_id && typeof localStorage !== 'undefined') {
+        const rawRegs = localStorage.getItem('crm_regions');
+        if (rawRegs) {
+          const regions = JSON.parse(rawRegs);
+          const reg = regions.find((r: any) => r.id === entry.region_id);
+          if (reg && reg.organization_id && reg.organization_id !== currentUser.organization_id) {
+            return false;
+          }
+        }
+      }
       return true;
     }
 

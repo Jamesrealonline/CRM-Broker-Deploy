@@ -184,3 +184,34 @@
     - `marketing_manager` & `hr_admin`: Bị chặn hoàn toàn quyền xem sổ cái hoa hồng nhân sự.
     - Khi đang ở chế độ giả lập góc nhìn (Impersonation): Cưỡng chế Chế độ chỉ đọc (Read-only), chặn hoàn toàn nút "Xuất báo cáo CSV".
 
+---
+
+### GIAI ĐOẠN 9: CÔ LẬP ĐA KHÁCH HÀNG (SAAS MULTI-TENANT) DÀNH CHO CEO & CÁC NHÁNH
+
+- **Quyết định 9.1: Mô Hình Tenant Scoping Của Tổng Giám Đốc (CEO As Client Tenant)**
+  - *Bối cảnh:* Hệ thống vận hành theo mô hình SaaS B2B, mỗi CEO đóng vai trò là một doanh nghiệp khách hàng độc lập. Trước đây một số danh mục dùng chung (như dự án, tổ chức, danh sách CEO trong bộ lọc) hiển thị toàn bộ, gây rủi ro lộ dữ liệu kinh doanh giữa các CEO cạnh tranh.
+  - *Phương án:*
+    - `Admin` giữ vai trò Super Administrator toàn cục (`isGlobalViewer = true`), có quyền giám sát toàn bộ các tenant CEO.
+    - `CEO` (`role = 'ceo'`) bị cô lập nghiêm ngặt: chỉ xem được dữ liệu thuộc `organization_id` của mình hoặc nhánh cây trực thuộc dưới quyền. Tuyệt đối không xem được thông tin của CEO khác.
+    - Các vai trò cấp dưới thuộc tổ chức của CEO (Giám đốc Vùng, Giám đốc Sàn, Trưởng phòng, Trưởng nhóm, Sale, HR, Marketing) thừa hưởng ranh giới tenant của CEO tương ứng.
+
+- **Quyết định 9.2: Cô Lập Danh Mục Dự Án (Projects Isolation)**
+  - *Phương án:*
+    - Bổ sung `canAccessProject(user, project)` và `filterProjects(user, projects)` trong `branchHierarchyService`.
+    - Mọi dự án phải gắn với một `organization_id`. Khi CEO tạo dự án mới, hệ thống tự động gắn stamp `organization_id = currentUser.organization_id`.
+    - `projectRepository.getProjects(currentUser)` tự động áp dụng bộ lọc tenant.
+    - `projectRepository.getProjectById(id, currentUser)` kiểm tra quyền sở hữu; nếu người dùng thuộc tổ chức khác cố ý truy cập qua URL, hàm trả về `null` và UI hiển thị thông báo "Không có quyền truy cập dự án".
+
+- **Quyết định 9.3: Cô Lập Giám Đốc Vùng, Sàn, Đội Nhóm & Nhân Sự (Hierarchy & Personnel Isolation)**
+  - *Phương án:*
+    - Cập nhật `branchHierarchyService.canAccessUser`: CEO A không thể xem bất kỳ hồ sơ nào của CEO B (`targetUser.role === 'ceo' && targetUser.id !== user.id -> false`).
+    - Tất cả các hàm `getOrganizations`, `getRegions`, `getAgencies`, `getTeams`, `getProfiles` trong `teamRepository` tiếp nhận `currentUser` (tùy chọn để bảo toàn backward compatibility) và tự động lọc theo tổ chức của người dùng.
+    - Tại trang Quản lý Nhân sự (`HRManagementPage`), CEO và Giám đốc Vùng được cấp quyền truy cập để quản lý cơ cấu trong tổ chức của mình.
+
+- **Quyết định 9.4: Cô Lập Hợp Đồng, Sổ Cái Hoa Hồng & Thi Đua**
+  - *Phương án:*
+    - `filterTransactions`: Chỉ trả về hợp đồng có `ceo_id` khớp với CEO hiện tại hoặc thuộc cùng tổ chức.
+    - `canUserViewCommissionEntry`: Bổ sung kiểm tra `entry.tier === 'ceo' && entry.recipient_id !== currentUser.id -> false` và kiểm tra khớp `organization_id`.
+    - Bảng thi đua hiệu suất 6 tab (`Leaderboard`): Đối với tab CEO, CEO chỉ thấy chính mình; các cấp dưới chỉ thấy CEO của mình. Đối với các tab Vùng, Sàn, Đội nhóm, Sale, chỉ hiển thị các đơn vị và nhân sự thuộc tổ chức của CEO hiện tại.
+
+

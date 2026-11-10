@@ -28,6 +28,7 @@ import {
 import { useAuthStore } from '@/app/useAuthStore';
 import { leadRepository } from '@/data/repositories/leadRepository';
 import { projectRepository } from '@/data/repositories/projectRepository';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { Lead, LeadStatus, Project } from '@/domain/types';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { Modal } from '@/components/ui/Modal';
@@ -145,10 +146,10 @@ export const JourneyPage: React.FC = () => {
   );
 
   useEffect(() => {
-    projectRepository.getProjects().then((list) => {
-      setProjects(list);
+    projectRepository.getProjects(currentUser || undefined).then((list) => {
+      setProjects(branchHierarchyService.filterProjects(currentUser, list));
     });
-  }, []);
+  }, [currentUser]);
 
   const fetchLeads = async () => {
     if (!currentUser) return;

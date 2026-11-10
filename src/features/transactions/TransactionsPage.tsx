@@ -111,22 +111,23 @@ export const TransactionsPage: React.FC = () => {
   const [selectedSaleId, setSelectedSaleId] = useState<string>('all');
 
   useEffect(() => {
-    teamRepository.getRegions().then((regs) => {
+    teamRepository.getRegions(currentUser || undefined).then((regs) => {
       setAllRegions(branchHierarchyService.filterRegions(currentUser, regs));
     });
-    teamRepository.getAgencies().then((ags) => {
+    teamRepository.getAgencies(undefined, currentUser || undefined).then((ags) => {
       setAllAgencies(branchHierarchyService.filterAgencies(currentUser, ags));
     });
-    teamRepository.getTeams().then((tms) => {
+    teamRepository.getTeams(undefined, currentUser || undefined).then((tms) => {
       setAllTeams(branchHierarchyService.filterTeams(currentUser, tms));
     });
-    teamRepository.getProfiles().then((profs) => {
-      setAllProfiles(profs);
-      const activeSales = profs.filter(p => (p.role === 'sale_agent' || p.role === 'team_leader') && p.status === 'active');
+    teamRepository.getProfiles(undefined, undefined, currentUser || undefined).then((profs) => {
+      const filteredProfiles = branchHierarchyService.filterProfiles(currentUser, profs);
+      setAllProfiles(filteredProfiles);
+      const activeSales = filteredProfiles.filter(p => (p.role === 'sale_agent' || p.role === 'team_leader') && p.status === 'active');
       setAllSales(branchHierarchyService.filterSales(currentUser, activeSales));
     });
-    teamRepository.getOrganizations().then((orgs) => {
-      setAllOrganizations(orgs);
+    teamRepository.getOrganizations(currentUser || undefined).then((orgs) => {
+      setAllOrganizations(branchHierarchyService.filterOrganizations(currentUser, orgs));
     });
   }, [currentUser]);
 
@@ -290,10 +291,10 @@ export const TransactionsPage: React.FC = () => {
           dateTo: dateRange.to,
           currentUser: currentUser || undefined,
         }),
-        projectRepository.getProjects(),
+        projectRepository.getProjects(currentUser || undefined),
       ]);
       setTransactions(txList);
-      setProjects(prjList);
+      setProjects(branchHierarchyService.filterProjects(currentUser, prjList));
     } catch (err) {
       console.error(err);
     } finally {
@@ -303,7 +304,7 @@ export const TransactionsPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [selectedRegionId, selectedAgencyId, selectedTeamId, selectedSaleId, selectedProjectId, selectedType, searchQuery, includeSample, dateRange.from, dateRange.to]);
+  }, [currentUser, selectedRegionId, selectedAgencyId, selectedTeamId, selectedSaleId, selectedProjectId, selectedType, searchQuery, includeSample, dateRange.from, dateRange.to]);
 
   // Mở modal tạo hợp đồng mới và tải dữ liệu dự án & giỏ hàng
   const handleOpenCreateModal = async () => {
@@ -314,7 +315,8 @@ export const TransactionsPage: React.FC = () => {
 
     let prjList = projects;
     if (prjList.length === 0) {
-      prjList = await projectRepository.getProjects();
+      const rawProjects = await projectRepository.getProjects(currentUser || undefined);
+      prjList = branchHierarchyService.filterProjects(currentUser, rawProjects);
       setProjects(prjList);
     }
 

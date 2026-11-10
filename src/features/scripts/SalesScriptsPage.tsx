@@ -35,6 +35,7 @@ import {
   AdvisorExtractedUpdate 
 } from '@/data/repositories/aiRepository';
 import { useAuthStore } from '@/app/useAuthStore';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { Project, SalesScript, LeadStatus, Lead, ProjectKnowledge } from '@/domain/types';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { Button } from '@/components/ui/Button';
@@ -86,13 +87,14 @@ export const SalesScriptsPage: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    projectRepository.getProjects().then((list) => {
-      setProjects(list);
-      if (list.length > 0) setSelectedProjectId(list[0].id);
+    projectRepository.getProjects(currentUser || undefined).then((list) => {
+      const filtered = branchHierarchyService.filterProjects(currentUser, list);
+      setProjects(filtered);
+      if (filtered.length > 0) setSelectedProjectId(filtered[0].id);
     });
     setHasApiKey(claudeAdvisorService.hasClaudeApiKey());
     setTempApiKey(claudeAdvisorService.getClaudeApiKey());
-  }, []);
+  }, [currentUser]);
 
   // Tải kịch bản và tri thức dự án khi đổi dự án
   useEffect(() => {

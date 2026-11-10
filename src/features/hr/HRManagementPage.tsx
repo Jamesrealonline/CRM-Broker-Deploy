@@ -267,11 +267,11 @@ export const HRManagementPage: React.FC = () => {
           status: selectedStatus,
           search: searchTerm,
         }, currentUser),
-        teamRepository.getAgencies(),
-        teamRepository.getTeams(),
-        teamRepository.getRegions(),
-        teamRepository.getOrganizations(),
-        teamRepository.getDivisions(),
+        teamRepository.getAgencies(undefined, currentUser),
+        teamRepository.getTeams(undefined, currentUser),
+        teamRepository.getRegions(currentUser),
+        teamRepository.getOrganizations(currentUser),
+        teamRepository.getDivisions(currentUser),
         teamRepository.getStructuralHealthReport(),
         hrRepository.getHRMetrics(undefined, currentUser),
         hrRepository.getTransferRequests(currentUser),
@@ -283,8 +283,9 @@ export const HRManagementPage: React.FC = () => {
       const accessibleAgencies = branchHierarchyService.filterAgencies(currentUser, agList);
       const accessibleTeams = branchHierarchyService.filterTeams(currentUser, tmList);
       const accessibleRegions = branchHierarchyService.filterRegions(currentUser, regList);
+      const accessibleOrganizations = branchHierarchyService.filterOrganizations(currentUser, orgList);
       setEmployees(empList);
-      setOrganizations(orgList);
+      setOrganizations(accessibleOrganizations);
       setAgencies(accessibleAgencies);
       setTeams(accessibleTeams);
       setRegions(accessibleRegions);

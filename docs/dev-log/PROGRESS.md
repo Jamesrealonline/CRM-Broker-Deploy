@@ -19,6 +19,8 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
 | **Giai đoạn 8** | Kho tri thức dự án, thư viện script đa ngữ cảnh, AI script, playbooks | **Xong** | `98bc324` |
 | **Giai đoạn 9** | Hoàn thiện UX, tích hợp chéo, hồi quy toàn hệ thống | **Xong** | `8b46da7` |
 | **Giai đoạn 10** | Quyền toàn diện Admin & Giám đốc Sàn, KPI Nhân sự, Bộ lọc thời gian, Dữ liệu mẫu | **Xong** | `feat/admin-full-access-kpi-hr` |
+| **Giai đoạn 13** | Tính & Phân Bổ Hoa Hồng 5 Tầng Theo Hợp Đồng & Sổ Cái Thu Nhập | **Xong** | `feat/commission-tiers-income` |
+| **Giai đoạn 14** | Cô Lập Đa Khách Hàng (SaaS Multi-Tenant) Dành Cho CEO & Nhánh Trực Thuộc | **Xong** | `main` |
 
 ---
 
@@ -180,6 +182,27 @@ Cập nhật lần cuối: 2026-11-09T09:23:00+07:00
   - Đạt **281/281 tests pass 100% trên 30 test files**.
   - `npx tsc --noEmit` đạt 0 lỗi.
   - `npm run build` thành công xuất sắc.
+
+---
+
+### Giai đoạn 14 – Cô Lập Đa Khách Hàng (SaaS Multi-Tenant) Dành Cho CEO & Nhánh Trực Thuộc (HOÀN THÀNH)
+- [x] **14.1** Định danh & Ranh giới Tenant cho Tổng Giám Đốc (CEO):
+  - Xem mỗi CEO như một khách hàng thuê bao / tenant độc lập trong hệ thống CRM Broker Platform SaaS.
+  - `Admin` giữ vai trò Super Administrator toàn cục (`isGlobalViewer = true`), có quyền giám sát toàn bộ các tenant CEO.
+  - CEO chỉ được phép truy cập và xem dữ liệu thuộc tổ chức / nhánh trực thuộc của mình (`organization_id` hoặc chuỗi cây chỉ huy dưới CEO).
+- [x] **14.2** Cô lập nghiêm ngặt 5 phân hệ cốt lõi:
+  - **Dự án (`projects` & `projectKnowledge`)**: CEO chỉ xem danh sách và chi tiết các dự án do tổ chức mình khai thác (`project.organization_id === user.organization_id`). Khi tạo mới dự án, hệ thống tự động gán tenant stamp `organization_id`. Chặn đọc trái phép URL trực tiếp với mã báo lỗi rõ ràng.
+  - **Giám đốc Vùng & Vùng kinh doanh (`regions`)**: CEO chỉ xem danh sách các Vùng và Giám đốc Vùng trực thuộc công ty mình.
+  - **Nhân sự (`profiles` & `hrManagement`)**: CEO A không thể xem danh sách nhân sự, Giám đốc Vùng, Giám đốc Sàn, Trưởng phòng, Trưởng nhóm hay Sale của CEO B; API Employee 360 ném lỗi `Access denied` nếu xem nhân sự của đối thủ.
+  - **Hợp đồng & Giao dịch (`transactions`)**: CEO chỉ xem hợp đồng có `ceo_id` khớp với tài khoản của mình hoặc thuộc tổ chức của mình.
+  - **Sổ cái Thu nhập & Hoa hồng 5 Tầng (`commission_entries`)**: Cập nhật `canUserViewCommissionEntry` chặn tuyệt đối CEO xem bút toán của CEO khác (`tier === 'ceo' && recipient_id !== currentUser.id`) hoặc bút toán thuộc tổ chức khác.
+- [x] **14.3** Đồng bộ bộ lọc và bảng thi đua:
+  - Tất cả bộ lọc Dashboard, Leads, Transactions, Leaderboard, HR được thu hẹp về phạm vi tenant của CEO: danh sách CEO trong dropdown chỉ còn chính họ, không để lộ danh tính các CEO khác.
+  - Bảng thi đua hiệu suất 6 tab (CEO, Vùng, Sàn, Giám đốc Sàn, Đội nhóm, Chuyên viên): CEO chỉ thấy thứ hạng của chính mình và các cấp dưới trong tổ chức của mình.
+- [x] **14.4** Kiểm thử tự động & Verification:
+  - Tạo mới bộ kiểm thử chuyên biệt `src/test/ceo_saas_tenant_isolation.test.ts` gồm 28 test cases kiểm chứng đa tầng: Project, Region, Profile, Transaction, Commission Ledger, Leaderboard, Organization isolation.
+  - Toàn bộ **31/31 test files pass, 309/309 tests pass (100%)**.
+  - `npx tsc --noEmit` đạt 0 lỗi, production build Vite thành công.
 
 
 

@@ -15,11 +15,13 @@ import {
   CommissionTier,
   RoleCommissionRate,
   ProjectUnit,
-  UnitStatus
+  UnitStatus,
+  UserProfile
 } from '@/domain/types';
 import { INITIAL_PROJECTS, INITIAL_KNOWLEDGE, INITIAL_TRANSACTIONS, INITIAL_PROJECT_UNITS } from '../mockData';
 import { JOURNEY_STAGES } from '@/domain/constants';
 import { financialCalculationService, TimeRangeFilter } from '@/domain/services/financialCalculationService';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { contractRepository } from './contractRepository';
 import { AI_MASTER_STAGE_SCRIPTS, formatFullScriptMarkdown } from '@/data/aiSalesScripts';
 
@@ -31,29 +33,40 @@ const STORAGE_KEY_POLICIES = 'crm_project_policies';
 const STORAGE_KEY_UNITS = 'crm_project_units';
 
 export class ProjectRepository {
-  async getProjects(): Promise<Project[]> {
+  async getProjects(currentUser?: UserProfile): Promise<Project[]> {
+    let list: Project[] = [];
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase.from('projects').select('*').order('created_at', { ascending: false });
       if (error) throw new Error(error.message);
-      return data as Project[];
+      list = data as Project[];
+    } else {
+      const projects = localStorage.getItem(STORAGE_KEY_PROJECTS);
+      if (!projects) {
+        localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(INITIAL_PROJECTS));
+        list = INITIAL_PROJECTS;
+      } else {
+        list = JSON.parse(projects);
+      }
     }
-    const projects = localStorage.getItem(STORAGE_KEY_PROJECTS);
-    if (!projects) {
-      localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(INITIAL_PROJECTS));
-      return INITIAL_PROJECTS;
+    if (currentUser) {
+      list = branchHierarchyService.filterProjects(currentUser, list);
     }
-    return JSON.parse(projects);
+    return list;
   }
 
-  async getProjectById(id: string): Promise<Project | null> {
+  async getProjectById(id: string, currentUser?: UserProfile): Promise<Project | null> {
     const list = await this.getProjects();
-    return list.find(p => p.id === id) || null;
+    const proj = list.find(p => p.id === id) || null;
+    if (proj && currentUser && !branchHierarchyService.canAccessProject(currentUser, proj)) {
+      return null;
+    }
+    return proj;
   }
 
-  async createProject(project: Partial<Project>): Promise<Project> {
+  async createProject(project: Partial<Project>, currentUser?: UserProfile): Promise<Project> {
     const newProj: Project = {
       id: crypto.randomUUID(),
-      organization_id: '11111111-1111-1111-1111-111111111111',
+      organization_id: currentUser?.organization_id || project.organization_id || '11111111-1111-1111-1111-111111111111',
       name: project.name || 'Dự án mới',
       code: project.code || `PRJ-${Date.now().toString().slice(-4)}`,
       developer: project.developer || '',

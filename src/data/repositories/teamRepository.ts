@@ -26,6 +26,7 @@ import {
   INITIAL_COMPANY_SETTINGS,
   INITIAL_ORG_POSITIONS
 } from '../mockData';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 
 const STORAGE_KEY_ORGANIZATIONS = 'crm_organizations';
 const STORAGE_KEY_AGENCIES = 'crm_agencies';
@@ -92,7 +93,8 @@ export class TeamRepository {
    * 0. DOANH NGHIỆP / TỔ CHỨC (CEO)
    * ==========================================
    */
-  async getOrganizations(): Promise<Organization[]> {
+  async getOrganizations(currentUser?: UserProfile): Promise<Organization[]> {
+    let result: Organization[] = [];
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase
         .from('organizations')
@@ -101,7 +103,7 @@ export class TeamRepository {
       if (!error && data) {
         const orgs = data as Organization[];
         const profiles = await this.getProfiles();
-        return orgs.map(o => {
+        result = orgs.map(o => {
           const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
           return {
             ...o,
@@ -110,23 +112,29 @@ export class TeamRepository {
           };
         });
       }
+    } else {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_ORGANIZATIONS) : null;
+      const list: Organization[] = raw ? JSON.parse(raw) : INITIAL_ORGS;
+      if (typeof localStorage !== 'undefined' && !raw) {
+        localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(INITIAL_ORGS));
+      }
+
+      const profiles = await this.getProfiles();
+      result = list.map(o => {
+        const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
+        return {
+          ...o,
+          ceo_id: o.ceo_id || ceo?.id,
+          ceo_name: o.ceo_name || ceo?.full_name,
+        };
+      });
     }
 
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_ORGANIZATIONS) : null;
-    const list: Organization[] = raw ? JSON.parse(raw) : INITIAL_ORGS;
-    if (typeof localStorage !== 'undefined' && !raw) {
-      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(INITIAL_ORGS));
+    if (currentUser) {
+      result = branchHierarchyService.filterOrganizations(currentUser, result);
     }
 
-    const profiles = await this.getProfiles();
-    return list.map(o => {
-      const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
-      return {
-        ...o,
-        ceo_id: o.ceo_id || ceo?.id,
-        ceo_name: o.ceo_name || ceo?.full_name,
-      };
-    });
+    return result;
   }
 
   async createOrganization(input: CreateOrganizationInput): Promise<{ success: boolean; organization?: Organization; error?: string }> {
@@ -184,17 +192,17 @@ export class TeamRepository {
     return { success: true, organization: newOrg };
   }
 
-  async getAgencies(): Promise<Agency[]> {
+  async getAgencies(regionId?: string, currentUser?: UserProfile): Promise<Agency[]> {
+    let result: Agency[] = [];
     if (isLiveSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from('agencies')
-        .select('*')
-        .order('name');
+      let query = supabase.from('agencies').select('*').order('name');
+      if (regionId) query = query.eq('region_id', regionId);
+      const { data, error } = await query;
       if (!error && data) {
         // Lấy tên director nếu có
         const agencies = data as Agency[];
         const profiles = await this.getProfiles();
-        return agencies.map(a => {
+        result = agencies.map(a => {
           const director = profiles.find(p => p.id === a.director_id);
           return {
             ...a,
@@ -202,29 +210,40 @@ export class TeamRepository {
           };
         });
       }
+    } else {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_AGENCIES) : null;
+      const list: Agency[] = raw ? JSON.parse(raw) : INITIAL_AGENCIES;
+      if (typeof localStorage !== 'undefined' && !raw) {
+        localStorage.setItem(STORAGE_KEY_AGENCIES, JSON.stringify(INITIAL_AGENCIES));
+      }
+      const profiles = await this.getProfiles();
+      const rawRegions = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_REGIONS) : null;
+      const regions: Region[] = rawRegions ? JSON.parse(rawRegions) : INITIAL_REGIONS;
+
+      result = list.map(a => {
+        const director = profiles.find(p => p.id === a.director_id);
+        const reg = regions.find(r => r.id === a.region_id);
+        return {
+          ...a,
+          director_name: director ? director.full_name : undefined,
+          region_name: reg ? reg.name : undefined,
+        };
+      });
+
+      if (regionId) {
+        result = result.filter(a => a.region_id === regionId);
+      }
     }
 
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_AGENCIES) : null;
-    const list: Agency[] = raw ? JSON.parse(raw) : INITIAL_AGENCIES;
-    if (typeof localStorage !== 'undefined' && !raw) {
-      localStorage.setItem(STORAGE_KEY_AGENCIES, JSON.stringify(INITIAL_AGENCIES));
+    if (currentUser) {
+      result = branchHierarchyService.filterAgencies(currentUser, result);
     }
-    const profiles = await this.getProfiles();
-    const rawRegions = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_REGIONS) : null;
-    const regions: Region[] = rawRegions ? JSON.parse(rawRegions) : INITIAL_REGIONS;
 
-    return list.map(a => {
-      const director = profiles.find(p => p.id === a.director_id);
-      const reg = regions.find(r => r.id === a.region_id);
-      return {
-        ...a,
-        director_name: director ? director.full_name : undefined,
-        region_name: reg ? reg.name : undefined,
-      };
-    });
+    return result;
   }
 
-  async getTeams(agencyId?: string): Promise<Team[]> {
+  async getTeams(agencyId?: string, currentUser?: UserProfile): Promise<Team[]> {
+    let result: Team[] = [];
     if (isLiveSupabaseConfigured) {
       let query = supabase.from('teams').select('*').order('name');
       if (agencyId) query = query.eq('agency_id', agencyId);
@@ -232,7 +251,7 @@ export class TeamRepository {
       if (!error && data) {
         const teams = data as Team[];
         const profiles = await this.getProfiles();
-        return teams.map(t => {
+        result = teams.map(t => {
           const leader = profiles.find(p => p.id === t.leader_id);
           const members = profiles.filter(p => p.team_id === t.id);
           return {
@@ -242,44 +261,57 @@ export class TeamRepository {
           };
         });
       }
+    } else {
+      const raw = localStorage.getItem(STORAGE_KEY_TEAMS);
+      const list: Team[] = raw ? JSON.parse(raw) : INITIAL_TEAMS;
+      if (!raw) localStorage.setItem(STORAGE_KEY_TEAMS, JSON.stringify(INITIAL_TEAMS));
+      
+      let filtered = list;
+      if (agencyId) filtered = filtered.filter(t => t.agency_id === agencyId);
+
+      const profiles = await this.getProfiles();
+      result = filtered.map(t => {
+        const leader = profiles.find(p => p.id === t.leader_id);
+        const members = profiles.filter(p => p.team_id === t.id);
+        return {
+          ...t,
+          leader_name: leader ? leader.full_name : undefined,
+          member_count: members.length,
+        };
+      });
     }
 
-    const raw = localStorage.getItem(STORAGE_KEY_TEAMS);
-    const list: Team[] = raw ? JSON.parse(raw) : INITIAL_TEAMS;
-    if (!raw) localStorage.setItem(STORAGE_KEY_TEAMS, JSON.stringify(INITIAL_TEAMS));
-    
-    let filtered = list;
-    if (agencyId) filtered = filtered.filter(t => t.agency_id === agencyId);
+    if (currentUser) {
+      result = branchHierarchyService.filterTeams(currentUser, result);
+    }
 
-    const profiles = await this.getProfiles();
-    return filtered.map(t => {
-      const leader = profiles.find(p => p.id === t.leader_id);
-      const members = profiles.filter(p => p.team_id === t.id);
-      return {
-        ...t,
-        leader_name: leader ? leader.full_name : undefined,
-        member_count: members.length,
-      };
-    });
+    return result;
   }
 
-  async getProfiles(agencyId?: string, teamId?: string): Promise<UserProfile[]> {
+  async getProfiles(agencyId?: string, teamId?: string, currentUser?: UserProfile): Promise<UserProfile[]> {
+    let result: UserProfile[] = [];
     if (isLiveSupabaseConfigured) {
       let query = supabase.from('profiles').select('*').order('created_at', { ascending: true });
       if (agencyId) query = query.eq('agency_id', agencyId);
       if (teamId) query = query.eq('team_id', teamId);
       const { data, error } = await query;
-      if (!error && data) return data as UserProfile[];
+      if (!error && data) result = data as UserProfile[];
+    } else {
+      const raw = localStorage.getItem(STORAGE_KEY_PROFILES);
+      const list: UserProfile[] = raw ? JSON.parse(raw) : INITIAL_PROFILES;
+      if (!raw) localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(INITIAL_PROFILES));
+      
+      let filtered = list;
+      if (agencyId) filtered = filtered.filter(p => p.agency_id === agencyId);
+      if (teamId) filtered = filtered.filter(p => p.team_id === teamId);
+      result = filtered;
     }
 
-    const raw = localStorage.getItem(STORAGE_KEY_PROFILES);
-    const list: UserProfile[] = raw ? JSON.parse(raw) : INITIAL_PROFILES;
-    if (!raw) localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(INITIAL_PROFILES));
-    
-    let filtered = list;
-    if (agencyId) filtered = filtered.filter(p => p.agency_id === agencyId);
-    if (teamId) filtered = filtered.filter(p => p.team_id === teamId);
-    return filtered;
+    if (currentUser) {
+      result = branchHierarchyService.filterProfiles(currentUser, result);
+    }
+
+    return result;
   }
 
   async createUser(input: CreateUserInput): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
@@ -560,13 +592,14 @@ export class TeamRepository {
   // ==========================================
   // QUẢN TRỊ VÙNG KINH DOANH (REGIONS)
   // ==========================================
-  async getRegions(): Promise<Region[]> {
+  async getRegions(currentUser?: UserProfile): Promise<Region[]> {
+    let result: Region[] = [];
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase.from('regions').select('*').order('name');
       if (!error && data) {
         const regions = data as Region[];
         const profiles = await this.getProfiles();
-        return regions.map(r => {
+        result = regions.map(r => {
           const dir = profiles.find(p => p.id === r.regional_director_id);
           return {
             ...r,
@@ -574,22 +607,28 @@ export class TeamRepository {
           };
         });
       }
+    } else {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_REGIONS) : null;
+      const list: Region[] = raw ? JSON.parse(raw) : INITIAL_REGIONS;
+      if (typeof localStorage !== 'undefined' && !raw) {
+        localStorage.setItem(STORAGE_KEY_REGIONS, JSON.stringify(INITIAL_REGIONS));
+      }
+
+      const profiles = await this.getProfiles();
+      result = list.map(r => {
+        const dir = profiles.find(p => p.id === r.regional_director_id);
+        return {
+          ...r,
+          regional_director_name: dir ? dir.full_name : undefined,
+        };
+      });
     }
 
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_REGIONS) : null;
-    const list: Region[] = raw ? JSON.parse(raw) : INITIAL_REGIONS;
-    if (typeof localStorage !== 'undefined' && !raw) {
-      localStorage.setItem(STORAGE_KEY_REGIONS, JSON.stringify(INITIAL_REGIONS));
+    if (currentUser) {
+      result = branchHierarchyService.filterRegions(currentUser, result);
     }
 
-    const profiles = await this.getProfiles();
-    return list.map(r => {
-      const dir = profiles.find(p => p.id === r.regional_director_id);
-      return {
-        ...r,
-        regional_director_name: dir ? dir.full_name : undefined,
-      };
-    });
+    return result;
   }
 
   async createRegion(input: CreateRegionInput): Promise<{ success: boolean; region?: Region; error?: string }> {
@@ -716,16 +755,21 @@ export class TeamRepository {
   // ==========================================
   // QUẢN TRỊ KHỐI / ĐƠN VỊ (DIVISIONS)
   // ==========================================
-  async getDivisions(): Promise<Division[]> {
+  async getDivisions(currentUser?: UserProfile): Promise<Division[]> {
+    let list: Division[] = [];
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase.from('divisions').select('*').order('name');
-      if (!error && data) return data as Division[];
+      if (!error && data) list = data as Division[];
+    } else {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_DIVISIONS) : null;
+      list = raw ? JSON.parse(raw) : INITIAL_DIVISIONS;
+      if (typeof localStorage !== 'undefined' && !raw) {
+        localStorage.setItem(STORAGE_KEY_DIVISIONS, JSON.stringify(INITIAL_DIVISIONS));
+      }
     }
 
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_DIVISIONS) : null;
-    const list: Division[] = raw ? JSON.parse(raw) : INITIAL_DIVISIONS;
-    if (typeof localStorage !== 'undefined' && !raw) {
-      localStorage.setItem(STORAGE_KEY_DIVISIONS, JSON.stringify(INITIAL_DIVISIONS));
+    if (currentUser?.role === 'ceo') {
+      return list.filter(d => !d.ceo_id || d.ceo_id === currentUser.id);
     }
     return list;
   }

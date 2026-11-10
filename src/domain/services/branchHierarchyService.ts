@@ -449,6 +449,11 @@ export class BranchHierarchyService {
     }
 
     if (type === 'region') {
+      if ((user.role === 'ceo' || user.role === 'hr_admin' || user.role === 'marketing_manager') && user.organization_id && typeof localStorage !== 'undefined') {
+        const regions: Region[] = JSON.parse(localStorage.getItem('crm_regions') || '[]');
+        const allowedRegionIds = new Set(regions.filter(r => !r.organization_id || r.organization_id === user.organization_id).map(r => r.id));
+        return items.filter(it => allowedRegionIds.has(it.id));
+      }
       if (user.role === 'regional_director' && user.region_id) {
         return items.filter(it => it.id === user.region_id);
       }
@@ -456,6 +461,11 @@ export class BranchHierarchyService {
     }
 
     if (type === 'agency') {
+      if ((user.role === 'ceo' || user.role === 'hr_admin' || user.role === 'marketing_manager') && user.organization_id && typeof localStorage !== 'undefined') {
+        const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
+        const allowedAgencyIds = new Set(agencies.filter(a => !a.organization_id || a.organization_id === user.organization_id).map(a => a.id));
+        return items.filter(it => allowedAgencyIds.has(it.id));
+      }
       if (user.role === 'regional_director' && user.region_id && typeof localStorage !== 'undefined') {
         const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
         const allowedAgencyIds = new Set(agencies.filter(a => a.region_id === user.region_id).map(a => a.id));
@@ -469,6 +479,11 @@ export class BranchHierarchyService {
     }
 
     if (type === 'sales_manager') {
+      if ((user.role === 'ceo' || user.role === 'hr_admin' || user.role === 'marketing_manager') && user.organization_id && typeof localStorage !== 'undefined') {
+        const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
+        const allowedAgencyIds = new Set(agencies.filter(a => !a.organization_id || a.organization_id === user.organization_id).map(a => a.id));
+        return items.filter(it => allowedAgencyIds.has(it.id));
+      }
       if (user.role === 'regional_director' && user.region_id && typeof localStorage !== 'undefined') {
         const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
         const allowedAgencyIds = new Set(agencies.filter(a => a.region_id === user.region_id).map(a => a.id));
@@ -482,6 +497,14 @@ export class BranchHierarchyService {
     }
 
     if (type === 'team') {
+      if ((user.role === 'ceo' || user.role === 'hr_admin' || user.role === 'marketing_manager') && user.organization_id && typeof localStorage !== 'undefined') {
+        const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
+        const allowedAgencyIds = new Set(agencies.filter(a => !a.organization_id || a.organization_id === user.organization_id).map(a => a.id));
+        if (allTeams && allTeams.length > 0) {
+          const allowedTeamIds = new Set(allTeams.filter(t => !t.agency_id || allowedAgencyIds.has(t.agency_id)).map(t => t.id));
+          return items.filter(it => allowedTeamIds.has(it.id));
+        }
+      }
       if (user.role === 'regional_director' && user.region_id && typeof localStorage !== 'undefined') {
         const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
         const allowedAgencyIds = new Set(agencies.filter(a => a.region_id === user.region_id).map(a => a.id));
@@ -506,6 +529,12 @@ export class BranchHierarchyService {
     }
 
     if (type === 'sale_agent') {
+      if ((user.role === 'ceo' || user.role === 'hr_admin' || user.role === 'marketing_manager') && user.organization_id) {
+        if (allProfiles && allProfiles.length > 0) {
+          const allowedSaleIds = new Set(allProfiles.filter(p => !p.organization_id || p.organization_id === user.organization_id).map(p => p.id));
+          return items.filter(it => allowedSaleIds.has(it.id));
+        }
+      }
       if (user.role === 'regional_director' && user.region_id && typeof localStorage !== 'undefined') {
         const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
         const allowedAgencyIds = new Set(agencies.filter(a => a.region_id === user.region_id).map(a => a.id));
@@ -540,6 +569,43 @@ export class BranchHierarchyService {
   }
 
   /**
+   * Kiểm tra quyền truy cập vào một dự án
+   */
+  canAccessProject(user: UserProfile | null | undefined, project: { id: string; organization_id?: string } | null | undefined): boolean {
+    if (!user || !project) return false;
+    if (this.isGlobalViewer(user)) return true;
+    if (user.organization_id && project.organization_id) {
+      return project.organization_id === user.organization_id;
+    }
+    return true;
+  }
+
+  /**
+   * Lọc danh sách dự án theo quyền tổ chức (CEO/Chi nhánh)
+   */
+  filterProjects<T extends { id: string; organization_id?: string }>(user: UserProfile | null | undefined, projects: T[]): T[] {
+    if (!user || this.isGlobalViewer(user)) return projects;
+    if (user.organization_id) {
+      return projects.filter(p => !p.organization_id || p.organization_id === user.organization_id);
+    }
+    return projects;
+  }
+
+  /**
+   * Lọc danh sách tổ chức/doanh nghiệp: CEO chỉ thấy doanh nghiệp của mình, Admin thấy tất cả
+   */
+  filterOrganizations<T extends { id: string; ceo_id?: string | null }>(user: UserProfile | null | undefined, orgs: T[]): T[] {
+    if (!user || this.isGlobalViewer(user)) return orgs;
+    if (user.role === 'ceo') {
+      return orgs.filter(o => o.id === user.organization_id || o.ceo_id === user.id);
+    }
+    if (user.organization_id) {
+      return orgs.filter(o => o.id === user.organization_id);
+    }
+    return orgs;
+  }
+
+  /**
    * Lọc danh sách thi đua tuyển dụng theo nhánh
    */
   filterRecruiterRanks(
@@ -548,6 +614,14 @@ export class BranchHierarchyService {
     allProfiles?: UserProfile[]
   ): RecruiterRank[] {
     if (!user || this.isGlobalViewer(user)) return recruiters;
+
+    if (user.role === 'ceo' || user.role === 'hr_admin' || user.role === 'marketing_manager') {
+      if (user.organization_id && allProfiles && allProfiles.length > 0) {
+        const allowedUserIds = new Set(allProfiles.filter(p => !p.organization_id || p.organization_id === user.organization_id).map(p => p.id));
+        return recruiters.filter(r => allowedUserIds.has(r.recruiterId));
+      }
+      return recruiters;
+    }
 
     if (user.role === 'regional_director' && user.region_id && typeof localStorage !== 'undefined') {
       const agencies: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
@@ -590,6 +664,11 @@ export class BranchHierarchyService {
     agencies: AgencyHRRank[]
   ): AgencyHRRank[] {
     if (!user || this.isGlobalViewer(user)) return agencies;
+    if ((user.role === 'ceo' || user.role === 'hr_admin' || user.role === 'marketing_manager') && user.organization_id && typeof localStorage !== 'undefined') {
+      const agenciesList: Agency[] = JSON.parse(localStorage.getItem('crm_agencies') || '[]');
+      const allowedAgencyIds = new Set(agenciesList.filter(a => !a.organization_id || a.organization_id === user.organization_id).map(a => a.id));
+      return agencies.filter(a => allowedAgencyIds.has(a.agencyId));
+    }
     if (user.agency_id) {
       return agencies.filter(a => a.agencyId === user.agency_id);
     }

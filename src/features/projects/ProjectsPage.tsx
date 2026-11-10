@@ -12,9 +12,11 @@ import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { useAuthStore } from '@/app/useAuthStore';
 
 export const ProjectsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuthStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,11 +34,11 @@ export const ProjectsPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    projectRepository.getProjects().then((list) => {
+    projectRepository.getProjects(currentUser || undefined).then((list) => {
       setProjects(list);
       setLoading(false);
     });
-  }, []);
+  }, [currentUser]);
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +54,7 @@ export const ProjectsPage: React.FC = () => {
         commission_rate: Number(commissionRate) || 3.5,
         progressive_commission: progressiveCommission,
         sale_commission_rate: Number(saleCommissionRate) || 1.5,
-      });
+      }, currentUser || undefined);
       setCreateModalOpen(false);
       // Theo yêu cầu mục 7: Khi tạo dự án mới, hệ thống chuyển thẳng tới trang Dự án & Tri thức AI của dự án đó
       navigate(`/projects/${created.id}`);
