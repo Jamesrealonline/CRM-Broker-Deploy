@@ -39,12 +39,72 @@ const STORAGE_KEY_ORG_POSITIONS = 'crm_org_positions';
 
 export interface CreateOrganizationInput {
   name: string;
-  code: string;
+  code?: string;
   tax_number?: string;
   phone?: string;
   email?: string;
   address?: string;
   ceo_id?: string | null;
+}
+
+/**
+ * Tự động khởi tạo Mã Doanh Nghiệp (Enterprise Code) chuẩn hóa, duy nhất
+ * Format: ORG-{ACRONYM} hoặc ORG-{SEQUENCE}
+ * Tự động loại bỏ dấu tiếng Việt, xử lý stop words (Công ty, Cổ phần, TNHH, BĐS...)
+ * Đảm bảo tính duy nhất không trùng lặp với các doanh nghiệp đã có.
+ */
+export function generateOrganizationCode(name?: string, existingOrgs: Organization[] = []): string {
+  const existingCodes = new Set(existingOrgs.map(o => (o.code || '').trim().toUpperCase()));
+  const trimmed = (name || '').trim();
+
+  let baseCode = '';
+
+  if (trimmed) {
+    // 1. Chuẩn hóa tiếng Việt, loại bỏ dấu
+    const normalized = trimmed
+      .replace(/[đĐ]/g, 'd')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9\s]/g, ' ')
+      .trim();
+
+    // 2. Danh sách stopwords doanh nghiệp VN thường gặp
+    const stopWords = new Set([
+      'cong', 'ty', 'cp', 'co', 'phan', 'tnhh', 'tap', 'doan', 'bds', 'bat', 'dong', 'san', 'group', 'corp', 'corporation', 'jsc', 'ltd'
+    ]);
+
+    const words = normalized.split(/\s+/).filter(w => w.length > 0);
+    const significantWords = words.filter(w => !stopWords.has(w.toLowerCase()));
+
+    const targetWords = significantWords.length > 0 ? significantWords : words;
+
+    if (targetWords.length >= 2) {
+      // Lấy chữ cái đầu (acronym) của các từ chính: "Dia Oc Vang Mien Trung" -> "DOVMT"
+      const initials = targetWords.map(w => w[0].toUpperCase()).join('');
+      baseCode = `ORG-${initials}`;
+    } else if (targetWords.length === 1) {
+      // Từ duy nhất: lấy tối đa 6 ký tự viết hoa
+      const single = targetWords[0].toUpperCase().slice(0, 6);
+      baseCode = `ORG-${single}`;
+    }
+  }
+
+  // Nếu không có tên hoặc không tạo được baseCode từ tên:
+  if (!baseCode) {
+    const nextSeq = (existingOrgs.length + 1).toString().padStart(3, '0');
+    baseCode = `ORG-${nextSeq}`;
+  }
+
+  // 3. Đảm bảo tính duy nhất, chống xung đột
+  let candidate = baseCode;
+  let counter = 1;
+
+  while (existingCodes.has(candidate)) {
+    candidate = `${baseCode}-${counter.toString().padStart(2, '0')}`;
+    counter++;
+  }
+
+  return candidate;
 }
 
 export interface CreateUserInput {
@@ -138,9 +198,13 @@ export class TeamRepository {
   }
 
   async createOrganization(input: CreateOrganizationInput): Promise<{ success: boolean; organization?: Organization; error?: string }> {
-    const cleanCode = input.code.trim().toUpperCase();
     const orgs = await this.getOrganizations();
-    if (orgs.some(o => o.code === cleanCode)) {
+    const providedCode = input.code?.trim();
+    const cleanCode = providedCode
+      ? providedCode.toUpperCase()
+      : generateOrganizationCode(input.name, orgs);
+
+    if (providedCode && orgs.some(o => o.code === cleanCode)) {
       return { success: false, error: `Mã doanh nghiệp '${cleanCode}' đã tồn tại trong hệ thống.` };
     }
 

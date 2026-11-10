@@ -2,7 +2,7 @@
 *(Hệ Thống Quản Trị Bất Động Sản Doanh Nghiệp, Phân Bổ Lead & Hoa Hồng 5 Tầng)*
 
 [![Production Deployment](https://img.shields.io/badge/Vercel-Production%20Live-brightgreen?logo=vercel)](https://crm-broker-platform.vercel.app)
-[![Tests Passing](https://img.shields.io/badge/Vitest-309%2F309%20Passing-success?logo=vitest)](https://github.com/)
+[![Tests Passing](https://img.shields.io/badge/Vitest-318%2F318%20Passing-success?logo=vitest)](https://github.com/)
 [![TypeScript Strict](https://img.shields.io/badge/TypeScript-5.5%20Strict-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Database](https://img.shields.io/badge/PostgreSQL-Supabase%20RLS-3ECF8E?logo=supabase)](https://supabase.com/)
 
@@ -57,6 +57,7 @@ Hệ thống quản trị quan hệ khách hàng, phân bổ lead tự động, 
   - Mỗi Tổng Giám Đốc (CEO) chỉ xem và quản lý dữ liệu thuộc nhánh của họ: **Dự án của họ**, **Giám Đốc Vùng của họ**, **Hợp đồng của họ**, **Nhân sự của họ**, **Sàn/Team của họ**, và **Sổ cái hoa hồng của họ**.
   - **Cách ly tuyệt đối giữa các CEO**: CEO của doanh nghiệp này không thể xem chéo bất kỳ dự án, nhân sự, hợp đồng, hoa hồng hay doanh số nào của CEO doanh nghiệp khác.
   - Khi CEO tạo dự án mới hoặc tuyển dụng nhân sự mới, dữ liệu tự động được định danh theo `organization_id` của CEO đó.
+  - **Tự động khởi tạo Mã Doanh Nghiệp (Enterprise Code)**: Khi khởi tạo Doanh nghiệp (CEO) mới, hệ thống tự động chuẩn hóa tên tiếng Việt, loại bỏ stopwords (`Công ty`, `Cổ phần`, `TNHH`, `BĐS`...) và sinh mã định danh duy nhất dạng `ORG-{ACRONYM}` (ví dụ: `ORG-DOVMT`, `ORG-DX`) kèm cơ chế chống xung đột mã.
   - Truy cập trực tiếp qua ID vào dự án hay hồ sơ 360 của đối tác khác sẽ bị từ chối truy cập ngay lập tức.
 - **Mô hình chuỗi lãnh đạo dọc trong từng Tenant**:
   $$\text{Admin (Global)} \longrightarrow \text{CEO (Tenant)} \longrightarrow \text{Giám Đốc Vùng} \longrightarrow \text{Giám Đốc Sàn} \longrightarrow \text{Trưởng Phòng} \longrightarrow \text{Trưởng Nhóm} \longrightarrow \text{Chuyên Viên Sale}$$
