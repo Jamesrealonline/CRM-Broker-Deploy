@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { UserProfile, Organization, Region, Agency, Team, Transaction } from '@/domain/types';
+import { UserProfile, Organization, Region, Agency, Team, Transaction, CommissionEntry } from '@/domain/types';
 import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
-import { commissionService, CommissionEntry } from '@/domain/services/commissionService';
+import { commissionService } from '@/domain/services/commissionService';
 import { teamRepository } from '@/data/repositories/teamRepository';
 
 describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation Test Suite', () => {
@@ -316,12 +316,12 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
         {
           id: 'tx-a-01',
           code: 'TX-AK-01',
-          contract_number: 'HĐ-AK-001',
+          contract_code: 'HĐ-AK-001',
+          type: 'contract',
           lead_id: 'lead-01',
-          property_title: 'Căn hộ An Khang 101',
-          project_id: 'prj-01',
           organization_id: 'org-tenant-a',
           amount: 3500000000,
+          transaction_date: new Date().toISOString(),
           status: 'confirmed',
           commission_amount: 100000000,
           created_at: new Date().toISOString(),
@@ -329,12 +329,12 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
         {
           id: 'tx-b-01',
           code: 'TX-TV-01',
-          contract_number: 'HĐ-TV-001',
+          contract_code: 'HĐ-TV-001',
+          type: 'contract',
           lead_id: 'lead-02',
-          property_title: 'Biệt thự Thịnh Vượng Villa',
-          project_id: 'prj-02',
           organization_id: 'org-tenant-b',
           amount: 12000000000,
+          transaction_date: new Date().toISOString(),
           status: 'confirmed',
           commission_amount: 400000000,
           created_at: new Date().toISOString(),
@@ -357,7 +357,9 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
           contract_id: 'tx-a-01',
           recipient_id: 'sale-a-01',
           recipient_name: 'Nguyễn Sale A',
+          recipient_role: 'sale',
           tier: 'sale',
+          rate_percent: 1.5,
           percent: 1.5,
           amount: 52500000,
           base_amount: 3500000000,
@@ -370,7 +372,9 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
           contract_id: 'tx-b-01',
           recipient_id: 'sale-b-01',
           recipient_name: 'Lê Sale B',
+          recipient_role: 'sale',
           tier: 'sale',
+          rate_percent: 1.5,
           percent: 1.5,
           amount: 180000000,
           base_amount: 12000000000,
