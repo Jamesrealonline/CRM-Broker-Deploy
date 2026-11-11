@@ -6,6 +6,7 @@
 export type UserRole = 
   | 'admin' 
   | 'ceo'
+  | 'company_admin'
   | 'regional_director'
   | 'director' 
   | 'hr_admin'
@@ -89,6 +90,8 @@ export interface Organization {
   address?: string;
   ceo_id?: string;
   ceo_name?: string;
+  admin_id?: string;
+  admin_name?: string;
   status?: 'active' | 'inactive';
   created_at?: string;
 }

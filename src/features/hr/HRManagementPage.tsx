@@ -2447,9 +2447,11 @@ export const HRManagementPage: React.FC = () => {
                 onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white font-semibold text-indigo-700"
               >
-                {USER_ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
+                {USER_ROLES
+                  .filter((r) => !['admin', 'ceo', 'company_admin'].includes(r.value))
+                  .map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
               </select>
             </div>
 

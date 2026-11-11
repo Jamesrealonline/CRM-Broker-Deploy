@@ -69,7 +69,7 @@ export const AppLayout: React.FC = () => {
   ];
 
   // Quyền truy cập phân hệ Cơ cấu & Quản trị Nhân sự Vòng đời
-  const canAccessHR = currentUser && ['admin', 'ceo', 'regional_director', 'director', 'hr_admin', 'sales_manager', 'team_leader'].includes(currentUser.role);
+  const canAccessHR = currentUser && ['admin', 'ceo', 'company_admin', 'regional_director', 'director', 'hr_admin', 'sales_manager', 'team_leader'].includes(currentUser.role);
   if (canAccessHR) {
     navItems.push({ to: '/hr', label: 'Cơ Cấu & Nhân Sự', icon: UserCheck });
   }
@@ -80,9 +80,14 @@ export const AppLayout: React.FC = () => {
     { to: '/notifications', label: 'Thông báo Follow-up', icon: Bell }
   );
 
-  // Chỉ tài khoản có quyền Admin thực tế mới được vào Trung tâm quản trị
-  if (isRealAdmin) {
-    navItems.push({ to: '/admin', label: 'Trung tâm Quản trị', icon: ShieldCheck });
+  // Chỉ tài khoản có quyền Admin kỹ thuật hoặc Quản Trị Doanh Nghiệp mới được vào Trung tâm quản trị
+  const canAccessAdmin = isRealAdmin || realUser?.role === 'company_admin';
+  if (canAccessAdmin) {
+    navItems.push({ 
+      to: '/admin', 
+      label: realUser?.role === 'company_admin' ? 'Quản Trị Doanh Nghiệp' : 'Trung tâm Quản trị', 
+      icon: ShieldCheck 
+    });
   }
 
   const currentRoleInfo = USER_ROLES.find(r => r.value === currentUser?.role);

@@ -15,6 +15,9 @@ export interface LeadTransitionRule {
 
 export const ALL_OPERATIONAL_ROLES: UserRole[] = [
   'admin',
+  'company_admin',
+  'ceo',
+  'regional_director',
   'director',
   'sales_manager',
   'team_leader',
@@ -23,6 +26,9 @@ export const ALL_OPERATIONAL_ROLES: UserRole[] = [
 
 export const MANAGEMENT_ROLES: UserRole[] = [
   'admin',
+  'company_admin',
+  'ceo',
+  'regional_director',
   'director',
   'sales_manager',
   'team_leader',
@@ -30,6 +36,9 @@ export const MANAGEMENT_ROLES: UserRole[] = [
 
 export const EXECUTIVE_ROLES: UserRole[] = [
   'admin',
+  'company_admin',
+  'ceo',
+  'regional_director',
   'director',
 ];
 

@@ -7,6 +7,7 @@ import { LeadStatus, UserRole, EmploymentType, DateRangePreset } from './types';
 
 export const USER_ROLES: { value: UserRole; label: string; description: string }[] = [
   { value: 'admin', label: 'Quản Trị Kỹ Thuật (Admin)', description: 'Toàn quyền quản trị hệ thống, hạ tầng kỹ thuật và phân quyền' },
+  { value: 'company_admin', label: 'Quản Trị Doanh Nghiệp (Company Admin)', description: 'Quản trị cấu hình và các tài khoản trong doanh nghiệp, dưới quyền Quản Trị Tổng' },
   { value: 'ceo', label: 'Tổng Giám Đốc (CEO)', description: 'Lãnh đạo cao nhất, điều hành toàn bộ Khối Kinh Doanh, Marketing và HR' },
   { value: 'regional_director', label: 'Giám Đốc Vùng (Regional Director)', description: 'Quản lý toàn bộ các Sàn giao dịch thuộc Vùng kinh doanh' },
   { value: 'director', label: 'Giám Đốc Sàn (Agency Director)', description: 'Điều hành toàn bộ hoạt động, nhân sự và doanh số của Sàn' },

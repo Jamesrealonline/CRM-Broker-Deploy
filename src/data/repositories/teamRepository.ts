@@ -45,6 +45,7 @@ export interface CreateOrganizationInput {
   email?: string;
   address?: string;
   ceo_id?: string | null;
+  admin_id?: string | null;
 }
 
 /**
@@ -165,10 +166,13 @@ export class TeamRepository {
         const profiles = await this.getProfiles();
         result = orgs.map(o => {
           const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
+          const compAdmin = profiles.find(p => p.role === 'company_admin' && p.organization_id === o.id);
           return {
             ...o,
             ceo_id: o.ceo_id || ceo?.id,
             ceo_name: o.ceo_name || ceo?.full_name,
+            admin_id: o.admin_id || compAdmin?.id,
+            admin_name: o.admin_name || compAdmin?.full_name,
           };
         });
       }
@@ -182,10 +186,13 @@ export class TeamRepository {
       const profiles = await this.getProfiles();
       result = list.map(o => {
         const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
+        const compAdmin = profiles.find(p => p.role === 'company_admin' && p.organization_id === o.id);
         return {
           ...o,
           ceo_id: o.ceo_id || ceo?.id,
           ceo_name: o.ceo_name || ceo?.full_name,
+          admin_id: o.admin_id || compAdmin?.id,
+          admin_name: o.admin_name || compAdmin?.full_name,
         };
       });
     }
@@ -197,7 +204,11 @@ export class TeamRepository {
     return result;
   }
 
-  async createOrganization(input: CreateOrganizationInput): Promise<{ success: boolean; organization?: Organization; error?: string }> {
+  async createOrganization(input: CreateOrganizationInput, currentUser?: UserProfile | null): Promise<{ success: boolean; organization?: Organization; error?: string }> {
+    if (currentUser && currentUser.role !== 'admin') {
+      return { success: false, error: 'Chỉ Quản Trị Tổng (Admin) mới có quyền thành lập doanh nghiệp mới.' };
+    }
+
     const orgs = await this.getOrganizations();
     const providedCode = input.code?.trim();
     const cleanCode = providedCode
@@ -217,6 +228,7 @@ export class TeamRepository {
       email: input.email?.trim(),
       address: input.address?.trim(),
       ceo_id: input.ceo_id || undefined,
+      admin_id: input.admin_id || undefined,
       status: 'active',
       created_at: new Date().toISOString(),
     };
@@ -229,6 +241,8 @@ export class TeamRepository {
         phone: newOrg.phone || null,
         email: newOrg.email || null,
         address: newOrg.address || null,
+        ceo_id: newOrg.ceo_id || null,
+        admin_id: newOrg.admin_id || null,
       }).select().single();
       if (error) return { success: false, error: error.message };
       if (data) newOrg.id = data.id;
@@ -240,7 +254,7 @@ export class TeamRepository {
     }
 
     if (input.ceo_id) {
-      await this.assignRole(input.ceo_id, 'ceo', null, null);
+      await this.assignRole(input.ceo_id, 'ceo', null, null, null, newOrg.id);
       const rawProfiles = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_PROFILES) : null;
       if (rawProfiles) {
         const profs: UserProfile[] = JSON.parse(rawProfiles);
@@ -248,6 +262,20 @@ export class TeamRepository {
         if (idx !== -1) {
           profs[idx].organization_id = newOrg.id;
           profs[idx].role = 'ceo';
+          localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profs));
+        }
+      }
+    }
+
+    if (input.admin_id) {
+      await this.assignRole(input.admin_id, 'company_admin', null, null, null, newOrg.id);
+      const rawProfiles = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_PROFILES) : null;
+      if (rawProfiles) {
+        const profs: UserProfile[] = JSON.parse(rawProfiles);
+        const idx = profs.findIndex(p => p.id === input.admin_id);
+        if (idx !== -1) {
+          profs[idx].organization_id = newOrg.id;
+          profs[idx].role = 'company_admin';
           localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profs));
         }
       }
@@ -378,7 +406,40 @@ export class TeamRepository {
     return result;
   }
 
-  async createUser(input: CreateUserInput): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
+  async createUser(input: CreateUserInput, currentUser?: UserProfile | null): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
+    // Kiểm tra quyền hạn tạo vai trò:
+    // 1. Chỉ Quản trị tổng (Admin) mới có quyền tạo Admin, CEO hoặc Company Admin
+    if (['admin', 'ceo', 'company_admin'].includes(input.role)) {
+      if (currentUser && currentUser.role !== 'admin') {
+        const roleLabels: Record<string, string> = {
+          admin: 'Quản Trị Viên (Admin)',
+          ceo: 'Tổng Giám Đốc (CEO)',
+          company_admin: 'Quản Trị Doanh Nghiệp (Company Admin)'
+        };
+        return { 
+          success: false, 
+          error: `Chỉ Quản Trị Tổng (Admin) mới có quyền tạo tài khoản ${roleLabels[input.role]}.` 
+        };
+      }
+    }
+
+    // 2. Nếu người tạo là Company Admin: cưỡng chế organization_id thuộc về chính doanh nghiệp của họ
+    if (currentUser && currentUser.role === 'company_admin') {
+      if (['admin', 'ceo', 'company_admin'].includes(input.role)) {
+        return {
+          success: false,
+          error: 'Quản Trị Doanh Nghiệp không có quyền tạo tài khoản CEO, Admin hoặc Quản Trị Doanh Nghiệp khác.'
+        };
+      }
+      if (input.organization_id && currentUser.organization_id && input.organization_id !== currentUser.organization_id) {
+        return {
+          success: false,
+          error: 'Quản Trị Doanh Nghiệp chỉ được tạo tài khoản thuộc doanh nghiệp của mình.'
+        };
+      }
+      input.organization_id = currentUser.organization_id;
+    }
+
     const cleanEmail = input.email.trim().toLowerCase();
 
     if (isLiveSupabaseConfigured) {
@@ -444,7 +505,10 @@ export class TeamRepository {
   // ==========================================
   // QUẢN TRỊ SÀN GIAO DỊCH (AGENCY / BRANCH)
   // ==========================================
-  async createAgency(input: CreateAgencyInput): Promise<{ success: boolean; agency?: Agency; error?: string }> {
+  async createAgency(input: CreateAgencyInput, currentUser?: UserProfile | null): Promise<{ success: boolean; agency?: Agency; error?: string }> {
+    if (currentUser?.role === 'company_admin' && currentUser.organization_id) {
+      input.organization_id = currentUser.organization_id;
+    }
     const cleanCode = input.code.trim().toUpperCase();
     const orgId = input.organization_id || INITIAL_ORGS[0].id;
 
@@ -695,7 +759,10 @@ export class TeamRepository {
     return result;
   }
 
-  async createRegion(input: CreateRegionInput): Promise<{ success: boolean; region?: Region; error?: string }> {
+  async createRegion(input: CreateRegionInput, currentUser?: UserProfile | null): Promise<{ success: boolean; region?: Region; error?: string }> {
+    if (currentUser?.role === 'company_admin' && currentUser.organization_id) {
+      input.organization_id = currentUser.organization_id;
+    }
     const cleanCode = input.code.trim().toUpperCase();
     const regions = await this.getRegions();
     if (regions.some(r => r.code === cleanCode)) {

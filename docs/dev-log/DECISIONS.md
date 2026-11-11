@@ -214,4 +214,21 @@
     - `canUserViewCommissionEntry`: Bổ sung kiểm tra `entry.tier === 'ceo' && entry.recipient_id !== currentUser.id -> false` và kiểm tra khớp `organization_id`.
     - Bảng thi đua hiệu suất 6 tab (`Leaderboard`): Đối với tab CEO, CEO chỉ thấy chính mình; các cấp dưới chỉ thấy CEO của mình. Đối với các tab Vùng, Sàn, Đội nhóm, Sale, chỉ hiển thị các đơn vị và nhân sự thuộc tổ chức của CEO hiện tại.
 
+---
+
+### GIAI ĐOẠN 10: QUẢN TRỊ DOANH NGHIỆP (COMPANY ADMIN) & CẤU TRÚC PHÂN CẤP TÀI KHOẢN
+
+- **Quyết định 10.1: Vai Trò Mới - Quản Trị Doanh Nghiệp (`company_admin`)**
+  - *Bối cảnh:* Mỗi doanh nghiệp cần một tài khoản quản trị riêng để quản trị cấu hình, các tài khoản và cây cơ cấu của doanh nghiệp đó, dưới quyền Quản Trị Tổng (Admin).
+  - *Phân cấp tạo tài khoản:*
+    - Chỉ Quản Trị Tổng (`admin`) mới có quyền tạo Doanh nghiệp (`Organization`), bổ nhiệm Tổng Giám Đốc (`ceo`) và Quản Trị Doanh Nghiệp (`company_admin`).
+    - Quản Trị Doanh Nghiệp (`company_admin`) có đầy đủ chức năng quản trị cấu hình, nhân sự và tổ chức cho doanh nghiệp của mình: tạo Vùng (`Region`), Sàn (`Agency`), Đội nhóm (`Team`), và các tài khoản cấp dưới (Giám đốc Vùng, Giám đốc Sàn, Trưởng phòng, Trưởng nhóm, Sale Agent, HR, Marketing).
+    - Quản Trị Doanh Nghiệp KHÔNG có quyền tạo CEO (`ceo`), Quản Trị Viên (`admin`), Quản Trị Doanh Nghiệp khác (`company_admin`), hoặc Doanh nghiệp mới (`Organization`).
+  - *Cô lập đa khách thuê (Multi-tenant Strict Isolation):*
+    - `company_admin` gắn chặt với `organization_id`.
+    - Tuyệt đối không xem hoặc can thiệp dữ liệu (nhân sự, hợp đồng, vùng, sàn, hoa hồng) của doanh nghiệp khác.
+    - Các doanh nghiệp/CEO khác không thể nhìn thấy tài khoản `company_admin` này.
+    - CEO cùng doanh nghiệp và Super Admin nhìn thấy và quản lý được `company_admin`.
+
+
 

@@ -354,10 +354,10 @@ export class CommissionService {
       return true;
     }
 
-    // 1b. Tổng Giám Đốc (CEO): Chỉ xem hoa hồng thuộc nhánh/doanh nghiệp của mình, KHÔNG xem của CEO khác
-    if (currentUser.role === 'ceo') {
+    // 1b. Tổng Giám Đốc (CEO) & Quản Trị Doanh Nghiệp (company_admin): Chỉ xem hoa hồng thuộc nhánh/doanh nghiệp của mình, KHÔNG xem của doanh nghiệp/CEO khác
+    if (currentUser.role === 'ceo' || currentUser.role === 'company_admin') {
       // Chặn xem dòng của CEO khác
-      if (entry.tier === 'ceo' && entry.recipient_id !== currentUser.id) {
+      if (entry.tier === 'ceo' && currentUser.role === 'ceo' && entry.recipient_id !== currentUser.id) {
         return false;
       }
       // Chặn xem nếu entry thuộc organization khác

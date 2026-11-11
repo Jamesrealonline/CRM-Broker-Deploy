@@ -1057,7 +1057,7 @@ export class HRRepository {
     assertRateLimit(currentUser.id, 'hr/create_employee', 20);
     this.ensureInitialized();
 
-    const canCreate = ['admin', 'ceo', 'director', 'regional_director', 'hr_admin'].includes(currentUser.role);
+    const canCreate = ['admin', 'ceo', 'company_admin', 'director', 'regional_director', 'hr_admin'].includes(currentUser.role);
     if (!canCreate) {
       return { success: false, error: 'forbidden: Bạn không có quyền tạo tài khoản nhân sự!' };
     }
@@ -1073,7 +1073,7 @@ export class HRRepository {
       agency_id: payload.agency_id || null,
       team_id: payload.team_id || null,
       must_change_password: payload.must_change_password ?? true,
-    });
+    }, currentUser);
 
     if (!createRes.success || !createRes.profile) {
       return { success: false, error: createRes.error || 'Lỗi khi tạo tài khoản nhân sự!' };
