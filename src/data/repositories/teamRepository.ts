@@ -284,6 +284,56 @@ export class TeamRepository {
     return { success: true, organization: newOrg };
   }
 
+  // ==========================================
+  // BỔ NHIỆM QUẢN TRỊ DOANH NGHIỆP (COMPANY ADMIN)
+  // Chỉ Quản trị tổng (Admin) mới có quyền thực hiện
+  // ==========================================
+  async assignOrganizationAdmin(
+    organizationId: string,
+    adminUserId: string,
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; error?: string }> {
+    if (currentUser && currentUser.role !== 'admin') {
+      return {
+        success: false,
+        error: 'Chỉ Quản Trị Tổng (Admin) mới có quyền bổ nhiệm Quản Trị Doanh Nghiệp.',
+      };
+    }
+
+    if (!organizationId || !adminUserId) {
+      return { success: false, error: 'Thiếu thông tin Doanh nghiệp hoặc Người dùng.' };
+    }
+
+    const roleRes = await this.assignRole(adminUserId, 'company_admin', null, null, null, organizationId);
+    if (!roleRes.success) {
+      return roleRes;
+    }
+
+    if (isLiveSupabaseConfigured) {
+      const { error } = await supabase
+        .from('organizations')
+        .update({ admin_id: adminUserId, updated_at: new Date().toISOString() })
+        .eq('id', organizationId);
+      if (error) return { success: false, error: error.message };
+    }
+
+    const orgs = await this.getOrganizations();
+    const profiles = await this.getProfiles();
+    const adminUser = profiles.find(p => p.id === adminUserId);
+
+    const updatedOrgs = orgs.map(o => o.id === organizationId ? {
+      ...o,
+      admin_id: adminUserId,
+      admin_name: adminUser ? adminUser.full_name : o.admin_name,
+    } : o);
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));
+    }
+
+    return { success: true };
+  }
+
   async getAgencies(regionId?: string, currentUser?: UserProfile): Promise<Agency[]> {
     let result: Agency[] = [];
     if (isLiveSupabaseConfigured) {
@@ -423,6 +473,14 @@ export class TeamRepository {
       }
     }
 
+    // 1b. Tài khoản Quản Trị Doanh Nghiệp bắt buộc phải gắn với một Doanh nghiệp cụ thể
+    if (input.role === 'company_admin' && !input.organization_id) {
+      return {
+        success: false,
+        error: 'Tài khoản Quản Trị Doanh Nghiệp bắt buộc phải chọn Doanh nghiệp để gán.'
+      };
+    }
+
     // 2. Nếu người tạo là Company Admin: cưỡng chế organization_id thuộc về chính doanh nghiệp của họ
     if (currentUser && currentUser.role === 'company_admin') {
       if (['admin', 'ceo', 'company_admin'].includes(input.role)) {
@@ -457,6 +515,19 @@ export class TeamRepository {
       if (error) {
         return { success: false, error: error.message };
       }
+
+      if (input.role === 'company_admin' && input.organization_id && data?.id) {
+        await supabase
+          .from('organizations')
+          .update({ admin_id: data.id, updated_at: new Date().toISOString() })
+          .eq('id', input.organization_id);
+
+        await supabase
+          .from('profiles')
+          .update({ organization_id: input.organization_id })
+          .eq('id', data.id);
+      }
+
       return { success: true, profile: data as UserProfile };
     }
 
@@ -484,6 +555,19 @@ export class TeamRepository {
 
     const updated = [...profiles, newProfile];
     localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(updated));
+
+    if (input.role === 'company_admin' && input.organization_id) {
+      const orgs = await this.getOrganizations();
+      const updatedOrgs = orgs.map(o => o.id === input.organization_id ? {
+        ...o,
+        admin_id: newProfile.id,
+        admin_name: newProfile.full_name,
+      } : o);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));
+      }
+    }
+
     return { success: true, profile: newProfile };
   }
 

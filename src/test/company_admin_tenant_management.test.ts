@@ -397,4 +397,121 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
       expect(commissionService.canUserViewCommissionEntry(superAdmin, entries[1])).toBe(true);
     });
   });
+
+  // ==========================================
+  // 3. TẠO & BỔ NHIỆM QUẢN TRỊ DOANH NGHIỆP (COMPANY ADMIN ASSIGNMENT)
+  // ==========================================
+  describe('3. Tạo & Bổ nhiệm Quản Trị Doanh Nghiệp (Enterprise Admin Assignment)', () => {
+    it('Tạo Quản Trị Doanh Nghiệp bắt buộc phải chọn Doanh nghiệp để gán', async () => {
+      // 1. Super Admin tạo company_admin nhưng thiếu organization_id -> Bị từ chối
+      const res = await teamRepository.createUser({
+        email: 'missing.org.admin@test.vn',
+        full_name: 'Admin Không DN',
+        phone: '0901234567',
+        role: 'company_admin',
+        // thiếu organization_id
+      }, superAdmin);
+
+      expect(res.success).toBe(false);
+      expect(res.error).toContain('bắt buộc phải chọn Doanh nghiệp');
+    });
+
+    it('Super Admin tạo Quản Trị Doanh Nghiệp hợp lệ -> Tự động gán vào Organization admin_id', async () => {
+      // Chuẩn bị organization trong storage
+      const orgRes = await teamRepository.createOrganization({
+        name: 'Công ty Cổ phần BĐS Nam Á',
+        code: 'NAMA',
+      }, superAdmin);
+      expect(orgRes.success).toBe(true);
+      const targetOrg = orgRes.organization!;
+
+      // Super Admin tạo company_admin có organization_id
+      const res = await teamRepository.createUser({
+        email: 'admin.nama@test.vn',
+        full_name: 'Nguyễn Quản Trị Nam Á',
+        phone: '0908889999',
+        role: 'company_admin',
+        organization_id: targetOrg.id,
+      }, superAdmin);
+
+      expect(res.success).toBe(true);
+      expect(res.profile?.role).toBe('company_admin');
+      expect(res.profile?.organization_id).toBe(targetOrg.id);
+
+      // Kiểm tra organization đã được cập nhật admin_id
+      const orgs = await teamRepository.getOrganizations();
+      const updatedOrg = orgs.find(o => o.id === targetOrg.id);
+      expect(updatedOrg?.admin_id).toBe(res.profile?.id);
+    });
+
+    it('Super Admin bổ nhiệm nhân sự có sẵn làm Quản Trị Doanh Nghiệp qua assignOrganizationAdmin', async () => {
+      // Tạo một nhân viên sale trước
+      const saleRes = await teamRepository.createUser({
+        email: 'staff.to.admin@test.vn',
+        full_name: 'Nhân Viên Tiềm Năng',
+        phone: '0907776655',
+        role: 'sale_agent',
+      }, superAdmin);
+      expect(saleRes.success).toBe(true);
+      const staffUser = saleRes.profile!;
+
+      // Bổ nhiệm nhân sự này làm Quản Trị DN cho orgA
+      const assignRes = await teamRepository.assignOrganizationAdmin(
+        orgA.id,
+        staffUser.id,
+        superAdmin
+      );
+      expect(assignRes.success).toBe(true);
+
+      // Kiểm tra profile đã được nâng lên company_admin và gán vào orgA
+      const profiles = await teamRepository.getProfiles();
+      const updatedProfile = profiles.find(p => p.id === staffUser.id);
+      expect(updatedProfile?.role).toBe('company_admin');
+      expect(updatedProfile?.organization_id).toBe(orgA.id);
+
+      // Kiểm tra organization đã nhận admin_id mới
+      const orgs = await teamRepository.getOrganizations();
+      const updatedOrg = orgs.find(o => o.id === orgA.id);
+      expect(updatedOrg?.admin_id).toBe(staffUser.id);
+    });
+
+    it('Non-admin (Company Admin, CEO, Sale...) KHÔNG có quyền bổ nhiệm Quản Trị Doanh Nghiệp', async () => {
+      // Company Admin thử bổ nhiệm
+      const res1 = await teamRepository.assignOrganizationAdmin(
+        orgA.id,
+        saleA.id,
+        compAdminA
+      );
+      expect(res1.success).toBe(false);
+      expect(res1.error).toContain('Chỉ Quản Trị Tổng (Admin)');
+
+      // CEO thử bổ nhiệm
+      const res2 = await teamRepository.assignOrganizationAdmin(
+        orgA.id,
+        saleA.id,
+        ceoA
+      );
+      expect(res2.success).toBe(false);
+      expect(res2.error).toContain('Chỉ Quản Trị Tổng (Admin)');
+
+      // Nhân sự thường thử bổ nhiệm
+      const res3 = await teamRepository.assignOrganizationAdmin(
+        orgA.id,
+        saleA.id,
+        saleA
+      );
+      expect(res3.success).toBe(false);
+      expect(res3.error).toContain('Chỉ Quản Trị Tổng (Admin)');
+    });
+
+    it('assignOrganizationAdmin từ chối khi thiếu organizationId hoặc adminUserId', async () => {
+      const res1 = await teamRepository.assignOrganizationAdmin('', 'user-123', superAdmin);
+      expect(res1.success).toBe(false);
+      expect(res1.error).toContain('Thiếu thông tin');
+
+      const res2 = await teamRepository.assignOrganizationAdmin('org-123', '', superAdmin);
+      expect(res2.success).toBe(false);
+      expect(res2.error).toContain('Thiếu thông tin');
+    });
+  });
 });
