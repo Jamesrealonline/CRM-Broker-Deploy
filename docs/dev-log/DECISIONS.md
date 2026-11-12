@@ -230,5 +230,38 @@
     - Các doanh nghiệp/CEO khác không thể nhìn thấy tài khoản `company_admin` này.
     - CEO cùng doanh nghiệp và Super Admin nhìn thấy và quản lý được `company_admin`.
 
+---
+
+### GIAI ĐOẠN 11: CHỨC NĂNG SỬA & XÓA NGƯỜI DÙNG TRONG TRUNG TÂM QUẢN TRỊ (ADMIN CONTROL CENTER)
+
+- **Quyết định 11.1: Chức Năng Sửa Người Dùng (Update User)**
+  - *Bối cảnh:* Trung tâm Quản trị (`AdminPage`) trước đây chỉ có chức năng Bổ nhiệm chức danh, Đổi mật khẩu tạm và Khóa tài khoản, thiếu form chỉnh sửa chi tiết thông tin nhân sự.
+  - *Phương án:*
+    - Bổ sung `teamRepository.updateUser(userId, input, currentUser)` hỗ trợ chỉnh sửa: họ tên, số điện thoại, email, vai trò (role), doanh nghiệp (`organization_id`), vùng (`region_id`), sàn (`agency_id`), đội nhóm (`team_id`), trạng thái tài khoản (`status`), loại hợp đồng (`employment_type`).
+    - *Kiểm soát phân quyền:*
+      - Super Admin (`admin`): Toàn quyền chỉnh sửa mọi nhân sự trong hệ thống.
+      - Company Admin (`company_admin`): Chỉ được sửa nhân sự thuộc doanh nghiệp của mình (`organization_id`). Không được phép sửa tài khoản Admin, CEO hoặc Company Admin khác; không được phép thăng cấp tài khoản lên Admin/CEO/Company Admin; không được chuyển người dùng sang doanh nghiệp khác.
+      - Chặn mọi thao tác sửa khi đang ở chế độ Giả lập góc nhìn (Impersonation / read-only).
+      - Ràng buộc an toàn: Không thể hạ quyền hoặc vô hiệu hóa Quản trị viên (Admin) duy nhất còn lại của hệ thống; không thể thay đổi vai trò của CEO duy nhất trong doanh nghiệp khi chưa bổ nhiệm CEO thay thế.
+    - Cập nhật đồng bộ cả trên Supabase PostgreSQL DB và localStorage offline fallback.
+
+- **Quyết định 11.2: Chức Năng Xóa Mềm Người Dùng & Bàn Giao Khách Hàng (Soft Delete & Handover)**
+  - *Phương án:*
+    - Tuyệt đối không xóa cứng (hard delete) dữ liệu người dùng nhằm bảo toàn lịch sử giao dịch, hợp đồng, hoa hồng và dấu vết kiểm toán (Audit Trail).
+    - Áp dụng cơ chế **Xóa Mềm (Soft Delete)**:
+      - Bổ sung cột `deleted_at`, `deleted_by`, `delete_reason` vào bảng `profiles`.
+      - Cập nhật `status = 'inactive'`, `accepts_leads = false`.
+      - Tự động đóng gói hồ sơ người dùng và đưa vào **Thùng Rác Quản Trị (`trash_bins`)** với `entity_type: 'employee'`, cho phép Admin khôi phục trong vòng 30 ngày.
+    - *Bàn giao khách hàng (Lead Handover):*
+      - Hộp thoại xác nhận xóa đếm và cảnh báo số lượng Lead khách hàng tiềm năng chưa ký hợp đồng mà nhân sự đang phụ trách.
+      - Cung cấp tùy chọn chọn nhân sự tiếp nhận bàn giao (`handover_user_id`). Khi xác nhận xóa, hệ thống tự động chuyển giao toàn bộ các Lead đang mở sang nhân sự mới và ghi nhận vào lịch sử chăm sóc.
+    - *Ràng buộc an toàn:*
+      - Chặn người dùng tự xóa tài khoản của chính mình.
+      - Bắt buộc phải có lý do xóa (tối thiểu 5 ký tự).
+      - Chống xóa Quản trị viên (Admin) duy nhất còn lại của hệ thống.
+      - Chống xóa Tổng Giám Đốc (CEO) duy nhất còn lại của doanh nghiệp.
+      - Khôi phục nhân sự từ Thùng Rác Quản Trị (`restoreUser`) thành công và trả lại trạng thái hoạt động bình thường.
+
+
 
 

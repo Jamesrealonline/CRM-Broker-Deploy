@@ -45,10 +45,14 @@ export interface UserProfile {
   session_expires_at?: string;
   last_login_at?: string;
   created_at?: string;
+  updated_at?: string;
   reporting_to?: string;
   accepts_leads?: boolean;
   on_leave?: boolean;
   email_notifications_enabled?: boolean;
+  deleted_at?: string;
+  deleted_by?: string;
+  delete_reason?: string;
 }
 
 export type LeadStatus = 

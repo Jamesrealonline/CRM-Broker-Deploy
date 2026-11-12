@@ -65,6 +65,11 @@ Hệ thống quản trị quan hệ khách hàng, phân bổ lead tự động, 
   - Mỗi doanh nghiệp sở hữu một tài khoản Quản Trị Doanh Nghiệp riêng dưới quyền Quản Trị Tổng (`admin`).
   - Toàn quyền cấu hình, khởi tạo Vùng (`Region`), Sàn (`Agency`), Đội nhóm (`Team`) và tạo tài khoản nhân sự trực thuộc doanh nghiệp mình (Giám đốc Vùng, Giám đốc Sàn, Trưởng phòng, Trưởng nhóm, Sale Agent, HR, Marketing).
   - **Giới hạn an toàn nghiêm ngặt**: Không tạo được CEO, Admin, Company Admin khác, hoặc tạo Doanh nghiệp mới; tuyệt đối không xem hoặc can thiệp dữ liệu của doanh nghiệp khác.
+- **Trung Tâm Quản Trị Hệ Thống (`/admin`) - Chức Năng Sửa & Xóa Mềm Người Dùng**:
+  - Quản Trị Tổng (`admin`) và Quản Trị Doanh Nghiệp (`company_admin`) có thể chỉnh sửa chi tiết thông tin nhân sự: Họ tên, Email, Số điện thoại, Vai trò (Role), Doanh nghiệp (`organization_id`), Vùng kinh doanh, Sàn giao dịch, Đội nhóm, và Trạng thái tài khoản.
+  - Áp dụng cơ chế **Xóa Mềm (Soft Delete)** an toàn: Đưa hồ sơ nhân sự vào **Thùng Rác Quản Trị (`trash_bins`)** với quyền khôi phục an toàn trong 30 ngày.
+  - **Bàn giao Lead thông minh (Handover)**: Tự động cảnh báo số lượng Lead đang phụ trách và cho phép chỉ định nhân sự tiếp nhận bàn giao toàn bộ khách hàng đang mở, không làm thất thoát dữ liệu.
+  - **Ràng buộc an toàn tối cao**: Chặn người dùng tự xóa tài khoản của chính mình, chặn xóa hoặc hạ quyền Quản trị viên (Admin) duy nhất còn lại, chặn xóa CEO duy nhất khi chưa có người thay thế, chặn mọi thao tác xóa/sửa khi đang ở chế độ Giả lập góc nhìn (Impersonation).
 - **Tự động khởi tạo Mã Doanh Nghiệp (Enterprise Code)**:
   - Khi khởi tạo Doanh nghiệp (CEO) mới, hệ thống tự động chuẩn hóa tên tiếng Việt, loại bỏ stopwords (`Công ty`, `Cổ phần`, `TNHH`, `BĐS`...) và sinh mã định danh duy nhất dạng `ORG-{ACRONYM}` (ví dụ: `ORG-DOVMT`, `ORG-DX`) kèm cơ chế chống xung đột mã.
   - Truy cập trực tiếp qua ID vào dự án hay hồ sơ của đối tác khác sẽ bị từ chối truy cập ngay lập tức.
@@ -304,7 +309,7 @@ Mở mục **SQL Editor** trên Supabase Dashboard và thực thi tuần tự c�
 Hệ thống được bảo vệ bằng hệ sinh thái kiểm thử nghiêm ngặt, đảm bảo mọi tính toán tài chính và phân quyền luôn chuẩn xác:
 
 ```bash
-# Chạy toàn bộ 281 bài kiểm thử tự động (Unit & Integration tests)
+# Chạy toàn bộ 348 bài kiểm thử tự động (Unit & Integration tests qua 34 test files)
 npm test
 
 # Kiểm tra cú pháp và kiểu dữ liệu TypeScript (Strict Mode)

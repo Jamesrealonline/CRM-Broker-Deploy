@@ -226,6 +226,11 @@ describe('Module 5: Comprehensive HR Lifecycle & Personnel Management', () => {
   });
 
   it('6. Quản lý nghỉ phép: Duyệt phép tự động trừ số dư và kích hoạt cờ on_leave đúng ngày', async () => {
+    // Đăng ký profile của Sale 1
+    const initProfiles = await teamRepository.getProfiles();
+    initProfiles.push(mockSaleAgent1);
+    localStorage.setItem('crm_profiles', JSON.stringify(initProfiles));
+
     // 1. Tạo đơn nghỉ phép cho Sale 1
     const req = await hrRepository.createLeaveRequest({
       leaveTypeId: 'lt-1',

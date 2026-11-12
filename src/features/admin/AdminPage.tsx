@@ -56,6 +56,8 @@ import {
   teamRepository, 
   generateOrganizationCode,
   CreateUserInput, 
+  UpdateUserInput,
+  DeleteUserOptions,
   CreateAgencyInput, 
   CreateTeamInput,
   CreateRegionInput,
@@ -218,6 +220,29 @@ export const AdminPage: React.FC = () => {
     setIsAssignAdminModalOpen(true);
   };
 
+  // Modal: Edit User (Chỉnh Sửa Thông Tin Người Dùng)
+  const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
+  const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
+  const [editUserForm, setEditUserForm] = useState<UpdateUserInput>({
+    full_name: '',
+    phone: '',
+    email: '',
+    role: 'sale_agent',
+    organization_id: '',
+    region_id: '',
+    agency_id: '',
+    team_id: '',
+    status: 'active',
+    employment_type: 'official',
+  });
+
+  // Modal: Delete User (Xóa Mềm Người Dùng & Bàn Giao)
+  const [isDeleteUserModalOpen, setIsDeleteUserModalOpen] = useState(false);
+  const [selectedUserForDelete, setSelectedUserForDelete] = useState<UserProfile | null>(null);
+  const [deleteUserReason, setDeleteUserReason] = useState('');
+  const [handoverUserId, setHandoverUserId] = useState('');
+  const [userAssignedLeadsCount, setUserAssignedLeadsCount] = useState(0);
+
   // Modal: Create Region (Thành Lập Vùng Kinh Doanh Mới)
   const [isRegionModalOpen, setIsRegionModalOpen] = useState(false);
   const [newRegion, setNewRegion] = useState<CreateRegionInput>({
@@ -304,6 +329,12 @@ export const AdminPage: React.FC = () => {
     try {
       if (item.entity_type === 'contract' || item.entity_type === 'draft_contract') {
         controlledDataService.restoreContractFromTrash(item.entity_id, currentUser);
+      } else if (item.entity_type === 'employee') {
+        const res = await teamRepository.restoreUser(item.entity_id, currentUser);
+        if (!res.success) {
+          alert(res.error || 'Lỗi khi khôi phục nhân sự.');
+          return;
+        }
       } else {
         controlledDataService.restoreLeadFromTrash(item.entity_id, currentUser);
       }
@@ -584,6 +615,132 @@ export const AdminPage: React.FC = () => {
       }
     } catch (err: any) {
       setModalError(err.message || 'Lỗi hệ thống khi phân quyền Quản Trị Doanh Nghiệp.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 1a3. Xử lý Chỉnh sửa Người dùng (Edit User)
+  const handleOpenEditModal = (user: UserProfile) => {
+    setSelectedUserForEdit(user);
+    setEditUserForm({
+      full_name: user.full_name,
+      phone: user.phone || '',
+      email: user.email,
+      role: user.role,
+      organization_id: user.organization_id || '',
+      region_id: user.region_id || '',
+      agency_id: user.agency_id || '',
+      team_id: user.team_id || '',
+      status: user.status,
+      employment_type: user.employment_type || 'official',
+    });
+    setModalError(null);
+    setModalSuccess(null);
+    setIsEditUserModalOpen(true);
+  };
+
+  const handleEditUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserForEdit) return;
+    setModalError(null);
+    setModalSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.updateUser(selectedUserForEdit.id, editUserForm, currentUser);
+      if (res.success && res.profile) {
+        setModalSuccess(`Đã cập nhật thành công thông tin cho ${res.profile.full_name}!`);
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'user_update',
+          {
+            target_user_id: selectedUserForEdit.id,
+            target_email: res.profile.email,
+            updated_fields: editUserForm,
+          }
+        );
+        await reloadData();
+        setTimeout(() => {
+          setIsEditUserModalOpen(false);
+          setModalSuccess(null);
+        }, 1200);
+      } else {
+        setModalError(res.error || 'Cập nhật thông tin người dùng thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi cập nhật người dùng.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 1a4. Xử lý Xóa Người dùng (Soft Delete User)
+  const handleOpenDeleteModal = (user: UserProfile) => {
+    if (user.id === realUser?.id) {
+      alert('Bạn không thể tự xóa tài khoản của chính mình.');
+      return;
+    }
+    const rawLeads = typeof localStorage !== 'undefined' ? localStorage.getItem('crm_leads') : null;
+    let count = 0;
+    if (rawLeads) {
+      try {
+        const leads = JSON.parse(rawLeads);
+        count = leads.filter((l: any) => l.assigned_to === user.id && !l.deleted_at && !['contract', 'lost'].includes(l.status)).length;
+      } catch (e) {
+        count = 0;
+      }
+    }
+    setUserAssignedLeadsCount(count);
+    setSelectedUserForDelete(user);
+    setDeleteUserReason('');
+    setHandoverUserId('');
+    setModalError(null);
+    setModalSuccess(null);
+    setIsDeleteUserModalOpen(true);
+  };
+
+  const handleDeleteUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserForDelete) return;
+    setModalError(null);
+    setModalSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.deleteUser(
+        selectedUserForDelete.id,
+        {
+          delete_reason: deleteUserReason,
+          handover_user_id: handoverUserId || undefined,
+        },
+        currentUser
+      );
+
+      if (res.success) {
+        setModalSuccess(`Đã xóa mềm thành công tài khoản của ${selectedUserForDelete.full_name}. Dữ liệu được lưu trữ trong Thùng Rác Quản Trị.`);
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'user_delete',
+          {
+            target_user_id: selectedUserForDelete.id,
+            target_email: selectedUserForDelete.email,
+            reason: deleteUserReason,
+            handover_user_id: handoverUserId || null,
+          }
+        );
+        await reloadData();
+        setTimeout(() => {
+          setIsDeleteUserModalOpen(false);
+          setModalSuccess(null);
+        }, 1200);
+      } else {
+        setModalError(res.error || 'Xóa nhân sự thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi xóa nhân sự.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1059,11 +1216,22 @@ export const AdminPage: React.FC = () => {
                           <td className="py-3 px-4">
                             {p.status === 'active' ? (
                               <Badge variant="success">Hoạt động</Badge>
-                            ) : (
+                            ) : p.status === 'locked' ? (
                               <Badge variant="danger">Đã khóa</Badge>
+                            ) : (
+                              <Badge variant="warning">Ngừng HĐ</Badge>
                             )}
                           </td>
                           <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleOpenEditModal(p)}
+                              className="text-[11px] py-1 px-2 border-slate-300 text-slate-700 hover:bg-slate-100"
+                              title="Chỉnh sửa thông tin, vai trò, phòng ban"
+                            >
+                              <Edit className="h-3 w-3 mr-1 text-slate-500" /> Sửa
+                            </Button>
                             <Button
                               size="sm"
                               variant="outline"
@@ -1100,6 +1268,16 @@ export const AdminPage: React.FC = () => {
                                 )}
                               </Button>
                             )}
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              disabled={p.id === realUser?.id || (p.role === 'admin' && profiles.filter(x => x.role === 'admin' && x.status === 'active').length <= 1)}
+                              onClick={() => handleOpenDeleteModal(p)}
+                              className="text-[11px] py-1 px-2"
+                              title={p.id === realUser?.id ? 'Không thể tự xóa tài khoản của bạn' : 'Xóa mềm tài khoản có bàn giao khách hàng'}
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" /> Xóa
+                            </Button>
                           </td>
                         </tr>
                       );
@@ -2904,6 +3082,318 @@ function doGet(e) {
               isLoading={isSubmitting}
             >
               Tạo tài khoản
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 7b. MODAL: CHỈNH SỬA THÔNG TIN NGƯỜI DÙNG */}
+      <Modal
+        isOpen={isEditUserModalOpen}
+        onClose={() => setIsEditUserModalOpen(false)}
+        title={`Chỉnh Sửa Thông Tin Người Dùng: ${selectedUserForEdit?.full_name || ''}`}
+      >
+        <form onSubmit={handleEditUserSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          {modalSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{modalSuccess}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Họ và tên <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <User className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                required
+                value={editUserForm.full_name || ''}
+                onChange={(e) => setEditUserForm({ ...editUserForm, full_name: e.target.value })}
+                placeholder="Nguyễn Văn A"
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Email đăng nhập
+              </label>
+              <div className="relative">
+                <Mail className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  required
+                  value={editUserForm.email || ''}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
+                  placeholder="sale.nguyen@diaocvang.vn"
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Số điện thoại <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <Phone className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="tel"
+                  required
+                  value={editUserForm.phone || ''}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, phone: e.target.value })}
+                  placeholder="0912345678"
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Vai trò (Role) <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={editUserForm.role}
+                onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value as any })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+              >
+                {USER_ROLES
+                  .filter((r) => !isCompanyAdmin || !['admin', 'ceo', 'company_admin'].includes(r.value))
+                  .map((r) => (
+                    <option key={r.value} value={r.value}>{r.label.split('(')[0]}</option>
+                  ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Trạng thái tài khoản <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={editUserForm.status || 'active'}
+                onChange={(e) => setEditUserForm({ ...editUserForm, status: e.target.value as any })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+              >
+                <option value="active">Hoạt động (Active)</option>
+                <option value="locked">Tạm khóa (Locked)</option>
+                <option value="inactive">Ngừng hoạt động (Inactive)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Thuộc Doanh Nghiệp {editUserForm.role === 'company_admin' ? <span className="text-red-500">* (Bắt buộc)</span> : '(CEO)'}
+              </label>
+              <select
+                value={isCompanyAdmin ? (currentUser?.organization_id || '') : (editUserForm.organization_id || '')}
+                disabled={isCompanyAdmin}
+                onChange={(e) => setEditUserForm({ ...editUserForm, organization_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 disabled:opacity-75 disabled:bg-slate-100"
+              >
+                <option value="">(Không gán DN / Mặc định)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Thuộc Vùng kinh doanh
+              </label>
+              <select
+                value={editUserForm.region_id || ''}
+                onChange={(e) => setEditUserForm({ ...editUserForm, region_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán vùng)</option>
+                {regions
+                  .filter(r => !editUserForm.organization_id || r.organization_id === editUserForm.organization_id)
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                  ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Thuộc Sàn giao dịch
+              </label>
+              <select
+                value={editUserForm.agency_id || ''}
+                onChange={(e) => {
+                  setEditUserForm({ ...editUserForm, agency_id: e.target.value || null, team_id: null });
+                }}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán sàn)</option>
+                {agencies
+                  .filter(a => !editUserForm.region_id || a.region_id === editUserForm.region_id)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                  ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Thuộc Team kinh doanh
+              </label>
+              <select
+                value={editUserForm.team_id || ''}
+                onChange={(e) => setEditUserForm({ ...editUserForm, team_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Không gán team)</option>
+                {teams
+                  .filter(t => !editUserForm.agency_id || t.agency_id === editUserForm.agency_id)
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditUserModalOpen(false)}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Lưu thay đổi
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 7c. MODAL: XÁC NHẬN XÓA NHÂN SỰ (SOFT DELETE & HANDOVER) */}
+      <Modal
+        isOpen={isDeleteUserModalOpen}
+        onClose={() => setIsDeleteUserModalOpen(false)}
+        title="Xác Nhận Xóa Nhân Sự (Xóa Mềm)"
+      >
+        <form onSubmit={handleDeleteUserSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          {modalSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{modalSuccess}</span>
+            </div>
+          )}
+
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-900 rounded-lg text-xs space-y-1.5">
+            <div className="font-bold flex items-center gap-1.5 text-rose-800">
+              <AlertCircle className="h-4 w-4 text-rose-600" />
+              Cảnh báo an toàn dữ liệu:
+            </div>
+            <div>
+              Bạn đang chuẩn bị xóa tài khoản của nhân sự <strong className="font-semibold">{selectedUserForDelete?.full_name}</strong> ({selectedUserForDelete?.email}) - Chức danh: <strong className="font-semibold">{USER_ROLES.find(r => r.value === selectedUserForDelete?.role)?.label.split('(')[0] || selectedUserForDelete?.role}</strong>.
+            </div>
+            <div className="text-[11px] text-rose-700">
+              Hệ thống áp dụng cơ chế <strong>Xóa mềm (Soft Delete)</strong>. Dữ liệu tài khoản sẽ được chuyển vào <strong>Thùng Rác Quản Trị</strong> và có thể khôi phục bất cứ lúc nào.
+            </div>
+          </div>
+
+          {userAssignedLeadsCount > 0 && (
+            <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg text-xs space-y-1">
+              <div className="font-semibold text-amber-800 flex items-center gap-1.5">
+                <Users className="h-4 w-4 text-amber-600" />
+                Khách hàng đang phụ trách: {userAssignedLeadsCount} Lead
+              </div>
+              <p className="text-[11px] text-amber-700">
+                Nhân sự này hiện đang phụ trách {userAssignedLeadsCount} khách hàng tiềm năng chưa ký hợp đồng. Vui lòng chọn nhân sự tiếp nhận bàn giao bên dưới để đảm bảo không thất thoát dữ liệu khách hàng.
+              </p>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Nhân sự tiếp nhận bàn giao {userAssignedLeadsCount > 0 && <span className="text-amber-600">(Khuyến nghị)</span>}
+            </label>
+            <select
+              value={handoverUserId}
+              onChange={(e) => setHandoverUserId(e.target.value)}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            >
+              <option value="">-- {userAssignedLeadsCount > 0 ? 'Chọn nhân sự nhận bàn giao Lead' : 'Không bàn giao'} --</option>
+              {profiles
+                .filter(p => p.id !== selectedUserForDelete?.id && p.status === 'active')
+                .map((p) => {
+                  const roleLabel = USER_ROLES.find(r => r.value === p.role)?.label.split('(')[0] || p.role;
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name} ({p.email}) - {roleLabel}
+                    </option>
+                  );
+                })}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Lý do xóa / cho thôi việc <span className="text-red-500">* (Tối thiểu 5 ký tự)</span>
+            </label>
+            <textarea
+              required
+              minLength={5}
+              rows={3}
+              value={deleteUserReason}
+              onChange={(e) => setDeleteUserReason(e.target.value)}
+              placeholder="VD: Nghỉ việc theo nguyện vọng cá nhân; Chuyển công tác sang đơn vị khác; Tái cơ cấu phòng ban..."
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteUserModalOpen(false)}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Xác nhận xóa nhân sự
             </Button>
           </div>
         </form>

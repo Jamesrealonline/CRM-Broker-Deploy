@@ -838,6 +838,10 @@ export class ControlledDataService {
       const contracts: Transaction[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CONTRACTS) || '[]');
       const filtered = contracts.filter(c => c.id !== item.entity_id);
       localStorage.setItem(STORAGE_KEY_CONTRACTS, JSON.stringify(filtered));
+    } else if (item.entity_type === 'employee') {
+      const profiles: UserProfile[] = JSON.parse(localStorage.getItem(STORAGE_KEY_PROFILES) || '[]');
+      const filtered = profiles.filter(p => p.id !== item.entity_id);
+      localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(filtered));
     }
 
     this.recordAuditEntry({

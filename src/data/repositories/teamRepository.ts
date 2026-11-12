@@ -9,6 +9,9 @@ import {
   Team, 
   UserProfile, 
   UserRole,
+  UserStatus,
+  EmploymentType,
+  TrashBinItem,
   Region,
   Organization,
   Division,
@@ -120,6 +123,25 @@ export interface CreateUserInput {
   region_id?: string | null;
   position_code?: string | null;
   must_change_password?: boolean;
+}
+
+export interface UpdateUserInput {
+  full_name?: string;
+  phone?: string;
+  email?: string;
+  role?: UserRole;
+  organization_id?: string | null;
+  region_id?: string | null;
+  agency_id?: string | null;
+  team_id?: string | null;
+  position_code?: string | null;
+  employment_type?: EmploymentType;
+  status?: UserStatus;
+}
+
+export interface DeleteUserOptions {
+  delete_reason: string;
+  handover_user_id?: string;
 }
 
 export interface CreateAgencyInput {
@@ -430,10 +452,11 @@ export class TeamRepository {
     return result;
   }
 
-  async getProfiles(agencyId?: string, teamId?: string, currentUser?: UserProfile): Promise<UserProfile[]> {
+  async getProfiles(agencyId?: string, teamId?: string, currentUser?: UserProfile, includeDeleted: boolean = false): Promise<UserProfile[]> {
     let result: UserProfile[] = [];
     if (isLiveSupabaseConfigured) {
       let query = supabase.from('profiles').select('*').order('created_at', { ascending: true });
+      if (!includeDeleted) query = query.is('deleted_at', null);
       if (agencyId) query = query.eq('agency_id', agencyId);
       if (teamId) query = query.eq('team_id', teamId);
       const { data, error } = await query;
@@ -444,6 +467,7 @@ export class TeamRepository {
       if (!raw) localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(INITIAL_PROFILES));
       
       let filtered = list;
+      if (!includeDeleted) filtered = filtered.filter(p => !p.deleted_at);
       if (agencyId) filtered = filtered.filter(p => p.agency_id === agencyId);
       if (teamId) filtered = filtered.filter(p => p.team_id === teamId);
       result = filtered;
@@ -580,10 +604,387 @@ export class TeamRepository {
       return !error;
     }
 
-    const profiles = await this.getProfiles();
+    const profiles = await this.getProfiles(undefined, undefined, undefined, true);
     const updated = profiles.map(p => p.id === userId ? { ...p, status: newStatus } : p);
     localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(updated));
     return true;
+  }
+
+  // ==========================================
+  // CẬP NHẬT THÔNG TIN NGƯỜI DÙNG (UPDATE USER)
+  // ==========================================
+  async updateUser(
+    userId: string,
+    input: UpdateUserInput,
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
+    if (!currentUser) {
+      return { success: false, error: 'Yêu cầu đăng nhập để thực hiện cập nhật người dùng.' };
+    }
+
+    if ((currentUser as any).is_impersonating || (currentUser as any).is_read_only) {
+      return { success: false, error: 'Từ chối thao tác: Không được phép sửa dữ liệu trong chế độ Giả lập góc nhìn (Impersonation).' };
+    }
+
+    // 1. Lấy thông tin user hiện tại cần sửa
+    const allProfiles = await this.getProfiles(undefined, undefined, undefined, true);
+    const targetUser = allProfiles.find(p => p.id === userId);
+    if (!targetUser) {
+      return { success: false, error: 'Không tìm thấy người dùng trong hệ thống.' };
+    }
+
+    // 2. Kiểm tra phân quyền:
+    if (currentUser.role === 'company_admin') {
+      if (targetUser.organization_id && currentUser.organization_id && targetUser.organization_id !== currentUser.organization_id) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp chỉ được sửa tài khoản thuộc doanh nghiệp của mình.' };
+      }
+      if (['admin', 'ceo', 'company_admin'].includes(targetUser.role) && targetUser.id !== currentUser.id) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không thể chỉnh sửa tài khoản Admin, CEO hoặc Quản Trị Doanh Nghiệp khác.' };
+      }
+      if (input.role && ['admin', 'ceo', 'company_admin'].includes(input.role) && targetUser.role !== input.role) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền thăng cấp tài khoản lên Admin, CEO hoặc Quản Trị Doanh Nghiệp.' };
+      }
+      if (input.organization_id && currentUser.organization_id && input.organization_id !== currentUser.organization_id) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không thể chuyển người dùng sang doanh nghiệp khác.' };
+      }
+    } else if (currentUser.role !== 'admin') {
+      return { success: false, error: 'Chỉ Quản Trị Viên (Admin) hoặc Quản Trị Doanh Nghiệp mới có quyền chỉnh sửa tài khoản người dùng.' };
+    }
+
+    // 3. Ràng buộc bảo vệ Admin & CEO duy nhất
+    if (targetUser.role === 'admin') {
+      const activeAdmins = allProfiles.filter(p => p.role === 'admin' && p.status === 'active' && !p.deleted_at);
+      if (activeAdmins.length <= 1 && targetUser.id === activeAdmins[0]?.id) {
+        if (input.role && input.role !== 'admin') {
+          return { success: false, error: 'Không thể hạ vai trò của Quản trị viên (Admin) duy nhất còn lại của hệ thống.' };
+        }
+        if (input.status && input.status !== 'active') {
+          return { success: false, error: 'Không thể khóa hoặc vô hiệu hóa Quản trị viên (Admin) duy nhất còn lại của hệ thống.' };
+        }
+      }
+    }
+
+    if (targetUser.role === 'ceo' && targetUser.organization_id) {
+      const activeCeos = allProfiles.filter(p => p.role === 'ceo' && p.organization_id === targetUser.organization_id && p.status === 'active' && !p.deleted_at);
+      if (activeCeos.length <= 1 && targetUser.id === activeCeos[0]?.id) {
+        if (input.role && input.role !== 'ceo') {
+          return { success: false, error: 'Không thể thay đổi vai trò của Tổng Giám Đốc (CEO) duy nhất còn lại của doanh nghiệp. Vui lòng bổ nhiệm CEO thay thế trước.' };
+        }
+      }
+    }
+
+    // 4. Nếu gán vai trò company_admin: bắt buộc phải có organization_id
+    const finalRole = input.role || targetUser.role;
+    const finalOrgId = input.organization_id !== undefined ? input.organization_id : targetUser.organization_id;
+    if (finalRole === 'company_admin' && !finalOrgId) {
+      return { success: false, error: 'Tài khoản Quản Trị Doanh Nghiệp bắt buộc phải chọn Doanh nghiệp để gán.' };
+    }
+
+    // 5. Cập nhật vào DB Supabase hoặc LocalStorage
+    if (isLiveSupabaseConfigured) {
+      const payload: any = { updated_at: new Date().toISOString() };
+      if (input.full_name !== undefined) payload.full_name = input.full_name.trim();
+      if (input.phone !== undefined) payload.phone = input.phone.trim();
+      if (input.email !== undefined) payload.email = input.email.trim().toLowerCase();
+      if (input.role !== undefined) payload.role = input.role;
+      if (input.organization_id !== undefined) payload.organization_id = input.organization_id || null;
+      if (input.region_id !== undefined) payload.region_id = input.region_id || null;
+      if (input.agency_id !== undefined) payload.agency_id = input.agency_id || null;
+      if (input.team_id !== undefined) payload.team_id = input.team_id || null;
+      if (input.status !== undefined) payload.status = input.status;
+      if (input.employment_type !== undefined) payload.employment_type = input.employment_type;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', userId)
+        .select()
+        .single();
+
+      if (error) return { success: false, error: error.message };
+
+      if (finalRole === 'company_admin' && finalOrgId) {
+        await supabase
+          .from('organizations')
+          .update({ admin_id: userId, updated_at: new Date().toISOString() })
+          .eq('id', finalOrgId);
+      }
+
+      return { success: true, profile: data as UserProfile };
+    }
+
+    // Local / Offline fallback
+    const raw = localStorage.getItem(STORAGE_KEY_PROFILES);
+    const profiles: UserProfile[] = raw ? JSON.parse(raw) : INITIAL_PROFILES;
+    const idx = profiles.findIndex(p => p.id === userId);
+    if (idx === -1) {
+      return { success: false, error: 'Không tìm thấy người dùng trong hệ thống offline.' };
+    }
+
+    const updatedProfile: UserProfile = {
+      ...profiles[idx],
+      ...(input.full_name !== undefined && { full_name: input.full_name.trim() }),
+      ...(input.phone !== undefined && { phone: input.phone.trim() }),
+      ...(input.email !== undefined && { email: input.email.trim().toLowerCase() }),
+      ...(input.role !== undefined && { role: input.role }),
+      ...(input.organization_id !== undefined && { organization_id: input.organization_id || undefined }),
+      ...(input.region_id !== undefined && { region_id: input.region_id || undefined }),
+      ...(input.agency_id !== undefined && { agency_id: input.agency_id || undefined }),
+      ...(input.team_id !== undefined && { team_id: input.team_id || undefined }),
+      ...(input.status !== undefined && { status: input.status }),
+      ...(input.employment_type !== undefined && { employment_type: input.employment_type }),
+      updated_at: new Date().toISOString(),
+    };
+
+    profiles[idx] = updatedProfile;
+    localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profiles));
+
+    if (finalRole === 'company_admin' && finalOrgId) {
+      const orgs = await this.getOrganizations();
+      const updatedOrgs = orgs.map(o => o.id === finalOrgId ? {
+        ...o,
+        admin_id: updatedProfile.id,
+        admin_name: updatedProfile.full_name,
+      } : o);
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));
+    }
+
+    return { success: true, profile: updatedProfile };
+  }
+
+  // ==========================================
+  // XÓA MỀM NGƯỜI DÙNG (SOFT DELETE USER)
+  // ==========================================
+  async deleteUser(
+    userId: string,
+    options: DeleteUserOptions,
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!currentUser) {
+      return { success: false, error: 'Yêu cầu đăng nhập để thực hiện xóa người dùng.' };
+    }
+
+    if ((currentUser as any).is_impersonating || (currentUser as any).is_read_only) {
+      return { success: false, error: 'Từ chối thao tác: Không được phép xóa dữ liệu trong chế độ Giả lập góc nhìn (Impersonation).' };
+    }
+
+    if (currentUser.id === userId) {
+      return { success: false, error: 'Bạn không thể tự xóa tài khoản của chính mình.' };
+    }
+
+    if (!options.delete_reason || options.delete_reason.trim().length < 5) {
+      return { success: false, error: 'Lý do xóa nhân sự là bắt buộc (tối thiểu 5 ký tự).' };
+    }
+
+    const allProfiles = await this.getProfiles(undefined, undefined, undefined, true);
+    const targetUser = allProfiles.find(p => p.id === userId);
+    if (!targetUser) {
+      return { success: false, error: 'Không tìm thấy người dùng cần xóa.' };
+    }
+
+    // Phân quyền:
+    if (currentUser.role === 'company_admin') {
+      if (targetUser.organization_id && currentUser.organization_id && targetUser.organization_id !== currentUser.organization_id) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp chỉ được xóa nhân sự thuộc doanh nghiệp của mình.' };
+      }
+      if (['admin', 'ceo', 'company_admin'].includes(targetUser.role)) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không thể xóa tài khoản Admin, CEO hoặc Quản Trị Doanh Nghiệp.' };
+      }
+    } else if (currentUser.role !== 'admin') {
+      return { success: false, error: 'Chỉ Quản Trị Viên (Admin) hoặc Quản Trị Doanh Nghiệp mới có quyền xóa tài khoản nhân sự.' };
+    }
+
+    // Chặn xóa Super Admin duy nhất
+    if (targetUser.role === 'admin') {
+      const activeAdmins = allProfiles.filter(p => p.role === 'admin' && p.status === 'active' && !p.deleted_at);
+      if (activeAdmins.length <= 1 && targetUser.id === activeAdmins[0]?.id) {
+        return { success: false, error: 'Không thể xóa Quản trị viên (Admin) duy nhất còn lại của hệ thống.' };
+      }
+    }
+
+    // Chặn xóa CEO duy nhất
+    if (targetUser.role === 'ceo' && targetUser.organization_id) {
+      const activeCeos = allProfiles.filter(p => p.role === 'ceo' && p.organization_id === targetUser.organization_id && p.status === 'active' && !p.deleted_at);
+      if (activeCeos.length <= 1 && targetUser.id === activeCeos[0]?.id) {
+        return { success: false, error: 'Không thể xóa Tổng Giám Đốc (CEO) duy nhất còn lại của doanh nghiệp. Vui lòng bổ nhiệm CEO thay thế trước.' };
+      }
+    }
+
+    // Bàn giao Lead (nếu có chọn nhân sự nhận bàn giao)
+    let handoverCount = 0;
+    if (options.handover_user_id) {
+      if (options.handover_user_id === userId) {
+        return { success: false, error: 'Nhân sự tiếp nhận bàn giao không thể trùng với nhân sự bị xóa.' };
+      }
+      const handoverUser = allProfiles.find(p => p.id === options.handover_user_id && p.status === 'active' && !p.deleted_at);
+      if (!handoverUser) {
+        return { success: false, error: 'Nhân sự tiếp nhận bàn giao không tồn tại hoặc đã bị khóa/xóa.' };
+      }
+
+      // Cập nhật leads trong offline storage & supabase
+      const rawLeads = localStorage.getItem('crm_leads');
+      if (rawLeads) {
+        const leads: any[] = JSON.parse(rawLeads);
+        for (let i = 0; i < leads.length; i++) {
+          if (leads[i].assigned_to === userId && !leads[i].deleted_at && !['contract', 'lost'].includes(leads[i].status)) {
+            leads[i].assigned_to = handoverUser.id;
+            leads[i].assigned_name = handoverUser.full_name;
+            handoverCount++;
+          }
+        }
+        localStorage.setItem('crm_leads', JSON.stringify(leads));
+      }
+
+      if (isLiveSupabaseConfigured) {
+        await supabase
+          .from('leads')
+          .update({ assigned_to: handoverUser.id })
+          .eq('assigned_to', userId)
+          .is('deleted_at', null);
+      }
+    }
+
+    const now = new Date().toISOString();
+    const finalReason = options.delete_reason.trim() + (handoverCount > 0 ? ` (Đã bàn giao ${handoverCount} leads)` : '');
+
+    // Cập nhật soft delete cho user
+    if (isLiveSupabaseConfigured) {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          status: 'inactive',
+          deleted_at: now,
+          deleted_by: currentUser.id,
+          delete_reason: finalReason,
+          accepts_leads: false,
+          updated_at: now,
+        })
+        .eq('id', userId);
+
+      if (error) return { success: false, error: error.message };
+
+      // Ghi nhận vào trash_bins
+      await supabase.from('trash_bins').insert({
+        entity_type: 'employee',
+        entity_id: userId,
+        agency_id: targetUser.agency_id || null,
+        entity_name: targetUser.full_name,
+        payload: targetUser,
+        delete_reason: finalReason,
+        deleted_by: currentUser.id,
+        deleted_at: now,
+      });
+    }
+
+    // Local / Offline fallback
+    const rawProfiles = localStorage.getItem(STORAGE_KEY_PROFILES);
+    const profiles: UserProfile[] = rawProfiles ? JSON.parse(rawProfiles) : INITIAL_PROFILES;
+    const idx = profiles.findIndex(p => p.id === userId);
+    if (idx !== -1) {
+      profiles[idx] = {
+        ...profiles[idx],
+        status: 'inactive',
+        deleted_at: now,
+        deleted_by: currentUser.id,
+        delete_reason: finalReason,
+        accepts_leads: false,
+        updated_at: now,
+      };
+      localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profiles));
+    }
+
+    // Lưu vào localStorage crm_trash_bins
+    const rawTrash = localStorage.getItem('crm_trash_bins');
+    const trashList: TrashBinItem[] = rawTrash ? JSON.parse(rawTrash) : [];
+    const newTrashItem: TrashBinItem = {
+      id: `trash-emp-${Date.now()}`,
+      entity_type: 'employee',
+      entity_id: userId,
+      agency_id: targetUser.agency_id,
+      entity_name: targetUser.full_name,
+      payload: targetUser,
+      delete_reason: finalReason,
+      deleted_by: currentUser.id,
+      deleted_by_name: currentUser.full_name,
+      deleted_at: now,
+      purge_due_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+    trashList.unshift(newTrashItem);
+    localStorage.setItem('crm_trash_bins', JSON.stringify(trashList));
+
+    return { success: true };
+  }
+
+  // ==========================================
+  // KHÔI PHỤC NGƯỜI DÙNG TỪ THÙNG RÁC (RESTORE USER)
+  // ==========================================
+  async restoreUser(
+    userId: string,
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!currentUser) {
+      return { success: false, error: 'Yêu cầu đăng nhập để khôi phục người dùng.' };
+    }
+
+    if ((currentUser as any).is_impersonating || (currentUser as any).is_read_only) {
+      return { success: false, error: 'Từ chối thao tác: Không được phép thao tác trong chế độ Giả lập góc nhìn.' };
+    }
+
+    if (currentUser.role !== 'admin' && currentUser.role !== 'company_admin') {
+      return { success: false, error: 'Chỉ Quản Trị Viên (Admin) hoặc Quản Trị Doanh Nghiệp mới có quyền khôi phục nhân sự.' };
+    }
+
+    const now = new Date().toISOString();
+
+    if (isLiveSupabaseConfigured) {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          status: 'active',
+          deleted_at: null,
+          deleted_by: null,
+          delete_reason: null,
+          accepts_leads: true,
+          updated_at: now,
+        })
+        .eq('id', userId);
+
+      if (error) return { success: false, error: error.message };
+
+      await supabase
+        .from('trash_bins')
+        .update({ restored_at: now, restored_by: currentUser.id })
+        .eq('entity_type', 'employee')
+        .eq('entity_id', userId);
+    }
+
+    const rawProfiles = localStorage.getItem(STORAGE_KEY_PROFILES);
+    if (rawProfiles) {
+      const profiles: UserProfile[] = JSON.parse(rawProfiles);
+      const idx = profiles.findIndex(p => p.id === userId);
+      if (idx !== -1) {
+        profiles[idx] = {
+          ...profiles[idx],
+          status: 'active',
+          deleted_at: undefined,
+          deleted_by: undefined,
+          delete_reason: undefined,
+          accepts_leads: true,
+          updated_at: now,
+        };
+        localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(profiles));
+      }
+    }
+
+    // Cập nhật crm_trash_bins
+    const rawTrash = localStorage.getItem('crm_trash_bins');
+    if (rawTrash) {
+      const trashList: TrashBinItem[] = JSON.parse(rawTrash);
+      const updatedTrash = trashList.filter(t => !(t.entity_type === 'employee' && t.entity_id === userId));
+      localStorage.setItem('crm_trash_bins', JSON.stringify(updatedTrash));
+    }
+
+    return { success: true };
   }
 
   // ==========================================
