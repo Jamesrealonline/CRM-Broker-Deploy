@@ -220,6 +220,33 @@ export const AdminPage: React.FC = () => {
     setIsAssignAdminModalOpen(true);
   };
 
+  // Modal: Bổ Nhiệm / Tạo Tổng Giám Đốc CEO (Chỉ Quản trị tổng)
+  const [isAssignCeoModalOpen, setIsAssignCeoModalOpen] = useState(false);
+  const [selectedOrgForCeo, setSelectedOrgForCeo] = useState<Organization | null>(null);
+  const [assignCeoMode, setAssignCeoMode] = useState<'choose_existing' | 'create_new'>('choose_existing');
+  const [selectedCeoUserId, setSelectedCeoUserId] = useState<string>('');
+  const [newOrgCeo, setNewOrgCeo] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    password: 'password123',
+  });
+
+  const handleOpenAssignCeoModal = (org: Organization) => {
+    setSelectedOrgForCeo(org);
+    setSelectedCeoUserId(org.ceo_id || '');
+    setAssignCeoMode('choose_existing');
+    setNewOrgCeo({
+      full_name: '',
+      email: '',
+      phone: '',
+      password: 'password123',
+    });
+    setModalError(null);
+    setModalSuccess(null);
+    setIsAssignCeoModalOpen(true);
+  };
+
   // Modal: Edit User (Chỉnh Sửa Thông Tin Người Dùng)
   const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserProfile | null>(null);
@@ -565,12 +592,16 @@ export const AdminPage: React.FC = () => {
           }
         );
 
-        setModalSuccess(`Đã bổ nhiệm thành công ${appointedUser?.full_name || 'nhân sự'} làm Quản Trị Doanh Nghiệp ${selectedOrgForAdmin.name}!`);
+        setModalSuccess(`Đã bổ nhiệm thành công Quản Trị Doanh Nghiệp cho ${selectedOrgForAdmin.name}! Đang chuyển sang Bước 3: Bổ nhiệm CEO...`);
         await reloadData();
+        const curOrg = selectedOrgForAdmin;
         setTimeout(() => {
           setIsAssignAdminModalOpen(false);
           setModalSuccess(null);
-        }, 1200);
+          if (curOrg) {
+            handleOpenAssignCeoModal(curOrg);
+          }
+        }, 1100);
       } else {
         if (!newOrgAdmin.full_name.trim() || !newOrgAdmin.email.trim() || !newOrgAdmin.phone.trim()) {
           setModalError('Vui lòng điền đầy đủ Họ tên, Email và Số điện thoại.');
@@ -606,15 +637,115 @@ export const AdminPage: React.FC = () => {
           }
         );
 
-        setModalSuccess(`Đã tạo và bổ nhiệm thành công tài khoản Quản Trị Doanh Nghiệp cho ${res.profile.full_name} (${res.profile.email})!`);
+        setModalSuccess(`Đã tạo Quản Trị Doanh Nghiệp ${res.profile.full_name} (${res.profile.email})! Đang chuyển sang Bước 3: Bổ nhiệm CEO...`);
         await reloadData();
+        const curOrg = selectedOrgForAdmin;
         setTimeout(() => {
           setIsAssignAdminModalOpen(false);
+          setModalSuccess(null);
+          if (curOrg) {
+            handleOpenAssignCeoModal(curOrg);
+          }
+        }, 1100);
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi hệ thống khi phân quyền Quản Trị Doanh Nghiệp.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 1a2-b. Xử lý Bổ nhiệm / Tạo Tổng Giám Đốc (CEO) cho Organization (Bước 3 / 3)
+  const handleAssignCeoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrgForCeo) return;
+    setModalError(null);
+    setModalSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      if (assignCeoMode === 'choose_existing') {
+        if (!selectedCeoUserId) {
+          setModalError('Vui lòng chọn nhân sự để bổ nhiệm làm Tổng Giám Đốc (CEO).');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const res = await teamRepository.assignOrganizationCEO(
+          selectedOrgForCeo.id,
+          selectedCeoUserId,
+          currentUser
+        );
+
+        if (!res.success) {
+          setModalError(res.error || 'Bổ nhiệm Tổng Giám Đốc (CEO) thất bại.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const appointedUser = profiles.find(p => p.id === selectedCeoUserId);
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'user_role_change',
+          {
+            target_user_id: selectedCeoUserId,
+            new_role: 'ceo',
+            organization_id: selectedOrgForCeo.id,
+            organization_name: selectedOrgForCeo.name,
+          }
+        );
+
+        setModalSuccess(`Đã bổ nhiệm thành công ${appointedUser?.full_name || 'nhân sự'} làm Tổng Giám Đốc (CEO) ${selectedOrgForCeo.name}! Hoàn tất quy trình 3 bước.`);
+        await reloadData();
+        setTimeout(() => {
+          setIsAssignCeoModalOpen(false);
+          setModalSuccess(null);
+        }, 1200);
+      } else {
+        if (!newOrgCeo.full_name.trim() || !newOrgCeo.email.trim() || !newOrgCeo.phone.trim()) {
+          setModalError('Vui lòng điền đầy đủ Họ tên, Email và Số điện thoại.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const res = await teamRepository.createUser({
+          full_name: newOrgCeo.full_name.trim(),
+          email: newOrgCeo.email.trim(),
+          phone: newOrgCeo.phone.trim(),
+          password: newOrgCeo.password || 'password123',
+          role: 'ceo',
+          organization_id: selectedOrgForCeo.id,
+          must_change_password: true,
+        }, currentUser);
+
+        if (!res.success || !res.profile) {
+          setModalError(res.error || 'Tạo tài khoản Tổng Giám Đốc (CEO) thất bại.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'user_create',
+          {
+            email: res.profile.email,
+            role: 'ceo',
+            organization_id: selectedOrgForCeo.id,
+            organization_name: selectedOrgForCeo.name,
+          }
+        );
+
+        setModalSuccess(`Đã tạo và bổ nhiệm Tổng Giám Đốc cho ${res.profile.full_name} (${res.profile.email})! Hoàn tất quy trình 3 bước.`);
+        await reloadData();
+        setTimeout(() => {
+          setIsAssignCeoModalOpen(false);
           setModalSuccess(null);
         }, 1200);
       }
     } catch (err: any) {
-      setModalError(err.message || 'Lỗi hệ thống khi phân quyền Quản Trị Doanh Nghiệp.');
+      setModalError(err.message || 'Lỗi hệ thống khi bổ nhiệm Tổng Giám Đốc (CEO).');
     } finally {
       setIsSubmitting(false);
     }
@@ -762,16 +893,30 @@ export const AdminPage: React.FC = () => {
       }, currentUser);
 
       if (result.success && result.organization) {
+        const createdOrg = result.organization;
         auditRepository.logAction(
           realUser?.id || currentUser!.id,
           realUser?.full_name || currentUser!.full_name,
           'organization_create',
-          { org_code: result.organization.code, org_name: result.organization.name }
+          { org_code: createdOrg.code, org_name: createdOrg.name }
         );
         await reloadData();
         setIsOrgModalOpen(false);
         setNewOrg({ name: '', code: '', tax_number: '', phone: '', email: '', address: '', ceo_id: '' });
         setIsOrgCodeAutoGenerated(true);
+
+        // Chuyển tiếp ngay sang Bước 2: Tạo Quản Trị Doanh Nghiệp (company_admin)
+        setSelectedOrgForAdmin(createdOrg);
+        setSelectedAdminUserId('');
+        setAssignAdminMode('create_new');
+        setNewOrgAdmin({
+          full_name: '',
+          email: '',
+          phone: '',
+          password: 'password123',
+        });
+        setModalSuccess(`Bước 1 thành công: Đã khởi tạo doanh nghiệp "${createdOrg.name}"! Tiếp tục Bước 2: Tạo Quản Trị Doanh Nghiệp.`);
+        setIsAssignAdminModalOpen(true);
       } else {
         setModalError(result.error || 'Không thể tạo doanh nghiệp mới.');
       }
@@ -1367,7 +1512,7 @@ export const AdminPage: React.FC = () => {
                     </div>
 
                     {currentUser?.role === 'admin' && (
-                      <div className="pt-2 border-t border-slate-100 flex items-center justify-end">
+                      <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-end gap-1.5">
                         <Button
                           size="sm"
                           variant="outline"
@@ -1375,7 +1520,16 @@ export const AdminPage: React.FC = () => {
                           className="text-xs text-blue-700 border-blue-200 bg-blue-50/50 hover:bg-blue-100 font-medium"
                         >
                           <ShieldCheck className="h-3.5 w-3.5 mr-1 text-blue-600" />
-                          {compAdmin ? 'Đổi Quản Trị DN' : 'Bổ nhiệm Quản Trị DN'}
+                          {compAdmin ? 'Đổi Quản Trị DN' : 'Bước 2: Tạo Quản Trị DN'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenAssignCeoModal(org)}
+                          className="text-xs text-amber-700 border-amber-200 bg-amber-50/50 hover:bg-amber-100 font-medium"
+                        >
+                          <Crown className="h-3.5 w-3.5 mr-1 text-amber-600" />
+                          {ceo ? 'Đổi CEO' : 'Bước 3: Bổ nhiệm CEO'}
                         </Button>
                       </div>
                     )}
@@ -3399,11 +3553,11 @@ function doGet(e) {
         </form>
       </Modal>
 
-      {/* 8a. MODAL: THÀNH LẬP DOANH NGHIỆP MỚI (CEO) */}
+      {/* 8a. MODAL: THÀNH LẬP DOANH NGHIỆP MỚI (BƯỚC 1 / 3) */}
       <Modal
         isOpen={isOrgModalOpen}
         onClose={() => setIsOrgModalOpen(false)}
-        title="Thành Lập Doanh Nghiệp Mới (Tổ Chức / CEO)"
+        title="Thành Lập Doanh Nghiệp Mới (Bước 1 / 3)"
       >
         <form onSubmit={handleCreateOrganizationSubmit} className="space-y-4">
           {modalError && (
@@ -3412,6 +3566,29 @@ function doGet(e) {
               <span>{modalError}</span>
             </div>
           )}
+
+          {/* Stepper Banner: Quy trình 3 bước chuẩn hóa */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-3 text-xs">
+            <div className="flex items-center justify-between font-semibold mb-1.5 text-[11px]">
+              <span className="flex items-center gap-1.5 text-blue-700">
+                <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">1</span>
+                Tạo Doanh Nghiệp
+              </span>
+              <span className="text-slate-300">→</span>
+              <span className="flex items-center gap-1.5 text-slate-400">
+                <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold">2</span>
+                Tạo Quản Trị DN
+              </span>
+              <span className="text-slate-300">→</span>
+              <span className="flex items-center gap-1.5 text-slate-400">
+                <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold">3</span>
+                Bổ nhiệm CEO
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Quy trình chuẩn: Khởi tạo thông tin Doanh nghiệp trước. Sau khi lưu, hệ thống sẽ tự động chuyển sang <strong>Bước 2: Tạo Quản Trị Doanh Nghiệp</strong> và <strong>Bước 3: Bổ nhiệm Tổng Giám Đốc (CEO)</strong>.
+            </p>
+          </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -3486,44 +3663,6 @@ function doGet(e) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Bổ nhiệm Tổng Giám Đốc (CEO)
-              </label>
-              <select
-                value={newOrg.ceo_id || ''}
-                onChange={(e) => setNewOrg({ ...newOrg, ceo_id: e.target.value || null })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
-              >
-                <option value="">(Chọn nhân sự làm Tổng Giám Đốc CEO)</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.full_name} ({p.role}) - {p.email}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Bổ nhiệm Quản Trị Doanh Nghiệp (Admin)
-              </label>
-              <select
-                value={newOrg.admin_id || ''}
-                onChange={(e) => setNewOrg({ ...newOrg, admin_id: e.target.value || null })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
-              >
-                <option value="">(Chọn nhân sự làm Quản Trị DN)</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.full_name} ({p.role}) - {p.email}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Số Điện Thoại Doanh Nghiệp
               </label>
               <input
@@ -3562,6 +3701,51 @@ function doGet(e) {
             />
           </div>
 
+          {/* Tùy chọn gán ngay nếu đã có sẵn nhân sự */}
+          <details className="group border border-slate-200 rounded-lg p-2.5 bg-slate-50/50">
+            <summary className="text-[11px] font-medium text-slate-600 cursor-pointer list-none flex items-center justify-between select-none">
+              <span>(Tùy chọn) Bổ nhiệm ngay nếu nhân sự đã có tài khoản sẵn</span>
+              <span className="text-xs text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+            </summary>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-200/60">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Bổ nhiệm Tổng Giám Đốc (CEO)
+                </label>
+                <select
+                  value={newOrg.ceo_id || ''}
+                  onChange={(e) => setNewOrg({ ...newOrg, ceo_id: e.target.value || null })}
+                  className="w-full py-2 px-3 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                >
+                  <option value="">(Bổ nhiệm ở Bước 3)</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name} ({p.role}) - {p.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Bổ nhiệm Quản Trị Doanh Nghiệp (Admin)
+                </label>
+                <select
+                  value={newOrg.admin_id || ''}
+                  onChange={(e) => setNewOrg({ ...newOrg, admin_id: e.target.value || null })}
+                  className="w-full py-2 px-3 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                >
+                  <option value="">(Tạo mới/Bổ nhiệm ở Bước 2)</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name} ({p.role}) - {p.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </details>
+
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
             <Button
               type="button"
@@ -3577,17 +3761,17 @@ function doGet(e) {
               size="sm"
               isLoading={isSubmitting}
             >
-              Thành Lập Doanh Nghiệp
+              Tạo Doanh Nghiệp & Tiếp Tục Bước 2 →
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* 8a2. MODAL: BỔ NHIỆM / TẠO QUẢN TRỊ DOANH NGHIỆP (COMPANY ADMIN) */}
+      {/* 8a2. MODAL: BỔ NHIỆM / TẠO QUẢN TRỊ DOANH NGHIỆP (COMPANY ADMIN) - BƯỚC 2 / 3 */}
       <Modal
         isOpen={isAssignAdminModalOpen}
         onClose={() => setIsAssignAdminModalOpen(false)}
-        title={`Bổ Nhiệm Quản Trị Doanh Nghiệp: ${selectedOrgForAdmin?.name || ''}`}
+        title={`Quản Trị Doanh Nghiệp (Bước 2 / 3): ${selectedOrgForAdmin?.name || ''}`}
       >
         <form onSubmit={handleAssignAdminSubmit} className="space-y-4">
           {modalError && (
@@ -3603,6 +3787,29 @@ function doGet(e) {
               <span>{modalSuccess}</span>
             </div>
           )}
+
+          {/* Stepper Banner */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-3 text-xs">
+            <div className="flex items-center justify-between font-semibold mb-1.5 text-[11px]">
+              <span className="flex items-center gap-1 text-emerald-600">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                1. Đã tạo DN
+              </span>
+              <span className="text-slate-300">→</span>
+              <span className="flex items-center gap-1.5 text-blue-700">
+                <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">2</span>
+                Tạo Quản Trị DN
+              </span>
+              <span className="text-slate-300">→</span>
+              <span className="flex items-center gap-1.5 text-slate-400">
+                <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold">3</span>
+                Bổ nhiệm CEO
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Tạo tài khoản Quản Trị riêng cho doanh nghiệp <strong>{selectedOrgForAdmin?.name}</strong>. Tài khoản này quản trị cấu hình và tài khoản của riêng doanh nghiệp này.
+            </p>
+          </div>
 
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
             <div className="flex items-center justify-between">
@@ -3625,6 +3832,17 @@ function doGet(e) {
           <div className="flex border border-slate-200 rounded-lg p-0.5 bg-slate-100">
             <button
               type="button"
+              onClick={() => { setAssignAdminMode('create_new'); setModalError(null); }}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                assignAdminMode === 'create_new'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Tạo tài khoản mới (Khuyến nghị)
+            </button>
+            <button
+              type="button"
               onClick={() => { setAssignAdminMode('choose_existing'); setModalError(null); }}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 assignAdminMode === 'choose_existing'
@@ -3633,17 +3851,6 @@ function doGet(e) {
               }`}
             >
               Chọn từ nhân sự có sẵn
-            </button>
-            <button
-              type="button"
-              onClick={() => { setAssignAdminMode('create_new'); setModalError(null); }}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
-                assignAdminMode === 'create_new'
-                  ? 'bg-white text-blue-700 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Tạo tài khoản mới
             </button>
           </div>
 
@@ -3739,12 +3946,224 @@ function doGet(e) {
             </div>
           )}
 
+          <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => {
+                setIsAssignAdminModalOpen(false);
+                if (selectedOrgForAdmin) handleOpenAssignCeoModal(selectedOrgForAdmin);
+              }}
+              className="text-xs text-slate-500 hover:text-blue-600 underline font-medium"
+            >
+              Bỏ qua bước này, sang Bước 3 (CEO) →
+            </button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsAssignAdminModalOpen(false)}
+              >
+                Hủy
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                isLoading={isSubmitting}
+              >
+                {assignAdminMode === 'choose_existing' ? 'Xác Nhận & Tiếp Tục Bước 3 →' : 'Tạo Quản Trị & Sang Bước 3 →'}
+              </Button>
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 8a3. MODAL: BỔ NHIỆM / TẠO TỔNG GIÁM ĐỐC (CEO) - BƯỚC 3 / 3 */}
+      <Modal
+        isOpen={isAssignCeoModalOpen}
+        onClose={() => setIsAssignCeoModalOpen(false)}
+        title={`Bổ Nhiệm Tổng Giám Đốc (Bước 3 / 3): ${selectedOrgForCeo?.name || ''}`}
+      >
+        <form onSubmit={handleAssignCeoSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          {modalSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{modalSuccess}</span>
+            </div>
+          )}
+
+          {/* Stepper Banner */}
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3 text-xs">
+            <div className="flex items-center justify-between font-semibold mb-1.5 text-[11px]">
+              <span className="flex items-center gap-1 text-emerald-600">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                1. Đã tạo DN
+              </span>
+              <span className="text-slate-300">→</span>
+              <span className="flex items-center gap-1 text-emerald-600">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                2. Quản Trị DN
+              </span>
+              <span className="text-slate-300">→</span>
+              <span className="flex items-center gap-1.5 text-amber-700">
+                <Crown className="w-3.5 h-3.5 text-amber-600" />
+                3. Bổ nhiệm Tổng Giám Đốc (CEO)
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Bổ nhiệm hoặc tạo tài khoản Tổng Giám Đốc (CEO) quản lý nhánh kinh doanh riêng biệt của <strong>{selectedOrgForCeo?.name}</strong>.
+            </p>
+          </div>
+
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Doanh nghiệp:</span>
+              <strong className="text-slate-900">{selectedOrgForCeo?.name}</strong>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Mã Doanh Nghiệp:</span>
+              <span className="font-mono font-bold text-indigo-700">{selectedOrgForCeo?.code}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Tổng Giám Đốc hiện tại:</span>
+              <span className="font-medium text-slate-700">
+                {profiles.find(p => p.id === selectedOrgForCeo?.ceo_id)?.full_name || selectedOrgForCeo?.ceo_name || '(Chưa bổ nhiệm)'}
+              </span>
+            </div>
+          </div>
+
+          {/* Tab chuyển đổi chế độ */}
+          <div className="flex border border-slate-200 rounded-lg p-0.5 bg-slate-100">
+            <button
+              type="button"
+              onClick={() => { setAssignCeoMode('create_new'); setModalError(null); }}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                assignCeoMode === 'create_new'
+                  ? 'bg-white text-amber-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Tạo tài khoản CEO mới
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAssignCeoMode('choose_existing'); setModalError(null); }}
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                assignCeoMode === 'choose_existing'
+                  ? 'bg-white text-amber-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Chọn từ nhân sự có sẵn
+            </button>
+          </div>
+
+          {assignCeoMode === 'choose_existing' ? (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Chọn nhân sự làm Tổng Giám Đốc (CEO) <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedCeoUserId}
+                  onChange={(e) => setSelectedCeoUserId(e.target.value)}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-amber-500 font-medium"
+                >
+                  <option value="">-- Chọn nhân sự trong hệ thống --</option>
+                  {profiles
+                    .filter(p => p.role !== 'admin')
+                    .map((p) => {
+                      const roleLabel = USER_ROLES.find(r => r.value === p.role)?.label.split('(')[0] || p.role;
+                      return (
+                        <option key={p.id} value={p.id}>
+                          {p.full_name} ({p.email}) - {roleLabel}
+                        </option>
+                      );
+                    })}
+                </select>
+              </div>
+              <p className="text-[11px] text-slate-500 italic">
+                * Khi xác nhận, nhân sự này sẽ được chuyển vai trò thành <strong>Tổng Giám Đốc (CEO)</strong> đại diện quản lý riêng nhánh doanh nghiệp <strong>{selectedOrgForCeo?.name}</strong>.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Họ và tên Tổng Giám Đốc (CEO) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newOrgCeo.full_name}
+                  onChange={(e) => setNewOrgCeo({ ...newOrgCeo, full_name: e.target.value })}
+                  placeholder="Nguyễn Văn Tổng Giám Đốc"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Email đăng nhập <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={newOrgCeo.email}
+                    onChange={(e) => setNewOrgCeo({ ...newOrgCeo, email: e.target.value })}
+                    placeholder="ceo.dn@diaocvang.vn"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Số điện thoại <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={newOrgCeo.phone}
+                    onChange={(e) => setNewOrgCeo({ ...newOrgCeo, phone: e.target.value })}
+                    placeholder="0918889999"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Mật khẩu ban đầu
+                </label>
+                <input
+                  type="text"
+                  value={newOrgCeo.password}
+                  onChange={(e) => setNewOrgCeo({ ...newOrgCeo, password: e.target.value })}
+                  placeholder="password123"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono focus:outline-none focus:border-amber-500"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Mặc định: password123. Tài khoản sẽ được yêu cầu đổi mật khẩu ở lần đăng nhập đầu tiên.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setIsAssignAdminModalOpen(false)}
+              onClick={() => setIsAssignCeoModalOpen(false)}
             >
               Hủy
             </Button>
@@ -3753,8 +4172,9 @@ function doGet(e) {
               variant="primary"
               size="sm"
               isLoading={isSubmitting}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
             >
-              {assignAdminMode === 'choose_existing' ? 'Xác Nhận Bổ Nhiệm' : 'Tạo & Gán Cho Doanh Nghiệp'}
+              {assignCeoMode === 'choose_existing' ? 'Xác Nhận Bổ Nhiệm CEO' : 'Tạo Tài Khoản & Bổ Nhiệm CEO'}
             </Button>
           </div>
         </form>

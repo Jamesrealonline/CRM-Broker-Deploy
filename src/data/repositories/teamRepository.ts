@@ -356,6 +356,56 @@ export class TeamRepository {
     return { success: true };
   }
 
+  // ==========================================
+  // BỔ NHIỆM TỔNG GIÁM ĐỐC (CEO)
+  // Chỉ Quản trị tổng (Admin) mới có quyền thực hiện
+  // ==========================================
+  async assignOrganizationCEO(
+    organizationId: string,
+    ceoUserId: string,
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; error?: string }> {
+    if (currentUser && currentUser.role !== 'admin') {
+      return {
+        success: false,
+        error: 'Chỉ Quản Trị Tổng (Admin) mới có quyền bổ nhiệm Tổng Giám Đốc (CEO).',
+      };
+    }
+
+    if (!organizationId || !ceoUserId) {
+      return { success: false, error: 'Thiếu thông tin Doanh nghiệp hoặc Người dùng.' };
+    }
+
+    const roleRes = await this.assignRole(ceoUserId, 'ceo', null, null, null, organizationId);
+    if (!roleRes.success) {
+      return roleRes;
+    }
+
+    if (isLiveSupabaseConfigured) {
+      const { error } = await supabase
+        .from('organizations')
+        .update({ ceo_id: ceoUserId, updated_at: new Date().toISOString() })
+        .eq('id', organizationId);
+      if (error) return { success: false, error: error.message };
+    }
+
+    const orgs = await this.getOrganizations();
+    const profiles = await this.getProfiles();
+    const ceoUser = profiles.find(p => p.id === ceoUserId);
+
+    const updatedOrgs = orgs.map(o => o.id === organizationId ? {
+      ...o,
+      ceo_id: ceoUserId,
+      ceo_name: ceoUser ? ceoUser.full_name : o.ceo_name,
+    } : o);
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));
+    }
+
+    return { success: true };
+  }
+
   async getAgencies(regionId?: string, currentUser?: UserProfile): Promise<Agency[]> {
     let result: Agency[] = [];
     if (isLiveSupabaseConfigured) {
@@ -552,6 +602,18 @@ export class TeamRepository {
           .eq('id', data.id);
       }
 
+      if (input.role === 'ceo' && input.organization_id && data?.id) {
+        await supabase
+          .from('organizations')
+          .update({ ceo_id: data.id, updated_at: new Date().toISOString() })
+          .eq('id', input.organization_id);
+
+        await supabase
+          .from('profiles')
+          .update({ organization_id: input.organization_id })
+          .eq('id', data.id);
+      }
+
       return { success: true, profile: data as UserProfile };
     }
 
@@ -586,6 +648,18 @@ export class TeamRepository {
         ...o,
         admin_id: newProfile.id,
         admin_name: newProfile.full_name,
+      } : o);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));
+      }
+    }
+
+    if (input.role === 'ceo' && input.organization_id) {
+      const orgs = await this.getOrganizations();
+      const updatedOrgs = orgs.map(o => o.id === input.organization_id ? {
+        ...o,
+        ceo_id: newProfile.id,
+        ceo_name: newProfile.full_name,
       } : o);
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));

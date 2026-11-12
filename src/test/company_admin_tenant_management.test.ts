@@ -513,5 +513,96 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
       expect(res2.success).toBe(false);
       expect(res2.error).toContain('Thiếu thông tin');
     });
+
+    it('Quy trình tuần tự 3 bước: 1. Tạo Doanh Nghiệp -> 2. Tạo Quản Trị DN -> 3. Bổ nhiệm Tổng Giám Đốc (CEO)', async () => {
+      // BƯỚC 1: Quản Trị Tổng tạo Doanh Nghiệp mới độc lập (chưa có CEO hay Admin)
+      const orgRes = await teamRepository.createOrganization({
+        name: 'Tập Đoàn BĐS Maicom Holdings',
+        tax_number: '0312984729',
+        phone: '02877778888',
+        email: 'contact@maicom.vn',
+        address: 'Tòa nhà Bitexco, Q.1, TP.HCM',
+      }, superAdmin);
+
+      expect(orgRes.success).toBe(true);
+      expect(orgRes.organization).toBeDefined();
+      expect(orgRes.organization?.code).toContain('ORG-');
+      expect(orgRes.organization?.admin_id).toBeUndefined();
+      expect(orgRes.organization?.ceo_id).toBeUndefined();
+
+      const createdOrgId = orgRes.organization!.id;
+
+      // BƯỚC 2: Quản Trị Tổng tạo mới tài khoản Quản Trị Doanh Nghiệp (company_admin)
+      const adminUserRes = await teamRepository.createUser({
+        full_name: 'Trần Văn Quản Trị Maicom',
+        email: 'admin.maicom@maicom.vn',
+        phone: '0912345678',
+        role: 'company_admin',
+        organization_id: createdOrgId,
+      }, superAdmin);
+
+      expect(adminUserRes.success).toBe(true);
+      expect(adminUserRes.profile).toBeDefined();
+      expect(adminUserRes.profile?.role).toBe('company_admin');
+      expect(adminUserRes.profile?.organization_id).toBe(createdOrgId);
+
+      // Kiểm tra Doanh nghiệp đã được cập nhật admin_id
+      const orgsAfterStep2 = await teamRepository.getOrganizations();
+      const updatedOrgStep2 = orgsAfterStep2.find(o => o.id === createdOrgId);
+      expect(updatedOrgStep2?.admin_id).toBe(adminUserRes.profile?.id);
+
+      // BƯỚC 3: Quản Trị Tổng tạo mới và bổ nhiệm Tổng Giám Đốc (CEO) cho Doanh nghiệp
+      const ceoUserRes = await teamRepository.createUser({
+        full_name: 'Lê Văn CEO Maicom',
+        email: 'ceo.maicom@maicom.vn',
+        phone: '0918889999',
+        role: 'ceo',
+        organization_id: createdOrgId,
+      }, superAdmin);
+
+      expect(ceoUserRes.success).toBe(true);
+      expect(ceoUserRes.profile).toBeDefined();
+      expect(ceoUserRes.profile?.role).toBe('ceo');
+      expect(ceoUserRes.profile?.organization_id).toBe(createdOrgId);
+
+      // Kiểm tra Doanh nghiệp đã được cập nhật ceo_id
+      const orgsAfterStep3 = await teamRepository.getOrganizations();
+      const updatedOrgStep3 = orgsAfterStep3.find(o => o.id === createdOrgId);
+      expect(updatedOrgStep3?.ceo_id).toBe(ceoUserRes.profile?.id);
+    });
+
+    it('assignOrganizationCEO: Super Admin có quyền bổ nhiệm hoặc đổi CEO cho Doanh Nghiệp', async () => {
+      // Tạo user tiềm năng
+      const staffRes = await teamRepository.createUser({
+        full_name: 'Phan Thị Giám Đốc',
+        email: 'phan.giamdoc@diaocvang.vn',
+        phone: '0901234567',
+        role: 'sale_agent',
+      }, superAdmin);
+      expect(staffRes.success).toBe(true);
+
+      // Super Admin bổ nhiệm làm CEO cho Doanh nghiệp A
+      const assignRes = await teamRepository.assignOrganizationCEO(
+        orgA.id,
+        staffRes.profile!.id,
+        superAdmin
+      );
+      expect(assignRes.success).toBe(true);
+
+      // Kiểm tra vai trò của user chuyển sang 'ceo' và thuộc về orgA
+      const profiles = await teamRepository.getProfiles();
+      const promotedUser = profiles.find(p => p.id === staffRes.profile!.id);
+      expect(promotedUser?.role).toBe('ceo');
+      expect(promotedUser?.organization_id).toBe(orgA.id);
+
+      // Kiểm tra người không phải Admin không thể gọi assignOrganizationCEO
+      const failRes = await teamRepository.assignOrganizationCEO(
+        orgA.id,
+        staffRes.profile!.id,
+        compAdminA
+      );
+      expect(failRes.success).toBe(false);
+      expect(failRes.error).toContain('Chỉ Quản Trị Tổng (Admin)');
+    });
   });
 });
