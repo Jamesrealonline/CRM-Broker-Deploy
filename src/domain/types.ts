@@ -98,6 +98,7 @@ export interface Organization {
   admin_name?: string;
   status?: 'active' | 'inactive';
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface Region {
@@ -163,6 +164,8 @@ export interface Agency {
   status: 'active' | 'inactive' | 'suspended';
   director_id?: string;
   director_name?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Team {
@@ -216,6 +219,8 @@ export interface Team {
   l2_approved_at?: string;
   l3_approved_by?: string;
   l3_approved_at?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export type RecognitionMilestone = 'deposit' | 'contract' | 'first_installment';

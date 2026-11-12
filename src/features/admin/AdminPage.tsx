@@ -302,6 +302,66 @@ export const AdminPage: React.FC = () => {
     leader_id: '',
   });
 
+  // Modal: Edit & Delete Organization
+  const [isEditOrgModalOpen, setIsEditOrgModalOpen] = useState(false);
+  const [selectedOrgForEdit, setSelectedOrgForEdit] = useState<Organization | null>(null);
+  const [editOrgForm, setEditOrgForm] = useState<CreateOrganizationInput>({
+    name: '',
+    code: '',
+    tax_number: '',
+    phone: '',
+    email: '',
+    address: '',
+    ceo_id: '',
+    admin_id: '',
+  });
+  const [isDeleteOrgModalOpen, setIsDeleteOrgModalOpen] = useState(false);
+  const [selectedOrgForDelete, setSelectedOrgForDelete] = useState<Organization | null>(null);
+
+  // Modal: Edit & Delete Region
+  const [isEditRegionModalOpen, setIsEditRegionModalOpen] = useState(false);
+  const [selectedRegionForEdit, setSelectedRegionForEdit] = useState<Region | null>(null);
+  const [editRegionForm, setEditRegionForm] = useState<CreateRegionInput>({
+    name: '',
+    code: '',
+    organization_id: '',
+    regional_director_id: '',
+    description: '',
+  });
+  const [isDeleteRegionModalOpen, setIsDeleteRegionModalOpen] = useState(false);
+  const [selectedRegionForDelete, setSelectedRegionForDelete] = useState<Region | null>(null);
+  const [fallbackRegionId, setFallbackRegionId] = useState('');
+
+  // Modal: Edit & Delete Agency
+  const [isEditAgencyModalOpen, setIsEditAgencyModalOpen] = useState(false);
+  const [selectedAgencyForEdit, setSelectedAgencyForEdit] = useState<Agency | null>(null);
+  const [editAgencyForm, setEditAgencyForm] = useState<CreateAgencyInput>({
+    name: '',
+    code: '',
+    organization_id: '',
+    region_id: '',
+    address: '',
+    phone: '',
+    email: '',
+    director_id: '',
+  });
+  const [isDeleteAgencyModalOpen, setIsDeleteAgencyModalOpen] = useState(false);
+  const [selectedAgencyForDelete, setSelectedAgencyForDelete] = useState<Agency | null>(null);
+  const [fallbackAgencyId, setFallbackAgencyId] = useState('');
+
+  // Modal: Edit & Delete Team
+  const [isEditTeamModalOpen, setIsEditTeamModalOpen] = useState(false);
+  const [selectedTeamForEdit, setSelectedTeamForEdit] = useState<Team | null>(null);
+  const [editTeamForm, setEditTeamForm] = useState<CreateTeamInput>({
+    name: '',
+    code: '',
+    agency_id: '',
+    leader_id: '',
+  });
+  const [isDeleteTeamModalOpen, setIsDeleteTeamModalOpen] = useState(false);
+  const [selectedTeamForDelete, setSelectedTeamForDelete] = useState<Team | null>(null);
+  const [fallbackTeamId, setFallbackTeamId] = useState('');
+
   // Modal: Bổ nhiệm / Đổi chức vụ (Promotion / Re-assignment)
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [selectedUserForRole, setSelectedUserForRole] = useState<UserProfile | null>(null);
@@ -1026,6 +1086,343 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  // --- 3a. Xử lý Sửa & Xóa Doanh Nghiệp (Organization) ---
+  const handleOpenEditOrgModal = (org: Organization) => {
+    setSelectedOrgForEdit(org);
+    setEditOrgForm({
+      name: org.name,
+      code: org.code,
+      tax_number: org.tax_number || '',
+      phone: org.phone || '',
+      email: org.email || '',
+      address: org.address || '',
+      ceo_id: org.ceo_id || '',
+      admin_id: org.admin_id || '',
+    });
+    setModalError(null);
+    setModalSuccess(null);
+    setIsEditOrgModalOpen(true);
+  };
+
+  const handleEditOrgSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrgForEdit) return;
+    setModalError(null);
+    setModalSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.updateOrganization(selectedOrgForEdit.id, editOrgForm, currentUser);
+      if (res.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'organization_update',
+          { org_id: selectedOrgForEdit.id, org_name: editOrgForm.name }
+        );
+        await reloadData();
+        setModalSuccess('Cập nhật thông tin Doanh nghiệp thành công!');
+        setTimeout(() => {
+          setIsEditOrgModalOpen(false);
+          setModalSuccess(null);
+        }, 800);
+      } else {
+        setModalError(res.error || 'Cập nhật Doanh nghiệp thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi hệ thống khi cập nhật Doanh nghiệp.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteOrgModal = (org: Organization) => {
+    setSelectedOrgForDelete(org);
+    setModalError(null);
+    setIsDeleteOrgModalOpen(true);
+  };
+
+  const handleDeleteOrgSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrgForDelete) return;
+    setModalError(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.deleteOrganization(selectedOrgForDelete.id, currentUser);
+      if (res.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'organization_delete',
+          { org_id: selectedOrgForDelete.id, org_name: selectedOrgForDelete.name }
+        );
+        await reloadData();
+        setIsDeleteOrgModalOpen(false);
+      } else {
+        setModalError(res.error || 'Xóa Doanh nghiệp thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi xóa Doanh nghiệp.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // --- 3b. Xử lý Sửa & Xóa Vùng Kinh Doanh (Region) ---
+  const handleOpenEditRegionModal = (reg: Region) => {
+    setSelectedRegionForEdit(reg);
+    setEditRegionForm({
+      name: reg.name,
+      code: reg.code,
+      organization_id: reg.organization_id || '',
+      regional_director_id: reg.regional_director_id || '',
+      description: reg.description || '',
+    });
+    setModalError(null);
+    setModalSuccess(null);
+    setIsEditRegionModalOpen(true);
+  };
+
+  const handleEditRegionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRegionForEdit) return;
+    setModalError(null);
+    setModalSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.updateRegion(selectedRegionForEdit.id, {
+        name: editRegionForm.name,
+        code: editRegionForm.code,
+        description: editRegionForm.description,
+        regional_director_id: editRegionForm.regional_director_id || undefined,
+        organization_id: editRegionForm.organization_id || undefined,
+      }, currentUser);
+      if (res.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'region_update',
+          { region_id: selectedRegionForEdit.id, region_name: editRegionForm.name }
+        );
+        await reloadData();
+        setModalSuccess('Cập nhật Vùng kinh doanh thành công!');
+        setTimeout(() => {
+          setIsEditRegionModalOpen(false);
+          setModalSuccess(null);
+        }, 800);
+      } else {
+        setModalError(res.error || 'Cập nhật Vùng kinh doanh thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi hệ thống khi cập nhật Vùng.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteRegionModal = (reg: Region) => {
+    setSelectedRegionForDelete(reg);
+    const otherRegs = regions.filter(r => r.id !== reg.id);
+    setFallbackRegionId(otherRegs.length > 0 ? otherRegs[0].id : 'REG-DEFAULT');
+    setModalError(null);
+    setIsDeleteRegionModalOpen(true);
+  };
+
+  const handleDeleteRegionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRegionForDelete) return;
+    setModalError(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.deleteRegion(selectedRegionForDelete.id, fallbackRegionId, currentUser);
+      if (res.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'region_delete',
+          { region_id: selectedRegionForDelete.id, region_name: selectedRegionForDelete.name, fallbackRegionId }
+        );
+        await reloadData();
+        setIsDeleteRegionModalOpen(false);
+      } else {
+        setModalError(res.error || 'Xóa Vùng kinh doanh thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi xóa Vùng kinh doanh.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // --- 3c. Xử lý Sửa & Xóa Sàn Giao Dịch (Agency) ---
+  const handleOpenEditAgencyModal = (agency: Agency) => {
+    setSelectedAgencyForEdit(agency);
+    setEditAgencyForm({
+      name: agency.name,
+      code: agency.code,
+      organization_id: agency.organization_id || '',
+      region_id: agency.region_id || '',
+      director_id: agency.director_id || '',
+      phone: agency.phone || '',
+      email: agency.email || '',
+      address: agency.address || '',
+    });
+    setModalError(null);
+    setModalSuccess(null);
+    setIsEditAgencyModalOpen(true);
+  };
+
+  const handleEditAgencySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAgencyForEdit) return;
+    setModalError(null);
+    setModalSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.updateAgency(selectedAgencyForEdit.id, editAgencyForm, currentUser);
+      if (res.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'agency_update',
+          { agency_id: selectedAgencyForEdit.id, agency_name: editAgencyForm.name }
+        );
+        await reloadData();
+        setModalSuccess('Cập nhật Sàn giao dịch thành công!');
+        setTimeout(() => {
+          setIsEditAgencyModalOpen(false);
+          setModalSuccess(null);
+        }, 800);
+      } else {
+        setModalError(res.error || 'Cập nhật Sàn giao dịch thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi hệ thống khi cập nhật Sàn.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteAgencyModal = (agency: Agency) => {
+    setSelectedAgencyForDelete(agency);
+    const otherAgencies = agencies.filter(a => a.id !== agency.id);
+    setFallbackAgencyId(otherAgencies.length > 0 ? otherAgencies[0].id : '');
+    setModalError(null);
+    setIsDeleteAgencyModalOpen(true);
+  };
+
+  const handleDeleteAgencySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAgencyForDelete) return;
+    setModalError(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.deleteAgency(selectedAgencyForDelete.id, fallbackAgencyId || undefined, currentUser);
+      if (res.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'agency_delete',
+          { agency_id: selectedAgencyForDelete.id, agency_name: selectedAgencyForDelete.name, fallbackAgencyId }
+        );
+        await reloadData();
+        setIsDeleteAgencyModalOpen(false);
+      } else {
+        setModalError(res.error || 'Xóa Sàn giao dịch thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi xóa Sàn giao dịch.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // --- 3d. Xử lý Sửa & Xóa Đội Nhóm Kinh Doanh (Team) ---
+  const handleOpenEditTeamModal = (team: Team) => {
+    setSelectedTeamForEdit(team);
+    setEditTeamForm({
+      name: team.name,
+      code: team.code,
+      agency_id: team.agency_id,
+      leader_id: team.leader_id || '',
+    });
+    setModalError(null);
+    setModalSuccess(null);
+    setIsEditTeamModalOpen(true);
+  };
+
+  const handleEditTeamSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTeamForEdit) return;
+    setModalError(null);
+    setModalSuccess(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.updateTeam(selectedTeamForEdit.id, editTeamForm, currentUser);
+      if (res.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'team_update',
+          { team_id: selectedTeamForEdit.id, team_name: editTeamForm.name }
+        );
+        await reloadData();
+        setModalSuccess('Cập nhật Đội nhóm thành công!');
+        setTimeout(() => {
+          setIsEditTeamModalOpen(false);
+          setModalSuccess(null);
+        }, 800);
+      } else {
+        setModalError(res.error || 'Cập nhật Đội nhóm thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi hệ thống khi cập nhật Team.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteTeamModal = (team: Team) => {
+    setSelectedTeamForDelete(team);
+    const otherTeams = teams.filter(t => t.id !== team.id && t.agency_id === team.agency_id);
+    setFallbackTeamId(otherTeams.length > 0 ? otherTeams[0].id : '');
+    setModalError(null);
+    setIsDeleteTeamModalOpen(true);
+  };
+
+  const handleDeleteTeamSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTeamForDelete) return;
+    setModalError(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await teamRepository.deleteTeam(selectedTeamForDelete.id, fallbackTeamId || undefined, currentUser);
+      if (res.success) {
+        auditRepository.logAction(
+          realUser?.id || currentUser!.id,
+          realUser?.full_name || currentUser!.full_name,
+          'team_delete',
+          { team_id: selectedTeamForDelete.id, team_name: selectedTeamForDelete.name, fallbackTeamId }
+        );
+        await reloadData();
+        setIsDeleteTeamModalOpen(false);
+      } else {
+        setModalError(res.error || 'Xóa Đội nhóm thất bại.');
+      }
+    } catch (err: any) {
+      setModalError(err.message || 'Lỗi khi xóa Đội nhóm.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // 4. Xử lý Bổ nhiệm / Thay đổi vai trò nhân sự
   const handleOpenRoleModal = (user: UserProfile) => {
     setSelectedUserForRole(user);
@@ -1512,24 +1909,58 @@ export const AdminPage: React.FC = () => {
                     </div>
 
                     {currentUser?.role === 'admin' && (
-                      <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-end gap-1.5">
+                      <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleOpenEditOrgModal(org)}
+                            className="text-xs text-blue-700 hover:bg-blue-50 px-2 py-1 h-7 font-medium"
+                            title="Sửa thông tin Doanh nghiệp"
+                          >
+                            <Edit className="h-3.5 w-3.5 mr-1" /> Sửa
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleOpenDeleteOrgModal(org)}
+                            className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 h-7 font-medium"
+                            title="Xóa Doanh nghiệp"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-1" /> Xóa
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenAssignAdminModal(org)}
+                            className="text-xs text-blue-700 border-blue-200 bg-blue-50/50 hover:bg-blue-100 font-medium"
+                          >
+                            <ShieldCheck className="h-3.5 w-3.5 mr-1 text-blue-600" />
+                            {compAdmin ? 'Đổi Quản Trị DN' : 'Bước 2: Tạo Quản Trị DN'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenAssignCeoModal(org)}
+                            className="text-xs text-amber-700 border-amber-200 bg-amber-50/50 hover:bg-amber-100 font-medium"
+                          >
+                            <Crown className="h-3.5 w-3.5 mr-1 text-amber-600" />
+                            {ceo ? 'Đổi CEO' : 'Bước 3: Bổ nhiệm CEO'}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {currentUser && ['company_admin', 'ceo'].includes(currentUser.role) && currentUser.organization_id === org.id && currentUser.role !== 'admin' && (
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-end">
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleOpenAssignAdminModal(org)}
-                          className="text-xs text-blue-700 border-blue-200 bg-blue-50/50 hover:bg-blue-100 font-medium"
+                          onClick={() => handleOpenEditOrgModal(org)}
+                          className="text-xs text-slate-700 border-slate-200 hover:bg-slate-50 font-medium"
                         >
-                          <ShieldCheck className="h-3.5 w-3.5 mr-1 text-blue-600" />
-                          {compAdmin ? 'Đổi Quản Trị DN' : 'Bước 2: Tạo Quản Trị DN'}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleOpenAssignCeoModal(org)}
-                          className="text-xs text-amber-700 border-amber-200 bg-amber-50/50 hover:bg-amber-100 font-medium"
-                        >
-                          <Crown className="h-3.5 w-3.5 mr-1 text-amber-600" />
-                          {ceo ? 'Đổi CEO' : 'Bước 3: Bổ nhiệm CEO'}
+                          <Edit className="h-3.5 w-3.5 mr-1 text-slate-600" /> Chỉnh Sửa Thông Tin DN
                         </Button>
                       </div>
                     )}
@@ -1601,6 +2032,27 @@ export const AdminPage: React.FC = () => {
                       <span><strong>{agenciesInReg.length}</strong> Sàn • <strong>{staffInReg.length}</strong> Nhân sự</span>
                       <span className="text-[10px] text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded border border-purple-200">Cấp Vùng</span>
                     </div>
+
+                    {(currentUser?.role === 'admin' || (['company_admin', 'ceo'].includes(currentUser?.role || '') && currentUser?.organization_id === reg.organization_id)) && (
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleOpenEditRegionModal(reg)}
+                          className="text-xs text-purple-700 hover:bg-purple-50 px-2 py-1 h-7 font-medium"
+                        >
+                          <Edit className="h-3.5 w-3.5 mr-1" /> Sửa Vùng
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleOpenDeleteRegionModal(reg)}
+                          className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 h-7 font-medium"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-1" /> Xóa Vùng
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1675,6 +2127,29 @@ export const AdminPage: React.FC = () => {
                         <Eye className="h-3 w-3" /> Hiệu suất sàn
                       </button>
                     </div>
+
+                    {(currentUser?.role === 'admin' || ['company_admin', 'ceo', 'director'].includes(currentUser?.role || '')) && (
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleOpenEditAgencyModal(a)}
+                          className="text-xs text-blue-700 hover:bg-blue-50 px-2 py-1 h-7 font-medium"
+                        >
+                          <Edit className="h-3.5 w-3.5 mr-1" /> Sửa Sàn
+                        </Button>
+                        {['admin', 'company_admin', 'ceo'].includes(currentUser?.role || '') && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleOpenDeleteAgencyModal(a)}
+                            className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 h-7 font-medium"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-1" /> Xóa Sàn
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1733,6 +2208,27 @@ export const AdminPage: React.FC = () => {
                       <span>Quy mô: <strong>{members.length}</strong> Sale Agent</span>
                       <span className="text-[10px] text-blue-600 font-medium">Đang hoạt động</span>
                     </div>
+
+                    {(currentUser?.role === 'admin' || ['company_admin', 'ceo', 'director', 'sales_manager'].includes(currentUser?.role || '')) && (
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleOpenEditTeamModal(t)}
+                          className="text-xs text-blue-700 hover:bg-blue-50 px-2 py-1 h-7 font-medium"
+                        >
+                          <Edit className="h-3.5 w-3.5 mr-1" /> Sửa Team
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleOpenDeleteTeamModal(t)}
+                          className="text-xs text-red-600 hover:bg-red-50 px-2 py-1 h-7 font-medium"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-1" /> Xóa Team
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -4180,6 +4676,210 @@ function doGet(e) {
         </form>
       </Modal>
 
+      {/* 8a4. MODAL: CHỈNH SỬA DOANH NGHIỆP */}
+      <Modal
+        isOpen={isEditOrgModalOpen}
+        onClose={() => setIsEditOrgModalOpen(false)}
+        title={`Chỉnh Sửa Doanh Nghiệp: ${selectedOrgForEdit?.name || ''}`}
+      >
+        <form onSubmit={handleEditOrgSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+          {modalSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{modalSuccess}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tên Doanh Nghiệp / Công Ty <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={editOrgForm.name}
+              onChange={(e) => setEditOrgForm({ ...editOrgForm, name: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-medium focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã Doanh Nghiệp <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={editOrgForm.code}
+                onChange={(e) => setEditOrgForm({ ...editOrgForm, code: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono font-semibold uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã Số Thuế (MST)
+              </label>
+              <input
+                type="text"
+                value={editOrgForm.tax_number || ''}
+                onChange={(e) => setEditOrgForm({ ...editOrgForm, tax_number: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Số Điện Thoại Doanh Nghiệp
+              </label>
+              <input
+                type="tel"
+                value={editOrgForm.phone || ''}
+                onChange={(e) => setEditOrgForm({ ...editOrgForm, phone: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Email Doanh Nghiệp
+              </label>
+              <input
+                type="email"
+                value={editOrgForm.email || ''}
+                onChange={(e) => setEditOrgForm({ ...editOrgForm, email: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Địa Chỉ Trụ Sở Doanh Nghiệp
+            </label>
+            <input
+              type="text"
+              value={editOrgForm.address || ''}
+              onChange={(e) => setEditOrgForm({ ...editOrgForm, address: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          {currentUser?.role === 'admin' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tổng Giám Đốc (CEO)
+                </label>
+                <select
+                  value={editOrgForm.ceo_id || ''}
+                  onChange={(e) => setEditOrgForm({ ...editOrgForm, ceo_id: e.target.value || null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                >
+                  <option value="">(Chưa bổ nhiệm)</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>{p.full_name} ({p.role}) - {p.email}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Quản Trị Doanh Nghiệp (Admin)
+                </label>
+                <select
+                  value={editOrgForm.admin_id || ''}
+                  onChange={(e) => setEditOrgForm({ ...editOrgForm, admin_id: e.target.value || null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                >
+                  <option value="">(Chưa bổ nhiệm)</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>{p.full_name} ({p.role}) - {p.email}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditOrgModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Lưu Thay Đổi
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 8a5. MODAL: XÓA DOANH NGHIỆP */}
+      <Modal
+        isOpen={isDeleteOrgModalOpen}
+        onClose={() => setIsDeleteOrgModalOpen(false)}
+        title="Xác Nhận Xóa Doanh Nghiệp"
+      >
+        <form onSubmit={handleDeleteOrgSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl space-y-2">
+            <div className="flex items-start gap-2 text-red-800 text-xs font-semibold">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+              <span>Hành động nguy hiểm: Xóa Doanh Nghiệp</span>
+            </div>
+            <p className="text-xs text-red-700 leading-relaxed">
+              Bạn đang chuẩn bị xóa doanh nghiệp <strong>{selectedOrgForDelete?.name}</strong> ({selectedOrgForDelete?.code}).
+            </p>
+            <p className="text-[11px] text-red-600">
+              * Lưu ý an toàn: Hệ thống sẽ từ chối xóa nếu doanh nghiệp này vẫn còn Vùng, Sàn hoặc Nhân sự hoạt động trực thuộc.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteOrgModalOpen(false)}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Xác nhận xóa doanh nghiệp
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
       {/* 8b. MODAL: THÀNH LẬP VÙNG KINH DOANH MỚI */}
       <Modal
         isOpen={isRegionModalOpen}
@@ -4288,6 +4988,187 @@ function doGet(e) {
               isLoading={isSubmitting}
             >
               Thành Lập Vùng Kinh Doanh
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 8b2. MODAL: CHỈNH SỬA VÙNG KINH DOANH */}
+      <Modal
+        isOpen={isEditRegionModalOpen}
+        onClose={() => setIsEditRegionModalOpen(false)}
+        title={`Chỉnh Sửa Vùng Kinh Doanh: ${selectedRegionForEdit?.name || ''}`}
+      >
+        <form onSubmit={handleEditRegionSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+          {modalSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{modalSuccess}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tên Vùng Kinh Doanh <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={editRegionForm.name}
+              onChange={(e) => setEditRegionForm({ ...editRegionForm, name: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-medium focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã Viết Tắt Vùng <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={editRegionForm.code}
+                onChange={(e) => setEditRegionForm({ ...editRegionForm, code: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Thuộc Doanh Nghiệp (CEO)
+              </label>
+              <select
+                value={editRegionForm.organization_id || ''}
+                disabled={isCompanyAdmin}
+                onChange={(e) => setEditRegionForm({ ...editRegionForm, organization_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium disabled:opacity-75 disabled:bg-slate-100"
+              >
+                <option value="">(Chọn Doanh nghiệp trực thuộc)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Bổ nhiệm Giám Đốc Vùng (Regional Director)
+            </label>
+            <select
+              value={editRegionForm.regional_director_id || ''}
+              onChange={(e) => setEditRegionForm({ ...editRegionForm, regional_director_id: e.target.value || null })}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            >
+              <option value="">(Chưa bổ nhiệm)</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({p.role}) - {p.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Mô Tả & Địa Bàn Hoạt Động
+            </label>
+            <input
+              type="text"
+              value={editRegionForm.description || ''}
+              onChange={(e) => setEditRegionForm({ ...editRegionForm, description: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditRegionModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Lưu Thay Đổi
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 8b3. MODAL: XÓA VÙNG KINH DOANH */}
+      <Modal
+        isOpen={isDeleteRegionModalOpen}
+        onClose={() => setIsDeleteRegionModalOpen(false)}
+        title="Xác Nhận Xóa Vùng Kinh Doanh"
+      >
+        <form onSubmit={handleDeleteRegionSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl space-y-2">
+            <div className="flex items-start gap-2 text-red-800 text-xs font-semibold">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+              <span>Xóa Vùng: {selectedRegionForDelete?.name} ({selectedRegionForDelete?.code})</span>
+            </div>
+            <p className="text-xs text-red-700 leading-relaxed">
+              Các Sàn giao dịch thuộc Vùng này sẽ được tự động chuyển giao sang Vùng tiếp nhận bên dưới để đảm bảo dữ liệu không bị gián đoạn.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Chọn Vùng Tiếp Nhận Các Sàn Trực Thuộc <span className="text-red-500">*</span>
+            </label>
+            <select
+              required
+              value={fallbackRegionId}
+              onChange={(e) => setFallbackRegionId(e.target.value)}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            >
+              <option value="REG-DEFAULT">Vùng Mặc Định (Chưa phân vùng)</option>
+              {regions
+                .filter(r => r.id !== selectedRegionForDelete?.id && r.id !== 'REG-DEFAULT')
+                .map((r) => (
+                  <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteRegionModalOpen(false)}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Xác nhận xóa vùng
             </Button>
           </div>
         </form>
@@ -4452,6 +5333,231 @@ function doGet(e) {
         </form>
       </Modal>
 
+      {/* 8c2. MODAL: CHỈNH SỬA SÀN GIAO DỊCH */}
+      <Modal
+        isOpen={isEditAgencyModalOpen}
+        onClose={() => setIsEditAgencyModalOpen(false)}
+        title={`Chỉnh Sửa Sàn Giao Dịch: ${selectedAgencyForEdit?.name || ''}`}
+      >
+        <form onSubmit={handleEditAgencySubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+          {modalSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{modalSuccess}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tên Sàn Giao Dịch <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={editAgencyForm.name}
+              onChange={(e) => setEditAgencyForm({ ...editAgencyForm, name: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Trực thuộc Doanh Nghiệp (CEO)
+              </label>
+              <select
+                value={editAgencyForm.organization_id || ''}
+                disabled={isCompanyAdmin}
+                onChange={(e) => setEditAgencyForm({ ...editAgencyForm, organization_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 disabled:opacity-75 disabled:bg-slate-100"
+              >
+                <option value="">(Chọn Doanh nghiệp)</option>
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Trực thuộc Vùng Kinh Doanh
+              </label>
+              <select
+                value={editAgencyForm.region_id || ''}
+                onChange={(e) => setEditAgencyForm({ ...editAgencyForm, region_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Chọn Vùng kinh doanh)</option>
+                {regions.map((r) => (
+                  <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã viết tắt sàn <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={editAgencyForm.code}
+                onChange={(e) => setEditAgencyForm({ ...editAgencyForm, code: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Bổ nhiệm Giám Đốc Sàn
+              </label>
+              <select
+                value={editAgencyForm.director_id || ''}
+                onChange={(e) => setEditAgencyForm({ ...editAgencyForm, director_id: e.target.value || null })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">(Chưa bổ nhiệm)</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name} ({p.role}) - {p.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Số Hotline Sàn
+              </label>
+              <input
+                type="tel"
+                value={editAgencyForm.phone || ''}
+                onChange={(e) => setEditAgencyForm({ ...editAgencyForm, phone: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Email liên hệ sàn
+              </label>
+              <input
+                type="email"
+                value={editAgencyForm.email || ''}
+                onChange={(e) => setEditAgencyForm({ ...editAgencyForm, email: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Địa chỉ văn phòng sàn
+            </label>
+            <input
+              type="text"
+              value={editAgencyForm.address || ''}
+              onChange={(e) => setEditAgencyForm({ ...editAgencyForm, address: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditAgencyModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Lưu Thay Đổi
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 8c3. MODAL: XÓA SÀN GIAO DỊCH */}
+      <Modal
+        isOpen={isDeleteAgencyModalOpen}
+        onClose={() => setIsDeleteAgencyModalOpen(false)}
+        title="Xác Nhận Xóa Sàn Giao Dịch"
+      >
+        <form onSubmit={handleDeleteAgencySubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl space-y-2">
+            <div className="flex items-start gap-2 text-red-800 text-xs font-semibold">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+              <span>Xóa Sàn: {selectedAgencyForDelete?.name} ({selectedAgencyForDelete?.code})</span>
+            </div>
+            <p className="text-xs text-red-700 leading-relaxed">
+              Các Đội nhóm và Nhân sự thuộc Sàn này sẽ được tự động chuyển giao sang Sàn tiếp nhận bên dưới để bảo toàn toàn bộ dữ liệu giao dịch và khách hàng.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Chọn Sàn Tiếp Nhận Teams & Nhân Sự <span className="text-red-500">*</span>
+            </label>
+            <select
+              required
+              value={fallbackAgencyId}
+              onChange={(e) => setFallbackAgencyId(e.target.value)}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            >
+              <option value="">-- Chọn sàn tiếp nhận thay thế --</option>
+              {agencies
+                .filter(a => a.id !== selectedAgencyForDelete?.id)
+                .map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteAgencyModalOpen(false)}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Xác nhận xóa sàn
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
       {/* 9. MODAL: THÊM TEAM KINH DOANH MỚI */}
       <Modal
         isOpen={isTeamModalOpen}
@@ -4547,6 +5653,174 @@ function doGet(e) {
               isLoading={isSubmitting}
             >
               Tạo Team Kinh Doanh
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 9b. MODAL: CHỈNH SỬA TEAM KINH DOANH */}
+      <Modal
+        isOpen={isEditTeamModalOpen}
+        onClose={() => setIsEditTeamModalOpen(false)}
+        title={`Chỉnh Sửa Team Kinh Doanh: ${selectedTeamForEdit?.name || ''}`}
+      >
+        <form onSubmit={handleEditTeamSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+          {modalSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{modalSuccess}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Tên Team Kinh Doanh <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={editTeamForm.name}
+              onChange={(e) => setEditTeamForm({ ...editTeamForm, name: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Mã viết tắt Team <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={editTeamForm.code}
+                onChange={(e) => setEditTeamForm({ ...editTeamForm, code: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 font-mono uppercase focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Trực thuộc Sàn giao dịch <span className="text-red-500">*</span>
+              </label>
+              <select
+                required
+                value={editTeamForm.agency_id}
+                onChange={(e) => setEditTeamForm({ ...editTeamForm, agency_id: e.target.value })}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+              >
+                <option value="">-- Chọn sàn trực thuộc --</option>
+                {agencies.map((a) => (
+                  <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Bổ nhiệm Trưởng Nhóm (Team Leader)
+            </label>
+            <select
+              value={editTeamForm.leader_id || ''}
+              onChange={(e) => setEditTeamForm({ ...editTeamForm, leader_id: e.target.value || null })}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+            >
+              <option value="">(Chưa bổ nhiệm)</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.full_name} ({p.role}) - {p.email}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditTeamModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              Lưu Thay Đổi
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* 9c. MODAL: XÓA TEAM KINH DOANH */}
+      <Modal
+        isOpen={isDeleteTeamModalOpen}
+        onClose={() => setIsDeleteTeamModalOpen(false)}
+        title="Xác Nhận Xóa Đội Nhóm Kinh Doanh"
+      >
+        <form onSubmit={handleDeleteTeamSubmit} className="space-y-4">
+          {modalError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span>{modalError}</span>
+            </div>
+          )}
+
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl space-y-2">
+            <div className="flex items-start gap-2 text-red-800 text-xs font-semibold">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+              <span>Xóa Team: {selectedTeamForDelete?.name} ({selectedTeamForDelete?.code})</span>
+            </div>
+            <p className="text-xs text-red-700 leading-relaxed">
+              Bạn có thể chuyển giao các chuyên viên tư vấn (Sale Agents) sang Team tiếp nhận bên dưới, hoặc để trống để đưa nhân sự về trạng thái trực thuộc Sàn (chưa vào Team).
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Chọn Team Tiếp Nhận Nhân Sự (Tùy chọn)
+            </label>
+            <select
+              value={fallbackTeamId}
+              onChange={(e) => setFallbackTeamId(e.target.value)}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+            >
+              <option value="">(Không chọn - Nhân sự sẽ trực thuộc thẳng Sàn)</option>
+              {teams
+                .filter(t => t.id !== selectedTeamForDelete?.id && t.agency_id === selectedTeamForDelete?.agency_id)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>{t.code} - {t.name}</option>
+                ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteTeamModalOpen(false)}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              size="sm"
+              isLoading={isSubmitting}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Xác nhận xóa team
             </Button>
           </div>
         </form>

@@ -306,6 +306,109 @@ export class TeamRepository {
     return { success: true, organization: newOrg };
   }
 
+  async updateOrganization(
+    id: string,
+    input: Partial<CreateOrganizationInput>,
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; organization?: Organization; error?: string }> {
+    if (currentUser) {
+      const isAdmin = currentUser.role === 'admin';
+      const isOwnerTenant = ['company_admin', 'ceo'].includes(currentUser.role) && currentUser.organization_id === id;
+      if (!isAdmin && !isOwnerTenant) {
+        return { success: false, error: 'Bạn không có quyền chỉnh sửa thông tin Doanh nghiệp này.' };
+      }
+    }
+
+    const orgs = await this.getOrganizations();
+    const existing = orgs.find(o => o.id === id);
+    if (!existing) return { success: false, error: 'Không tìm thấy Doanh nghiệp.' };
+
+    const cleanCode = input.code?.trim() ? input.code.trim().toUpperCase() : existing.code;
+    if (cleanCode !== existing.code && orgs.some(o => o.id !== id && o.code === cleanCode)) {
+      return { success: false, error: `Mã doanh nghiệp '${cleanCode}' đã tồn tại.` };
+    }
+
+    const updatedOrg: Organization = {
+      ...existing,
+      name: input.name !== undefined ? input.name.trim() : existing.name,
+      code: cleanCode,
+      tax_number: input.tax_number !== undefined ? (input.tax_number?.trim() || undefined) : existing.tax_number,
+      phone: input.phone !== undefined ? (input.phone?.trim() || undefined) : existing.phone,
+      email: input.email !== undefined ? (input.email?.trim() || undefined) : existing.email,
+      address: input.address !== undefined ? (input.address?.trim() || undefined) : existing.address,
+      ceo_id: input.ceo_id !== undefined ? (input.ceo_id || undefined) : existing.ceo_id,
+      admin_id: input.admin_id !== undefined ? (input.admin_id || undefined) : existing.admin_id,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase.from('organizations').update({
+        name: updatedOrg.name,
+        code: updatedOrg.code,
+        tax_number: updatedOrg.tax_number || null,
+        phone: updatedOrg.phone || null,
+        email: updatedOrg.email || null,
+        address: updatedOrg.address || null,
+        ceo_id: updatedOrg.ceo_id || null,
+        admin_id: updatedOrg.admin_id || null,
+        updated_at: updatedOrg.updated_at,
+      }).eq('id', id).select().single();
+      if (error) return { success: false, error: error.message };
+      if (data) updatedOrg.id = data.id;
+    }
+
+    const updated = orgs.map(o => o.id === id ? updatedOrg : o);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updated));
+    }
+
+    if (input.ceo_id && input.ceo_id !== existing.ceo_id) {
+      await this.assignOrganizationCEO(id, input.ceo_id, currentUser);
+    }
+    if (input.admin_id && input.admin_id !== existing.admin_id) {
+      await this.assignOrganizationAdmin(id, input.admin_id, currentUser);
+    }
+
+    return { success: true, organization: updatedOrg };
+  }
+
+  async deleteOrganization(
+    id: string,
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; error?: string }> {
+    if (currentUser && currentUser.role !== 'admin') {
+      return { success: false, error: 'Chỉ Quản Trị Tổng (Admin) mới có quyền xóa Doanh nghiệp.' };
+    }
+
+    const regions = await this.getRegions();
+    const agencies = await this.getAgencies();
+    const profiles = await this.getProfiles();
+
+    const attachedRegions = regions.filter(r => r.organization_id === id);
+    const attachedAgencies = agencies.filter(a => a.organization_id === id);
+    const attachedProfiles = profiles.filter(p => p.organization_id === id && p.role !== 'admin');
+
+    if (attachedRegions.length > 0 || attachedAgencies.length > 0 || attachedProfiles.length > 0) {
+      return {
+        success: false,
+        error: `Không thể xóa Doanh nghiệp đang có ${attachedRegions.length} Vùng, ${attachedAgencies.length} Sàn và ${attachedProfiles.length} nhân sự. Vui lòng chuyển giao hoặc xóa các đơn vị/nhân sự trực thuộc trước.`
+      };
+    }
+
+    if (isLiveSupabaseConfigured) {
+      const { error } = await supabase.from('organizations').delete().eq('id', id);
+      if (error) return { success: false, error: error.message };
+    }
+
+    const orgs = await this.getOrganizations();
+    const updated = orgs.filter(o => o.id !== id);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updated));
+    }
+
+    return { success: true };
+  }
+
   // ==========================================
   // BỔ NHIỆM QUẢN TRỊ DOANH NGHIỆP (COMPANY ADMIN)
   // Chỉ Quản trị tổng (Admin) mới có quyền thực hiện
@@ -1132,15 +1235,52 @@ export class TeamRepository {
     return { success: true, agency: newAgency };
   }
 
-  async updateAgency(agencyId: string, input: Partial<CreateAgencyInput>): Promise<{ success: boolean; error?: string }> {
+  async updateAgency(
+    agencyId: string, 
+    input: Partial<CreateAgencyInput>, 
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; agency?: Agency; error?: string }> {
+    if (currentUser) {
+      const allowedRoles = ['admin', 'company_admin', 'ceo', 'director'];
+      if (!allowedRoles.includes(currentUser.role)) {
+        return { success: false, error: 'Bạn không có quyền chỉnh sửa Sàn giao dịch.' };
+      }
+    }
+
+    const agencies = await this.getAgencies();
+    const existing = agencies.find(a => a.id === agencyId);
+    if (!existing) return { success: false, error: 'Không tìm thấy Sàn giao dịch.' };
+
+    const cleanCode = input.code ? input.code.trim().toUpperCase() : existing.code;
+    if (cleanCode !== existing.code && agencies.some(a => a.id !== agencyId && a.code === cleanCode)) {
+      return { success: false, error: `Mã sàn '${cleanCode}' đã tồn tại.` };
+    }
+
+    const updatedAgency: Agency = {
+      ...existing,
+      name: input.name !== undefined ? input.name.trim() : existing.name,
+      code: cleanCode,
+      organization_id: (input.organization_id !== undefined && input.organization_id) ? input.organization_id : existing.organization_id,
+      region_id: input.region_id !== undefined ? (input.region_id || undefined) : existing.region_id,
+      address: input.address !== undefined ? input.address : existing.address,
+      phone: input.phone !== undefined ? input.phone : existing.phone,
+      email: input.email !== undefined ? input.email : existing.email,
+      director_id: input.director_id !== undefined ? (input.director_id || undefined) : existing.director_id,
+      updated_at: new Date().toISOString(),
+    };
+
     if (isLiveSupabaseConfigured) {
-      const payload: any = { updated_at: new Date().toISOString() };
-      if (input.name) payload.name = input.name.trim();
-      if (input.code) payload.code = input.code.trim().toUpperCase();
-      if (input.address !== undefined) payload.address = input.address;
-      if (input.phone !== undefined) payload.phone = input.phone;
-      if (input.email !== undefined) payload.email = input.email;
-      if (input.director_id !== undefined) payload.director_id = input.director_id || null;
+      const payload: any = {
+        name: updatedAgency.name,
+        code: updatedAgency.code,
+        organization_id: updatedAgency.organization_id || null,
+        region_id: updatedAgency.region_id || null,
+        address: updatedAgency.address || null,
+        phone: updatedAgency.phone || null,
+        email: updatedAgency.email || null,
+        director_id: updatedAgency.director_id || null,
+        updated_at: updatedAgency.updated_at,
+      };
 
       const { error } = await supabase.from('agencies').update(payload).eq('id', agencyId);
       if (error) return { success: false, error: error.message };
@@ -1151,25 +1291,70 @@ export class TeamRepository {
           .update({ agency_id: agencyId, role: 'director' })
           .eq('id', input.director_id);
       }
-      return { success: true };
+    }
+
+    const updated = agencies.map(a => a.id === agencyId ? updatedAgency : a);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_AGENCIES, JSON.stringify(updated));
+    }
+
+    if (input.director_id && input.director_id !== existing.director_id) {
+      await this.assignRole(input.director_id, 'director', agencyId, null);
+    }
+    return { success: true, agency: updatedAgency };
+  }
+
+  async deleteAgency(
+    agencyId: string, 
+    fallbackAgencyId?: string, 
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; error?: string }> {
+    if (currentUser) {
+      const allowedRoles = ['admin', 'company_admin', 'ceo'];
+      if (!allowedRoles.includes(currentUser.role)) {
+        return { success: false, error: 'Chỉ Quản trị viên mới có quyền xóa Sàn giao dịch.' };
+      }
+    }
+
+    const teams = await this.getTeams();
+    const profiles = await this.getProfiles();
+    const attachedTeams = teams.filter(t => t.agency_id === agencyId);
+    const attachedStaff = profiles.filter(p => p.agency_id === agencyId);
+
+    if ((attachedTeams.length > 0 || attachedStaff.length > 0) && !fallbackAgencyId) {
+      return {
+        success: false,
+        error: `Sàn này đang có ${attachedTeams.length} đội nhóm và ${attachedStaff.length} nhân sự. Vui lòng chọn Sàn tiếp nhận để chuyển giao.`
+      };
+    }
+
+    // Nếu có sàn tiếp nhận (fallback), chuyển toàn bộ teams & staff sang sàn đích
+    if (fallbackAgencyId) {
+      const reallocatedTeams = teams.map(t => t.agency_id === agencyId ? { ...t, agency_id: fallbackAgencyId } : t);
+      const reallocatedStaff = profiles.map(p => p.agency_id === agencyId ? { ...p, agency_id: fallbackAgencyId } : p);
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY_TEAMS, JSON.stringify(reallocatedTeams));
+        localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(reallocatedStaff));
+      }
+
+      if (isLiveSupabaseConfigured) {
+        await supabase.from('teams').update({ agency_id: fallbackAgencyId }).eq('agency_id', agencyId);
+        await supabase.from('profiles').update({ agency_id: fallbackAgencyId }).eq('agency_id', agencyId);
+      }
+    }
+
+    if (isLiveSupabaseConfigured) {
+      const { error } = await supabase.from('agencies').delete().eq('id', agencyId);
+      if (error) return { success: false, error: error.message };
     }
 
     const agencies = await this.getAgencies();
-    const updated = agencies.map(a => {
-      if (a.id === agencyId) {
-        return {
-          ...a,
-          ...input,
-          code: input.code ? input.code.trim().toUpperCase() : a.code,
-        };
-      }
-      return a;
-    });
-    localStorage.setItem(STORAGE_KEY_AGENCIES, JSON.stringify(updated));
-
-    if (input.director_id) {
-      await this.assignRole(input.director_id, 'director', agencyId, null);
+    const updated = agencies.filter(a => a.id !== agencyId);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_AGENCIES, JSON.stringify(updated));
     }
+
     return { success: true };
   }
 
@@ -1229,6 +1414,110 @@ export class TeamRepository {
     }
 
     return { success: true, team: newTeam };
+  }
+
+  async updateTeam(
+    teamId: string, 
+    input: Partial<CreateTeamInput>, 
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; team?: Team; error?: string }> {
+    if (currentUser) {
+      const allowedRoles = ['admin', 'company_admin', 'ceo', 'director', 'sales_manager'];
+      if (!allowedRoles.includes(currentUser.role)) {
+        return { success: false, error: 'Bạn không có quyền chỉnh sửa Đội nhóm.' };
+      }
+    }
+
+    const teams = await this.getTeams();
+    const existing = teams.find(t => t.id === teamId);
+    if (!existing) return { success: false, error: 'Không tìm thấy Đội nhóm.' };
+
+    const cleanCode = input.code ? input.code.trim().toUpperCase() : existing.code;
+    if (cleanCode !== existing.code && teams.some(t => t.id !== teamId && t.code === cleanCode)) {
+      return { success: false, error: `Mã đội nhóm '${cleanCode}' đã tồn tại.` };
+    }
+
+    const updatedTeam: Team = {
+      ...existing,
+      name: input.name !== undefined ? input.name.trim() : existing.name,
+      code: cleanCode,
+      agency_id: input.agency_id !== undefined ? input.agency_id : existing.agency_id,
+      leader_id: input.leader_id !== undefined ? (input.leader_id || undefined) : existing.leader_id,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (isLiveSupabaseConfigured) {
+      const payload: any = {
+        name: updatedTeam.name,
+        code: updatedTeam.code,
+        agency_id: updatedTeam.agency_id,
+        leader_id: updatedTeam.leader_id || null,
+        updated_at: updatedTeam.updated_at,
+      };
+
+      const { error } = await supabase.from('teams').update(payload).eq('id', teamId);
+      if (error) return { success: false, error: error.message };
+
+      if (input.leader_id) {
+        await supabase
+          .from('profiles')
+          .update({ team_id: teamId, agency_id: updatedTeam.agency_id, role: 'team_leader' })
+          .eq('id', input.leader_id);
+      }
+    }
+
+    const updated = teams.map(t => t.id === teamId ? updatedTeam : t);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_TEAMS, JSON.stringify(updated));
+    }
+
+    if (input.leader_id && input.leader_id !== existing.leader_id) {
+      await this.assignRole(input.leader_id, 'team_leader', updatedTeam.agency_id, teamId);
+    }
+
+    return { success: true, team: updatedTeam };
+  }
+
+  async deleteTeam(
+    teamId: string, 
+    fallbackTeamId?: string, 
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; error?: string }> {
+    if (currentUser) {
+      const allowedRoles = ['admin', 'company_admin', 'ceo', 'director'];
+      if (!allowedRoles.includes(currentUser.role)) {
+        return { success: false, error: 'Chỉ Quản trị viên hoặc Giám đốc sàn mới có quyền xóa Đội nhóm.' };
+      }
+    }
+
+    const profiles = await this.getProfiles();
+
+    // Nếu có team tiếp nhận (fallback), chuyển members sang team đó; nếu không thì gỡ team_id
+    const targetTeamId = fallbackTeamId || null;
+    const reallocatedStaff = profiles.map(p => {
+      if (p.team_id === teamId) {
+        return { ...p, team_id: targetTeamId || undefined };
+      }
+      return p;
+    });
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(reallocatedStaff));
+    }
+
+    if (isLiveSupabaseConfigured) {
+      await supabase.from('profiles').update({ team_id: targetTeamId }).eq('team_id', teamId);
+      const { error } = await supabase.from('teams').delete().eq('id', teamId);
+      if (error) return { success: false, error: error.message };
+    }
+
+    const teams = await this.getTeams();
+    const updated = teams.filter(t => t.id !== teamId);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY_TEAMS, JSON.stringify(updated));
+    }
+
+    return { success: true };
   }
 
   // ==========================================
@@ -1375,19 +1664,38 @@ export class TeamRepository {
     return { success: true, region: newRegion };
   }
 
-  async updateRegion(id: string, input: Partial<Region>): Promise<{ success: boolean; region?: Region; error?: string }> {
+  async updateRegion(
+    id: string, 
+    input: Partial<Region>, 
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; region?: Region; error?: string }> {
+    if (currentUser) {
+      const allowedRoles = ['admin', 'company_admin', 'ceo'];
+      if (!allowedRoles.includes(currentUser.role)) {
+        return { success: false, error: 'Bạn không có quyền chỉnh sửa Vùng kinh doanh.' };
+      }
+    }
+
     const regions = await this.getRegions();
     const existing = regions.find(r => r.id === id);
     if (!existing) return { success: false, error: 'Không tìm thấy vùng kinh doanh.' };
 
+    const cleanCode = input.code ? input.code.trim().toUpperCase() : existing.code;
+    if (cleanCode !== existing.code && regions.some(r => r.id !== id && r.code === cleanCode)) {
+      return { success: false, error: `Mã vùng '${cleanCode}' đã tồn tại.` };
+    }
+
     const updatedRegion: Region = {
       ...existing,
       ...input,
+      code: cleanCode,
+      organization_id: (input.organization_id !== undefined && input.organization_id) ? input.organization_id : existing.organization_id,
       updated_at: new Date().toISOString(),
     };
 
     if (isLiveSupabaseConfigured) {
       const { error } = await supabase.from('regions').update({
+        organization_id: updatedRegion.organization_id || null,
         name: updatedRegion.name,
         code: updatedRegion.code,
         description: updatedRegion.description,
@@ -1403,14 +1711,25 @@ export class TeamRepository {
       localStorage.setItem(STORAGE_KEY_REGIONS, JSON.stringify(updatedList));
     }
 
-    if (input.regional_director_id) {
-      await this.assignRole(input.regional_director_id, 'regional_director', null, null);
+    if (input.regional_director_id && input.regional_director_id !== existing.regional_director_id) {
+      await this.assignRole(input.regional_director_id, 'regional_director', null, null, id, updatedRegion.organization_id);
     }
 
     return { success: true, region: updatedRegion };
   }
 
-  async deleteRegion(id: string, fallbackRegionId?: string): Promise<{ success: boolean; error?: string }> {
+  async deleteRegion(
+    id: string, 
+    fallbackRegionId?: string, 
+    currentUser?: UserProfile | null
+  ): Promise<{ success: boolean; error?: string }> {
+    if (currentUser) {
+      const allowedRoles = ['admin', 'company_admin', 'ceo'];
+      if (!allowedRoles.includes(currentUser.role)) {
+        return { success: false, error: 'Chỉ Quản trị viên hoặc CEO mới có quyền xóa Vùng kinh doanh.' };
+      }
+    }
+
     if (id === 'REG-DEFAULT') {
       return { success: false, error: 'Không được phép xóa Vùng Mặc Định (Chưa phân vùng).' };
     }
