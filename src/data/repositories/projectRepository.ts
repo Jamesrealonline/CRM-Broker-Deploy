@@ -470,7 +470,19 @@ export class ProjectRepository {
     };
   }
 
-  async getProjectKnowledge(projectId: string): Promise<ProjectKnowledge | null> {
+  canUserAccessProjectId(projectId: string, currentUser?: UserProfile): boolean {
+    if (!currentUser) return true;
+    if (branchHierarchyService.isGlobalViewer(currentUser)) return true;
+    const allProjects: Project[] = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem(STORAGE_KEY_PROJECTS) || JSON.stringify(INITIAL_PROJECTS)) : INITIAL_PROJECTS;
+    const project = allProjects.find(p => p.id === projectId);
+    if (!project) return false;
+    return branchHierarchyService.canAccessProject(currentUser, project);
+  }
+
+  async getProjectKnowledge(projectId: string, currentUser?: UserProfile): Promise<ProjectKnowledge | null> {
+    if (currentUser && !this.canUserAccessProjectId(projectId, currentUser)) {
+      return null;
+    }
     if (isLiveSupabaseConfigured) {
       const { data } = await supabase
         .from('project_knowledge')
@@ -583,9 +595,12 @@ export class ProjectRepository {
   }
 
   // Lấy Sales Scripts của dự án theo 15 trạng thái (Áp dụng bộ kịch bản AI chuyên sâu)
-  async getSalesScripts(projectId: string): Promise<SalesScript[]> {
+  async getSalesScripts(projectId: string, currentUser?: UserProfile): Promise<SalesScript[]> {
+    if (currentUser && !this.canUserAccessProjectId(projectId, currentUser)) {
+      return [];
+    }
     const raw = localStorage.getItem(`${STORAGE_KEY_SCRIPTS}_${projectId}`);
-    const project = await this.getProjectById(projectId);
+    const project = await this.getProjectById(projectId, currentUser);
     const projectName = project?.name || 'Dự án Bất Động Sản';
 
     if (raw) {
@@ -681,7 +696,10 @@ export class ProjectRepository {
   }
 
   // Quản lý FAQs
-  async getProjectFaqs(projectId: string): Promise<ProjectFaq[]> {
+  async getProjectFaqs(projectId: string, currentUser?: UserProfile): Promise<ProjectFaq[]> {
+    if (currentUser && !this.canUserAccessProjectId(projectId, currentUser)) {
+      return [];
+    }
     const all = JSON.parse(localStorage.getItem(STORAGE_KEY_FAQS) || '[]');
     const filtered = all.filter((f: ProjectFaq) => f.project_id === projectId);
     if (filtered.length > 0) return filtered;

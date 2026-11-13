@@ -179,13 +179,17 @@ export class TeamRepository {
   async getOrganizations(currentUser?: UserProfile): Promise<Organization[]> {
     let result: Organization[] = [];
     if (isLiveSupabaseConfigured) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('organizations')
         .select('*')
         .order('name');
+      if (currentUser && currentUser.role !== 'admin' && currentUser.organization_id) {
+        query = query.eq('id', currentUser.organization_id);
+      }
+      const { data, error } = await query;
       if (!error && data) {
         const orgs = data as Organization[];
-        const profiles = await this.getProfiles();
+        const profiles = await this.getProfiles(undefined, undefined, currentUser);
         result = orgs.map(o => {
           const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
           const compAdmin = profiles.find(p => p.role === 'company_admin' && p.organization_id === o.id);
@@ -197,7 +201,7 @@ export class TeamRepository {
             admin_name: o.admin_name || compAdmin?.full_name,
           };
         });
-        if (typeof localStorage !== 'undefined') {
+        if (typeof localStorage !== 'undefined' && (!currentUser || currentUser.role === 'admin')) {
           localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(result));
         }
       }
@@ -208,7 +212,7 @@ export class TeamRepository {
         localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(INITIAL_ORGS));
       }
 
-      const profiles = await this.getProfiles();
+      const profiles = await this.getProfiles(undefined, undefined, currentUser);
       result = list.map(o => {
         const ceo = profiles.find(p => p.role === 'ceo' && p.organization_id === o.id);
         const compAdmin = profiles.find(p => p.role === 'company_admin' && p.organization_id === o.id);
@@ -517,11 +521,14 @@ export class TeamRepository {
     if (isLiveSupabaseConfigured) {
       let query = supabase.from('agencies').select('*').order('name');
       if (regionId) query = query.eq('region_id', regionId);
+      if (currentUser && currentUser.role !== 'admin' && currentUser.organization_id) {
+        query = query.eq('organization_id', currentUser.organization_id);
+      }
       const { data, error } = await query;
       if (!error && data) {
         // Lấy tên director nếu có
         const agencies = data as Agency[];
-        const profiles = await this.getProfiles();
+        const profiles = await this.getProfiles(undefined, undefined, currentUser);
         result = agencies.map(a => {
           const director = profiles.find(p => p.id === a.director_id);
           return {
@@ -529,7 +536,7 @@ export class TeamRepository {
             director_name: director ? director.full_name : undefined,
           };
         });
-        if (typeof localStorage !== 'undefined') {
+        if (typeof localStorage !== 'undefined' && (!currentUser || currentUser.role === 'admin')) {
           localStorage.setItem(STORAGE_KEY_AGENCIES, JSON.stringify(result));
         }
       }
@@ -539,7 +546,7 @@ export class TeamRepository {
       if (typeof localStorage !== 'undefined' && !raw) {
         localStorage.setItem(STORAGE_KEY_AGENCIES, JSON.stringify(INITIAL_AGENCIES));
       }
-      const profiles = await this.getProfiles();
+      const profiles = await this.getProfiles(undefined, undefined, currentUser);
       const rawRegions = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_REGIONS) : null;
       const regions: Region[] = rawRegions ? JSON.parse(rawRegions) : INITIAL_REGIONS;
 
@@ -573,7 +580,7 @@ export class TeamRepository {
       const { data, error } = await query;
       if (!error && data) {
         const teams = data as Team[];
-        const profiles = await this.getProfiles();
+        const profiles = await this.getProfiles(undefined, undefined, currentUser);
         result = teams.map(t => {
           const leader = profiles.find(p => p.id === t.leader_id);
           const members = profiles.filter(p => p.team_id === t.id);
@@ -592,7 +599,7 @@ export class TeamRepository {
       let filtered = list;
       if (agencyId) filtered = filtered.filter(t => t.agency_id === agencyId);
 
-      const profiles = await this.getProfiles();
+      const profiles = await this.getProfiles(undefined, undefined, currentUser);
       result = filtered.map(t => {
         const leader = profiles.find(p => p.id === t.leader_id);
         const members = profiles.filter(p => p.team_id === t.id);
@@ -618,6 +625,9 @@ export class TeamRepository {
       if (!includeDeleted) query = query.is('deleted_at', null);
       if (agencyId) query = query.eq('agency_id', agencyId);
       if (teamId) query = query.eq('team_id', teamId);
+      if (currentUser && currentUser.role !== 'admin' && currentUser.organization_id) {
+        query = query.eq('organization_id', currentUser.organization_id);
+      }
       const { data, error } = await query;
       if (!error && data) result = data as UserProfile[];
     } else {
@@ -1654,10 +1664,14 @@ export class TeamRepository {
   async getRegions(currentUser?: UserProfile): Promise<Region[]> {
     let result: Region[] = [];
     if (isLiveSupabaseConfigured) {
-      const { data, error } = await supabase.from('regions').select('*').order('name');
+      let query = supabase.from('regions').select('*').order('name');
+      if (currentUser && currentUser.role !== 'admin' && currentUser.organization_id) {
+        query = query.eq('organization_id', currentUser.organization_id);
+      }
+      const { data, error } = await query;
       if (!error && data) {
         const regions = data as Region[];
-        const profiles = await this.getProfiles();
+        const profiles = await this.getProfiles(undefined, undefined, currentUser);
         result = regions.map(r => {
           const dir = profiles.find(p => p.id === r.regional_director_id);
           return {
@@ -1665,7 +1679,7 @@ export class TeamRepository {
             regional_director_name: dir ? dir.full_name : undefined,
           };
         });
-        if (typeof localStorage !== 'undefined') {
+        if (typeof localStorage !== 'undefined' && (!currentUser || currentUser.role === 'admin')) {
           localStorage.setItem(STORAGE_KEY_REGIONS, JSON.stringify(result));
         }
       }
@@ -1676,7 +1690,7 @@ export class TeamRepository {
         localStorage.setItem(STORAGE_KEY_REGIONS, JSON.stringify(INITIAL_REGIONS));
       }
 
-      const profiles = await this.getProfiles();
+      const profiles = await this.getProfiles(undefined, undefined, currentUser);
       result = list.map(r => {
         const dir = profiles.find(p => p.id === r.regional_director_id);
         return {

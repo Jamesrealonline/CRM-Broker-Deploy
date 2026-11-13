@@ -135,8 +135,8 @@ export const ProjectKnowledgePage: React.FC = () => {
     try {
       const [proj, know, faqList, stats, unitList] = await Promise.all([
         projectRepository.getProjectById(id, currentUser || undefined),
-        projectRepository.getProjectKnowledge(id),
-        projectRepository.getProjectFaqs(id),
+        projectRepository.getProjectKnowledge(id, currentUser || undefined),
+        projectRepository.getProjectFaqs(id, currentUser || undefined),
         projectRepository.getProjectFinancialStats(id, { preset: currentTimeFilter }),
         projectRepository.getProjectUnits(id),
       ]);

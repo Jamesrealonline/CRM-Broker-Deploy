@@ -5,6 +5,7 @@
 // ========================================================
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   FileText, 
   RotateCcw, 
@@ -46,6 +47,7 @@ import { maskPhone } from '@/lib/utils';
 import { AI_MASTER_STAGE_SCRIPTS, formatFullScriptMarkdown } from '@/data/aiSalesScripts';
 
 export const SalesScriptsPage: React.FC = () => {
+  const navigate = useNavigate();
   const { currentUser } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'scripts' | 'advisor'>('scripts');
 
@@ -100,7 +102,7 @@ export const SalesScriptsPage: React.FC = () => {
   useEffect(() => {
     if (!selectedProjectId) return;
     
-    projectRepository.getSalesScripts(selectedProjectId).then((res) => {
+    projectRepository.getSalesScripts(selectedProjectId, currentUser || undefined).then((res) => {
       setScripts(res);
       const active = res.find(s => s.status === selectedStatus) || res[0];
       if (active) {
@@ -110,7 +112,7 @@ export const SalesScriptsPage: React.FC = () => {
       }
     });
 
-    projectRepository.getProjectKnowledge(selectedProjectId).then((k) => {
+    projectRepository.getProjectKnowledge(selectedProjectId, currentUser || undefined).then((k) => {
       setCurrentKnowledge(k);
     });
 
@@ -366,21 +368,40 @@ Bạn đang gặp khó khăn gì trong quá trình tương tác với khách nà
 
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-slate-500">Dự án:</span>
-            <select
-              value={selectedProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-semibold text-slate-800"
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            {projects.length === 0 ? (
+              <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                Chưa có dự án
+              </span>
+            ) : (
+              <select
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 font-semibold text-slate-800"
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 2. TAB 1: KỊCH BẢN BÁN HÀNG 15 BƯỚC */}
-      {activeTab === 'scripts' && (
+      {projects.length === 0 ? (
+        <Card className="p-10 text-center text-slate-500 border border-slate-200 bg-white shadow-sm">
+          <Building2 className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+          <h3 className="text-sm font-bold text-slate-800 mb-1">Doanh nghiệp chưa có dự án nào</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
+            Doanh nghiệp của bạn chưa tạo dự án nào. Vui lòng vào Danh Mục Dự Án để khởi tạo dự án và cơ sở tri thức trước khi xem kịch bản bán hàng và AI Advisor.
+          </p>
+          <Button size="sm" onClick={() => navigate('/projects')} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Building2 className="w-3.5 h-3.5 mr-1.5" /> Đến Danh Mục Dự Án
+          </Button>
+        </Card>
+      ) : (
+        <>
+          {/* 2. TAB 1: KỊCH BẢN BÁN HÀNG 15 BƯỚC */}
+          {activeTab === 'scripts' && (
         <div className="space-y-4">
           {saveMsg && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
@@ -758,6 +779,8 @@ Bạn đang gặp khó khăn gì trong quá trình tương tác với khách nà
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* MODAL CẤU HÌNH ANTHROPIC CLAUDE API KEY */}

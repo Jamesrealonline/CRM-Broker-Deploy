@@ -66,6 +66,7 @@ import {
 import { auditRepository } from '@/data/repositories/auditRepository';
 import { leadRepository } from '@/data/repositories/leadRepository';
 import { controlledDataService } from '@/domain/services/controlledDataService';
+import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { autoTransferService, DEFAULT_AUTO_TRANSFER_CONFIG } from '@/domain/services/autoTransferService';
 import { notificationService, DEFAULT_EMAIL_CONFIG } from '@/domain/services/notificationService';
 import { 
@@ -1497,8 +1498,9 @@ export const AdminPage: React.FC = () => {
 
   // Filter profiles
   const filteredProfiles = profiles.filter(p => {
-    if (currentUser?.role !== 'admin' && currentUser?.organization_id) {
-      if (p.organization_id !== currentUser.organization_id) return false;
+    if (currentUser?.role !== 'admin') {
+      if (currentUser?.organization_id && p.organization_id && p.organization_id !== currentUser.organization_id) return false;
+      if (!branchHierarchyService.canAccessUser(currentUser, p)) return false;
     }
     const matchSearch = 
       p.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||

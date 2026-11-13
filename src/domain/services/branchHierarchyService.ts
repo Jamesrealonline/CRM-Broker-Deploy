@@ -171,9 +171,16 @@ export class BranchHierarchyService {
       return false;
     }
 
+    const targetOrgId = targetUser.organization_id || (targetUser.agency_id ? this.getCachedAgencies().find(a => a.id === targetUser.agency_id)?.organization_id : undefined);
+
     // 2a. Multi-tenant isolation: Nhân sự thuộc doanh nghiệp nào chỉ xem nhân sự thuộc doanh nghiệp đó
-    if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
-      return false;
+    if (user.organization_id) {
+      if (targetOrgId && targetOrgId !== user.organization_id) {
+        return false;
+      }
+      if (targetUser.organization_id && targetUser.organization_id !== user.organization_id) {
+        return false;
+      }
     }
 
     // 2b. Quyền xem tài khoản Quản Trị Doanh Nghiệp (company_admin):
@@ -198,6 +205,9 @@ export class BranchHierarchyService {
       if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
         return false;
       }
+      if (user.organization_id && targetOrgId && targetOrgId !== user.organization_id) {
+        return false;
+      }
       return true;
     }
 
@@ -210,6 +220,9 @@ export class BranchHierarchyService {
 
       // Chặn xem nhân sự thuộc tổ chức/doanh nghiệp của CEO khác
       if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
+        return false;
+      }
+      if (user.organization_id && targetOrgId && targetOrgId !== user.organization_id) {
         return false;
       }
       return true;
@@ -228,6 +241,9 @@ export class BranchHierarchyService {
       if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
         return false;
       }
+      if (user.organization_id && targetOrgId && targetOrgId !== user.organization_id) {
+        return false;
+      }
       return true;
     }
 
@@ -240,6 +256,9 @@ export class BranchHierarchyService {
         return targetUser.id === user.id;
       }
       if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
+        return false;
+      }
+      if (user.organization_id && targetOrgId && targetOrgId !== user.organization_id) {
         return false;
       }
       if (targetUser.region_id && user.region_id) {
@@ -260,12 +279,18 @@ export class BranchHierarchyService {
       if (['admin', 'ceo', 'company_admin', 'regional_director', 'hr_admin', 'marketing_manager'].includes(targetUser.role) || (targetUser.role === 'director' && targetUser.id !== user.id)) {
         return false;
       }
+      if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
+        return false;
+      }
       return targetUser.agency_id === user.agency_id || targetUser.id === user.id;
     }
 
     // 8. Trưởng nhóm: chỉ xem được nhân sự trong team của mình
     if (user.role === 'team_leader') {
       if (['admin', 'ceo', 'company_admin', 'regional_director', 'director', 'sales_manager', 'hr_admin', 'marketing_manager'].includes(targetUser.role)) {
+        return false;
+      }
+      if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
         return false;
       }
       return targetUser.team_id === user.team_id || targetUser.id === user.id;
@@ -286,31 +311,31 @@ export class BranchHierarchyService {
     if (!user) return regions;
     if (this.isGlobalViewer(user)) return regions;
 
-    // CEO, Company Admin, HR, Marketing: chỉ xem các vùng thuộc tổ chức/doanh nghiệp của mình (chặn xem vùng của CEO khác)
+    // Multi-tenant: Nhân sự thuộc doanh nghiệp nào chỉ xem vùng thuộc doanh nghiệp đó
+    let scoped = regions;
+    if (user.organization_id) {
+      scoped = scoped.filter(r => r.organization_id === user.organization_id || (!r.organization_id && user.organization_id === '11111111-1111-1111-1111-111111111111'));
+    }
+
+    // CEO, Company Admin, HR, Marketing: xem toàn bộ các vùng trong doanh nghiệp mình
     if (user.role === 'ceo' || user.role === 'company_admin' || user.role === 'hr_admin' || user.role === 'marketing_manager') {
-      if (user.organization_id) {
-        return regions.filter(r => !r.organization_id || r.organization_id === user.organization_id);
-      }
-      return regions;
+      return scoped;
     }
 
     if (user.role === 'regional_director' && user.region_id) {
-      return regions.filter(r => r.id === user.region_id && (!user.organization_id || !r.organization_id || r.organization_id === user.organization_id));
+      return scoped.filter(r => r.id === user.region_id);
     }
     if (user.region_id) {
-      return regions.filter(r => r.id === user.region_id && (!user.organization_id || !r.organization_id || r.organization_id === user.organization_id));
+      return scoped.filter(r => r.id === user.region_id);
     }
     if (user.agency_id) {
       const agencies = this.getCachedAgencies();
       const ag = agencies.find(a => a.id === user.agency_id);
       if (ag && ag.region_id) {
-        return regions.filter(r => r.id === ag.region_id && (!user.organization_id || !r.organization_id || r.organization_id === user.organization_id));
+        return scoped.filter(r => r.id === ag.region_id);
       }
     }
-    if (user.organization_id) {
-      return regions.filter(r => !r.organization_id || r.organization_id === user.organization_id);
-    }
-    return regions;
+    return scoped;
   }
 
   /**
@@ -330,10 +355,10 @@ export class BranchHierarchyService {
 
     let orgAgencies = agencies;
     if (user.organization_id) {
-      orgAgencies = orgAgencies.filter(a => !a.organization_id || a.organization_id === user.organization_id);
+      orgAgencies = orgAgencies.filter(a => a.organization_id === user.organization_id || (!a.organization_id && user.organization_id === '11111111-1111-1111-1111-111111111111'));
     }
 
-    // CEO, Company Admin, HR, Marketing: chỉ xem các sàn thuộc tổ chức/doanh nghiệp của mình (chặn xem sàn của CEO khác)
+    // CEO, Company Admin, HR, Marketing: xem toàn bộ các sàn trong doanh nghiệp mình
     if (user.role === 'ceo' || user.role === 'company_admin' || user.role === 'hr_admin' || user.role === 'marketing_manager') {
       return orgAgencies;
     }
@@ -341,7 +366,7 @@ export class BranchHierarchyService {
     if (user.role === 'regional_director' && user.region_id) {
       return orgAgencies.filter(a => a.region_id === user.region_id);
     }
-    if (user.agency_id) {
+    if (user.role === 'director' || user.role === 'sales_manager' || user.agency_id) {
       return orgAgencies.filter(a => a.id === user.agency_id);
     }
     return orgAgencies;
@@ -354,28 +379,18 @@ export class BranchHierarchyService {
     if (!user) return teams;
     if (this.isGlobalViewer(user)) return teams;
 
-    // CEO, Company Admin, HR, Marketing: chỉ xem các đội nhóm thuộc tổ chức/doanh nghiệp của mình
-    if (user.role === 'ceo' || user.role === 'company_admin' || user.role === 'hr_admin' || user.role === 'marketing_manager') {
-      if (user.organization_id) {
-        const agencies = this.getCachedAgencies();
-        const allowedAgencyIds = new Set(agencies.filter(a => !a.organization_id || a.organization_id === user.organization_id).map(a => a.id));
-        return teams.filter(t => !t.agency_id || allowedAgencyIds.has(t.agency_id));
-      }
-      return teams;
-    }
+    const agencies = this.getCachedAgencies();
+    const allowedAgencies = this.filterAgencies(user, agencies);
+    const allowedAgencyIds = new Set(allowedAgencies.map(a => a.id));
 
-    if (user.role === 'regional_director' && user.region_id) {
-      const agencies = this.getCachedAgencies();
-      const allowedAgencyIds = new Set(agencies.filter(a => a.region_id === user.region_id && (!user.organization_id || !a.organization_id || a.organization_id === user.organization_id)).map(a => a.id));
-      return teams.filter(t => t.agency_id && allowedAgencyIds.has(t.agency_id));
-    }
-    if (user.role === 'sales_manager' || (user.role === 'director' && user.agency_id)) {
-      return teams.filter(t => t.agency_id === user.agency_id);
-    }
+    let scopedTeams = teams.filter(t => t.agency_id && allowedAgencyIds.has(t.agency_id));
+
     if (user.role === 'team_leader' || user.role === 'sale_agent') {
-      return teams.filter(t => t.id === user.team_id);
+      if (user.team_id) {
+        return scopedTeams.filter(t => t.id === user.team_id);
+      }
     }
-    return teams;
+    return scopedTeams;
   }
 
   /**
@@ -653,14 +668,14 @@ export class BranchHierarchyService {
    */
   filterOrganizations<T extends { id: string; ceo_id?: string | null; admin_id?: string | null }>(user: UserProfile | null | undefined, orgs: T[]): T[] {
     if (!user || this.isGlobalViewer(user)) return orgs;
+    if (user.organization_id) {
+      return orgs.filter(o => o.id === user.organization_id);
+    }
     if (user.role === 'ceo') {
       return orgs.filter(o => o.id === user.organization_id || o.ceo_id === user.id);
     }
     if (user.role === 'company_admin') {
       return orgs.filter(o => o.id === user.organization_id || o.admin_id === user.id);
-    }
-    if (user.organization_id) {
-      return orgs.filter(o => o.id === user.organization_id);
     }
     return orgs;
   }
