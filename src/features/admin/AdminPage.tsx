@@ -568,6 +568,12 @@ export const AdminPage: React.FC = () => {
     reloadData();
   }, [currentUser]);
 
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin' && activeTab === 'permissions') {
+      setActiveTab('users');
+    }
+  }, [currentUser, activeTab]);
+
   // 1. Xử lý tạo User mới
   const handleCreateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1618,8 +1624,8 @@ export const AdminPage: React.FC = () => {
           {[
             { id: 'users', label: `Tài khoản & Nhân sự (${profiles.length})`, icon: Users },
             { id: 'teams', label: isCompanyAdmin ? `Cơ Cấu Tổ Chức (${regions.length} Vùng • ${agencies.length} Sàn • ${teams.length} Team)` : `Cơ cấu Tổ Chức (${organizations.length} DN • ${regions.length} Vùng • ${agencies.length} Sàn • ${teams.length} Team)`, icon: Building2 },
-            { id: 'permissions', label: 'Ma Trận Phân Quyền 10 Vai Trò', icon: KeyRound },
-            ...(!isCompanyAdmin ? [
+            ...(currentUser?.role === 'admin' ? [
+              { id: 'permissions', label: 'Ma Trận Phân Quyền 10 Vai Trò', icon: KeyRound },
               { id: 'auto_transfer', label: 'Tự Động Chuyển Lead & Email', icon: Clock },
               { id: 'trash_bin', label: `Thùng Rác Quản Trị (${trashItems.length})`, icon: Trash2 },
               { id: 'audit_diff', label: 'Nhật Ký Kiểm Toán (Audit Diff)', icon: History },
@@ -2239,8 +2245,8 @@ export const AdminPage: React.FC = () => {
         </div>
       )}
 
-      {/* 4. TAB 3: PERMISSION MATRIX 9 VAI TRÒ */}
-      {activeTab === 'permissions' && (
+      {/* 4. TAB 3: PERMISSION MATRIX 10 VAI TRÒ (Chỉ hiển thị cho Quản Trị Tổng) */}
+      {activeTab === 'permissions' && currentUser?.role === 'admin' && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
