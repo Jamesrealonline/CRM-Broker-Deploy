@@ -840,8 +840,11 @@ export class TeamRepository {
       if (targetUser.organization_id && currentUser.organization_id && targetUser.organization_id !== currentUser.organization_id) {
         return { success: false, error: 'Quản Trị Doanh Nghiệp chỉ được sửa tài khoản thuộc doanh nghiệp của mình.' };
       }
-      if (['admin', 'ceo', 'company_admin'].includes(targetUser.role) && targetUser.id !== currentUser.id) {
-        return { success: false, error: 'Quản Trị Doanh Nghiệp không thể chỉnh sửa tài khoản Admin, CEO hoặc Quản Trị Doanh Nghiệp khác.' };
+      if (['admin', 'ceo'].includes(targetUser.role)) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không thể chỉnh sửa tài khoản Admin hoặc CEO.' };
+      }
+      if (targetUser.role === 'company_admin' && input.role && input.role !== 'company_admin') {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền thay đổi vai trò của tài khoản Quản Trị Doanh Nghiệp.' };
       }
       if (input.role && ['admin', 'ceo', 'company_admin'].includes(input.role) && targetUser.role !== input.role) {
         return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền thăng cấp tài khoản lên Admin, CEO hoặc Quản Trị Doanh Nghiệp.' };
@@ -1621,8 +1624,24 @@ export class TeamRepository {
     agencyId?: string | null,
     teamId?: string | null,
     regionId?: string | null,
-    organizationId?: string | null
+    organizationId?: string | null,
+    currentUser?: UserProfile | null
   ): Promise<{ success: boolean; error?: string }> {
+    if (currentUser && currentUser.role === 'company_admin') {
+      const allProfiles = await this.getProfiles(undefined, undefined, undefined, true);
+      const targetUser = allProfiles.find(p => p.id === userId);
+
+      if (targetUser && targetUser.role === 'company_admin') {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền thay đổi vai trò của tài khoản Quản Trị Doanh Nghiệp.' };
+      }
+      if (['admin', 'ceo', 'company_admin'].includes(role)) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền bổ nhiệm vai trò Quản Trị Doanh Nghiệp, CEO hoặc Admin.' };
+      }
+      if (targetUser?.organization_id && currentUser.organization_id && targetUser.organization_id !== currentUser.organization_id) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp chỉ được bổ nhiệm nhân sự thuộc doanh nghiệp của mình.' };
+      }
+    }
+
     const sanitized = this.sanitizeRoleHierarchy(role, organizationId, regionId, agencyId, teamId);
 
     if (isLiveSupabaseConfigured) {

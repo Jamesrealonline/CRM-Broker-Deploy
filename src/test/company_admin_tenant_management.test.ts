@@ -604,5 +604,68 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
       expect(failRes.success).toBe(false);
       expect(failRes.error).toContain('Chỉ Quản Trị Tổng (Admin)');
     });
+
+    it('Company Admin KHÔNG có quyền thay đổi vai trò (role) của tài khoản Company Admin', async () => {
+      // 1. Tạo tài khoản Company Admin trong Org A
+      const createAdminRes = await teamRepository.createUser({
+        full_name: 'Quản Trị Viên Chi Nhánh A',
+        email: 'admin.branch.a@diaocvang.vn',
+        phone: '0912999888',
+        role: 'company_admin',
+        organization_id: orgA.id,
+      }, superAdmin);
+      expect(createAdminRes.success).toBe(true);
+      const companyAdminUser = createAdminRes.profile!;
+
+      // 2. Company Admin cố gắng đổi role của Company Admin sang 'regional_director' hoặc 'sale_agent' -> Bị từ chối
+      const updateRoleAttempt = await teamRepository.updateUser(
+        companyAdminUser.id,
+        {
+          role: 'regional_director',
+        },
+        compAdminA
+      );
+      expect(updateRoleAttempt.success).toBe(false);
+      expect(updateRoleAttempt.error).toContain('Quản Trị Doanh Nghiệp không có quyền thay đổi vai trò của tài khoản Quản Trị Doanh Nghiệp');
+
+      // 3. Company Admin cố gắng dùng assignRole để đổi vai trò của Company Admin -> Bị từ chối
+      const assignRoleAttempt = await teamRepository.assignRole(
+        companyAdminUser.id,
+        'director',
+        null,
+        null,
+        null,
+        orgA.id,
+        compAdminA
+      );
+      expect(assignRoleAttempt.success).toBe(false);
+      expect(assignRoleAttempt.error).toContain('Quản Trị Doanh Nghiệp không có quyền thay đổi vai trò của tài khoản Quản Trị Doanh Nghiệp');
+
+      // 4. Company Admin cố gắng thăng cấp một nhân sự thường lên 'company_admin' -> Bị từ chối
+      const promoteAttempt = await teamRepository.assignRole(
+        saleA.id,
+        'company_admin',
+        null,
+        null,
+        null,
+        orgA.id,
+        compAdminA
+      );
+      expect(promoteAttempt.success).toBe(false);
+      expect(promoteAttempt.error).toContain('Quản Trị Doanh Nghiệp không có quyền bổ nhiệm vai trò');
+
+      // 5. Company Admin vẫn được quyền sửa thông tin cá nhân (họ tên, sđt) của nhân sự thuộc DN mình
+      const updateInfoAttempt = await teamRepository.updateUser(
+        companyAdminUser.id,
+        {
+          full_name: 'Quản Trị Viên Chi Nhánh A (Cập nhật SĐT)',
+          phone: '0988776655',
+        },
+        compAdminA
+      );
+      expect(updateInfoAttempt.success).toBe(true);
+      expect(updateInfoAttempt.profile?.full_name).toBe('Quản Trị Viên Chi Nhánh A (Cập nhật SĐT)');
+      expect(updateInfoAttempt.profile?.role).toBe('company_admin');
+    });
   });
 });

@@ -1420,6 +1420,10 @@ export const AdminPage: React.FC = () => {
 
   // 4. Xử lý Bổ nhiệm / Thay đổi vai trò nhân sự
   const handleOpenRoleModal = (user: UserProfile) => {
+    if (isCompanyAdmin && user.role === 'company_admin') {
+      alert('Quản Trị Doanh Nghiệp không có quyền thay đổi chức vụ của tài khoản Quản Trị Doanh Nghiệp.');
+      return;
+    }
     setSelectedUserForRole(user);
     setTargetRole(user.role);
     setTargetAgencyId(user.agency_id || '');
@@ -1444,7 +1448,8 @@ export const AdminPage: React.FC = () => {
         targetAgencyId || null,
         targetTeamId || null,
         targetRegionId || null,
-        targetOrgId || null
+        targetOrgId || null,
+        currentUser
       );
 
       if (result.success) {
@@ -1778,15 +1783,17 @@ export const AdminPage: React.FC = () => {
                             >
                               <Edit className="h-3 w-3 mr-1 text-slate-500" /> Sửa
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleOpenRoleModal(p)}
-                              className="text-[11px] py-1 px-2 border-blue-200 text-blue-700 hover:bg-blue-50"
-                              title="Bổ nhiệm Giám đốc sàn, Sales Manager, Trưởng nhóm hoặc đổi phòng ban"
-                            >
-                              <Award className="h-3 w-3 mr-1" /> Bổ nhiệm
-                            </Button>
+                            {(!isCompanyAdmin || p.role !== 'company_admin') && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleOpenRoleModal(p)}
+                                className="text-[11px] py-1 px-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+                                title="Bổ nhiệm Giám đốc sàn, Sales Manager, Trưởng nhóm hoặc đổi phòng ban"
+                              >
+                                <Award className="h-3 w-3 mr-1" /> Bổ nhiệm
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="outline"
@@ -3941,34 +3948,46 @@ function doGet(e) {
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Vai trò (Role) <span className="text-red-500">*</span>
               </label>
-              <select
-                value={editUserForm.role}
-                onChange={(e) => {
-                  const role = e.target.value as UserRole;
-                  const sanitized = teamRepository.sanitizeRoleHierarchy(
-                    role,
-                    editUserForm.organization_id,
-                    editUserForm.region_id,
-                    editUserForm.agency_id,
-                    editUserForm.team_id
-                  );
-                  setEditUserForm({
-                    ...editUserForm,
-                    role,
-                    organization_id: sanitized.organization_id,
-                    region_id: sanitized.region_id,
-                    agency_id: sanitized.agency_id,
-                    team_id: sanitized.team_id,
-                  });
-                }}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
-              >
-                {USER_ROLES
-                  .filter((r) => !isCompanyAdmin || !['admin', 'ceo', 'company_admin'].includes(r.value))
-                  .map((r) => (
-                    <option key={r.value} value={r.value}>{r.label.split('(')[0]}</option>
-                  ))}
-              </select>
+              {isCompanyAdmin && selectedUserForEdit?.role === 'company_admin' ? (
+                <div>
+                  <div className="w-full py-2 px-3 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 font-semibold flex items-center justify-between">
+                    <span>Quản Trị Doanh Nghiệp (Company Admin)</span>
+                    <span className="text-[10px] text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded font-normal">Chỉ đọc</span>
+                  </div>
+                  <p className="text-[11px] text-amber-700 mt-1 italic">
+                    * Quản Trị Doanh Nghiệp không có quyền thay đổi vai trò của tài khoản Quản Trị Doanh Nghiệp. Chỉ Quản Trị Tổng (Admin) mới có quyền thay đổi.
+                  </p>
+                </div>
+              ) : (
+                <select
+                  value={editUserForm.role}
+                  onChange={(e) => {
+                    const role = e.target.value as UserRole;
+                    const sanitized = teamRepository.sanitizeRoleHierarchy(
+                      role,
+                      editUserForm.organization_id,
+                      editUserForm.region_id,
+                      editUserForm.agency_id,
+                      editUserForm.team_id
+                    );
+                    setEditUserForm({
+                      ...editUserForm,
+                      role,
+                      organization_id: sanitized.organization_id,
+                      region_id: sanitized.region_id,
+                      agency_id: sanitized.agency_id,
+                      team_id: sanitized.team_id,
+                    });
+                  }}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                >
+                  {USER_ROLES
+                    .filter((r) => !isCompanyAdmin || !['admin', 'ceo', 'company_admin'].includes(r.value))
+                    .map((r) => (
+                      <option key={r.value} value={r.value}>{r.label.split('(')[0]}</option>
+                    ))}
+                </select>
+              )}
             </div>
 
             <div>
@@ -6012,29 +6031,43 @@ function doGet(e) {
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               Bổ nhiệm vai trò mới (Role) <span className="text-red-500">*</span>
             </label>
-            <select
-              value={targetRole}
-              onChange={(e) => {
-                const newRole = e.target.value as UserRole;
-                setTargetRole(newRole);
-                const sanitized = teamRepository.sanitizeRoleHierarchy(
-                  newRole,
-                  targetOrgId,
-                  targetRegionId,
-                  targetAgencyId,
-                  targetTeamId
-                );
-                setTargetOrgId(sanitized.organization_id || '');
-                setTargetRegionId(sanitized.region_id || '');
-                setTargetAgencyId(sanitized.agency_id || '');
-                setTargetTeamId(sanitized.team_id || '');
-              }}
-              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-bold text-blue-700"
-            >
-              {USER_ROLES.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
+            {isCompanyAdmin && selectedUserForRole?.role === 'company_admin' ? (
+              <div>
+                <div className="w-full py-2 px-3 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 font-semibold flex items-center justify-between">
+                  <span>Quản Trị Doanh Nghiệp (Company Admin)</span>
+                  <span className="text-[10px] text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded font-normal">Chỉ đọc</span>
+                </div>
+                <p className="text-[11px] text-amber-700 mt-1 italic">
+                  * Quản Trị Doanh Nghiệp không có quyền thay đổi chức vụ của tài khoản Quản Trị Doanh Nghiệp. Chỉ Quản Trị Tổng (Admin) mới có quyền thực hiện.
+                </p>
+              </div>
+            ) : (
+              <select
+                value={targetRole}
+                onChange={(e) => {
+                  const newRole = e.target.value as UserRole;
+                  setTargetRole(newRole);
+                  const sanitized = teamRepository.sanitizeRoleHierarchy(
+                    newRole,
+                    targetOrgId,
+                    targetRegionId,
+                    targetAgencyId,
+                    targetTeamId
+                  );
+                  setTargetOrgId(sanitized.organization_id || '');
+                  setTargetRegionId(sanitized.region_id || '');
+                  setTargetAgencyId(sanitized.agency_id || '');
+                  setTargetTeamId(sanitized.team_id || '');
+                }}
+                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-bold text-blue-700"
+              >
+                {USER_ROLES
+                  .filter((r) => !isCompanyAdmin || !['admin', 'ceo', 'company_admin'].includes(r.value))
+                  .map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+              </select>
+            )}
             <p className="text-[10px] text-slate-400 mt-1">
               {['admin', 'company_admin', 'ceo', 'marketing_manager', 'hr_admin'].includes(targetRole) && 'Cấp cao hơn Giám Đốc Vùng: Quản trị cấp Công ty / Toàn doanh nghiệp, không cần bổ nhiệm Vùng, Sàn hay Team.'}
               {targetRole === 'regional_director' && 'Giám Đốc Vùng: Cấp cao hơn Trưởng phòng/Sàn, quản lý toàn bộ Vùng kinh doanh (không phân công vào Sàn hay Team cụ thể).'}
@@ -6245,6 +6278,7 @@ function doGet(e) {
               type="submit"
               variant="primary"
               size="sm"
+              disabled={isCompanyAdmin && selectedUserForRole?.role === 'company_admin'}
               isLoading={isSubmitting}
             >
               Xác nhận Bổ nhiệm
