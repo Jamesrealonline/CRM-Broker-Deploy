@@ -197,6 +197,9 @@ export class TeamRepository {
             admin_name: o.admin_name || compAdmin?.full_name,
           };
         });
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(result));
+        }
       }
     } else {
       const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_ORGANIZATIONS) : null;
@@ -526,6 +529,9 @@ export class TeamRepository {
             director_name: director ? director.full_name : undefined,
           };
         });
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY_AGENCIES, JSON.stringify(result));
+        }
       }
     } else {
       const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_AGENCIES) : null;
@@ -1659,6 +1665,9 @@ export class TeamRepository {
             regional_director_name: dir ? dir.full_name : undefined,
           };
         });
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(STORAGE_KEY_REGIONS, JSON.stringify(result));
+        }
       }
     } else {
       const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_REGIONS) : null;

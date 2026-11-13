@@ -383,11 +383,11 @@ export const AdminPage: React.FC = () => {
   const reloadData = async () => {
     setLoading(true);
     const [uList, aList, tList, rList, oList, logs, aConfig, eConfig, nLogs] = await Promise.all([
-      teamRepository.getProfiles(),
-      teamRepository.getAgencies(),
-      teamRepository.getTeams(),
-      teamRepository.getRegions(),
-      teamRepository.getOrganizations(),
+      teamRepository.getProfiles(undefined, undefined, currentUser || undefined),
+      teamRepository.getAgencies(undefined, currentUser || undefined),
+      teamRepository.getTeams(undefined, currentUser || undefined),
+      teamRepository.getRegions(currentUser || undefined),
+      teamRepository.getOrganizations(currentUser || undefined),
       auditRepository.getAuditLogs(),
       autoTransferService.getConfig(),
       notificationService.getEmailConfig(),
@@ -398,7 +398,12 @@ export const AdminPage: React.FC = () => {
     setTeams(tList);
     setRegions(rList);
     setOrganizations(oList);
-    setAuditLogs(logs);
+    if (isCompanyAdmin && currentUser?.organization_id) {
+      const allowedUserIds = new Set(uList.map(u => u.id));
+      setAuditLogs(logs.filter(l => l.user_id ? allowedUserIds.has(l.user_id) : false));
+    } else {
+      setAuditLogs(logs);
+    }
     setAutoTransferConfig(aConfig);
     setEmailConfig(eConfig);
     setNotificationLogs(nLogs);
@@ -560,7 +565,7 @@ export const AdminPage: React.FC = () => {
 
   useEffect(() => {
     reloadData();
-  }, []);
+  }, [currentUser]);
 
   // 1. Xử lý tạo User mới
   const handleCreateUserSubmit = async (e: React.FormEvent) => {
@@ -1492,6 +1497,9 @@ export const AdminPage: React.FC = () => {
 
   // Filter profiles
   const filteredProfiles = profiles.filter(p => {
+    if (currentUser?.role !== 'admin' && currentUser?.organization_id) {
+      if (p.organization_id !== currentUser.organization_id) return false;
+    }
     const matchSearch = 
       p.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1607,13 +1615,18 @@ export const AdminPage: React.FC = () => {
         <div className="flex flex-wrap border-b border-slate-200 gap-4 text-xs font-semibold">
           {[
             { id: 'users', label: `Tài khoản & Nhân sự (${profiles.length})`, icon: Users },
-            { id: 'teams', label: `Cơ cấu Tổ Chức (${organizations.length} DN • ${regions.length} Vùng • ${agencies.length} Sàn • ${teams.length} Team)`, icon: Building2 },
+            { id: 'teams', label: isCompanyAdmin ? `Cơ Cấu Tổ Chức (${regions.length} Vùng • ${agencies.length} Sàn • ${teams.length} Team)` : `Cơ cấu Tổ Chức (${organizations.length} DN • ${regions.length} Vùng • ${agencies.length} Sàn • ${teams.length} Team)`, icon: Building2 },
             { id: 'permissions', label: 'Ma Trận Phân Quyền 10 Vai Trò', icon: KeyRound },
-            { id: 'auto_transfer', label: 'Tự Động Chuyển Lead & Email', icon: Clock },
-            { id: 'trash_bin', label: `Thùng Rác Quản Trị (${trashItems.length})`, icon: Trash2 },
-            { id: 'audit_diff', label: 'Nhật Ký Kiểm Toán (Audit Diff)', icon: History },
-            { id: 'settings', label: 'Cấu hình Hệ thống', icon: Sliders },
-            { id: 'audit', label: 'Nhật ký Bảo mật (Audit)', icon: ShieldAlert },
+            ...(!isCompanyAdmin ? [
+              { id: 'auto_transfer', label: 'Tự Động Chuyển Lead & Email', icon: Clock },
+              { id: 'trash_bin', label: `Thùng Rác Quản Trị (${trashItems.length})`, icon: Trash2 },
+              { id: 'audit_diff', label: 'Nhật Ký Kiểm Toán (Audit Diff)', icon: History },
+              { id: 'settings', label: 'Cấu hình Hệ thống', icon: Sliders },
+              { id: 'audit', label: 'Nhật ký Bảo mật (Audit)', icon: ShieldAlert },
+            ] : [
+              { id: 'trash_bin', label: `Thùng Rác (${trashItems.length})`, icon: Trash2 },
+              { id: 'audit', label: 'Nhật ký Hoạt động', icon: ShieldAlert },
+            ])
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -1824,10 +1837,14 @@ export const AdminPage: React.FC = () => {
               <div>
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Crown className="h-4 w-4 text-amber-500" />
-                  Danh Sách Doanh Nghiệp & Tổng Giám Đốc (CEO) ({organizations.length} Doanh Nghiệp)
+                  {isCompanyAdmin 
+                    ? `Thông Tin Doanh Nghiệp Quản Trị (${organizations.length === 1 ? organizations[0].name : '1 Doanh Nghiệp'})`
+                    : `Danh Sách Doanh Nghiệp & Tổng Giám Đốc (CEO) (${organizations.length} Doanh Nghiệp)`}
                 </CardTitle>
                 <p className="text-xs text-slate-500">
-                  Cấp quản trị cao nhất, mỗi doanh nghiệp có CEO trực tiếp điều hành toàn bộ các Vùng, Sàn, Marketing và HR.
+                  {isCompanyAdmin
+                    ? 'Thông tin pháp lý và ban lãnh đạo điều hành doanh nghiệp của bạn.'
+                    : 'Cấp quản trị cao nhất, mỗi doanh nghiệp có CEO trực tiếp điều hành toàn bộ các Vùng, Sàn, Marketing và HR.'}
                 </p>
               </div>
               {!isCompanyAdmin && (

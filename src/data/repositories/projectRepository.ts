@@ -36,7 +36,11 @@ export class ProjectRepository {
   async getProjects(currentUser?: UserProfile): Promise<Project[]> {
     let list: Project[] = [];
     if (isLiveSupabaseConfigured) {
-      const { data, error } = await supabase.from('projects').select('*').order('created_at', { ascending: false });
+      let query = supabase.from('projects').select('*').order('created_at', { ascending: false });
+      if (currentUser && currentUser.role !== 'admin' && currentUser.organization_id) {
+        query = query.eq('organization_id', currentUser.organization_id);
+      }
+      const { data, error } = await query;
       if (error) throw new Error(error.message);
       list = data as Project[];
     } else {
@@ -55,7 +59,7 @@ export class ProjectRepository {
   }
 
   async getProjectById(id: string, currentUser?: UserProfile): Promise<Project | null> {
-    const list = await this.getProjects();
+    const list = await this.getProjects(currentUser);
     const proj = list.find(p => p.id === id) || null;
     if (proj && currentUser && !branchHierarchyService.canAccessProject(currentUser, proj)) {
       return null;

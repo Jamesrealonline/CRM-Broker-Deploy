@@ -89,6 +89,14 @@ export const ProjectsPage: React.FC = () => {
             <Skeleton key={i} className="h-56 rounded-xl" />
           ))}
         </div>
+      ) : projects.length === 0 ? (
+        <div className="bg-white p-12 text-center rounded-xl border border-dashed border-slate-300">
+          <Building2 className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+          <h3 className="text-sm font-bold text-slate-700">Chưa có dự án nào</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+            Doanh nghiệp của bạn hiện chưa có dự án nào. Bấm vào nút "Thêm dự án mới" để bắt đầu thiết lập thông tin và cơ sở tri thức AI.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {projects.map((proj) => (
