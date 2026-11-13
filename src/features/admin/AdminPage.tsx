@@ -3587,7 +3587,24 @@ function doGet(e) {
               </label>
               <select
                 value={newUser.role}
-                onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
+                onChange={(e) => {
+                  const role = e.target.value as UserRole;
+                  const sanitized = teamRepository.sanitizeRoleHierarchy(
+                    role,
+                    newUser.organization_id,
+                    newUser.region_id,
+                    newUser.agency_id,
+                    newUser.team_id
+                  );
+                  setNewUser({
+                    ...newUser,
+                    role,
+                    organization_id: sanitized.organization_id,
+                    region_id: sanitized.region_id,
+                    agency_id: sanitized.agency_id,
+                    team_id: sanitized.team_id,
+                  });
+                }}
                 className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
               >
                 {USER_ROLES
@@ -3606,12 +3623,12 @@ function doGet(e) {
                 value={isCompanyAdmin ? (currentUser?.organization_id || '') : (newUser.organization_id || '')}
                 disabled={isCompanyAdmin}
                 required={newUser.role === 'company_admin'}
-                onChange={(e) => setNewUser({ ...newUser, organization_id: e.target.value || null })}
+                onChange={(e) => setNewUser({ ...newUser, organization_id: e.target.value || null, region_id: null, agency_id: null, team_id: null })}
                 className={`w-full py-2 px-3 bg-slate-50 border rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 disabled:opacity-75 disabled:bg-slate-100 ${
                   newUser.role === 'company_admin' ? 'border-blue-400 bg-blue-50/20 font-medium' : 'border-slate-200'
                 }`}
               >
-                <option value="">{newUser.role === 'company_admin' ? '-- Chọn Doanh Nghiệp gán quyền --' : '(Không gán DN / Mặc định)'}</option>
+                <option value="">{newUser.role === 'company_admin' ? '-- Chọn Doanh Nghiệp gán quyền --' : newUser.role === 'admin' ? '(Quản trị toàn hệ thống / Không gán DN)' : '(Không gán DN / Mặc định)'}</option>
                 {organizations.map((o) => (
                   <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
                 ))}
@@ -3619,55 +3636,155 @@ function doGet(e) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Thuộc Vùng kinh doanh
-              </label>
-              <select
-                value={newUser.region_id || ''}
-                onChange={(e) => setNewUser({ ...newUser, region_id: e.target.value || null })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán vùng)</option>
-                {regions.map((r) => (
-                  <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
-                ))}
-              </select>
+          {/* Phân cấp Vùng / Sàn / Team theo chuẩn vai trò */}
+          {['admin', 'company_admin', 'ceo', 'marketing_manager', 'hr_admin'].includes(newUser.role) ? (
+            <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 shrink-0 text-blue-600 mt-0.5" />
+              <div>
+                <p className="font-semibold">Vai trò cấp Doanh Nghiệp / Toàn Công Ty</p>
+                <p className="text-[11px] text-blue-700 mt-0.5 leading-relaxed">
+                  Cấp cao hơn Giám Đốc Vùng điều hành toàn bộ công ty, không cần bổ nhiệm vào Vùng, Sàn hoặc Đội nhóm kinh doanh.
+                </p>
+              </div>
             </div>
+          ) : newUser.role === 'regional_director' ? (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Vùng Kinh Doanh <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newUser.region_id || ''}
+                  required
+                  onChange={(e) => setNewUser({ ...newUser, region_id: e.target.value || null, agency_id: null, team_id: null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">-- Chọn Vùng Kinh Doanh phụ trách --</option>
+                  {regions
+                    .filter(r => !newUser.organization_id || r.organization_id === newUser.organization_id)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Quản Trị Toàn Vùng Kinh Doanh</p>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    Giám Đốc Vùng quản lý tất cả các Sàn giao dịch và Đội nhóm trong Vùng, không phân công vào Sàn hoặc Team cụ thể.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : ['director', 'sales_manager'].includes(newUser.role) ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Thuộc Vùng Kinh Doanh
+                  </label>
+                  <select
+                    value={newUser.region_id || ''}
+                    onChange={(e) => setNewUser({ ...newUser, region_id: e.target.value || null, agency_id: null, team_id: null })}
+                    className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">(Tất cả / Không gán vùng)</option>
+                    {regions
+                      .filter(r => !newUser.organization_id || r.organization_id === newUser.organization_id)
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Thuộc Sàn Giao Dịch <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={newUser.agency_id || ''}
+                    required
+                    onChange={(e) => setNewUser({ ...newUser, agency_id: e.target.value || null, team_id: null })}
+                    className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                  >
+                    <option value="">-- Chọn Sàn Giao Dịch --</option>
+                    {agencies
+                      .filter(a => (!newUser.region_id || a.region_id === newUser.region_id) && (!newUser.organization_id || a.organization_id === newUser.organization_id))
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-lg text-xs text-indigo-800 flex items-start gap-2">
+                <Building2 className="w-4 h-4 shrink-0 text-indigo-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Quản Trị Cấp Sàn Giao Dịch</p>
+                  <p className="text-[11px] text-indigo-700 mt-0.5">
+                    {newUser.role === 'director' ? 'Giám Đốc Sàn' : 'Trưởng Phòng KD'} điều hành toàn bộ các Team trong Sàn, không trực thuộc riêng 1 Team cụ thể.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Vùng kinh doanh
+                </label>
+                <select
+                  value={newUser.region_id || ''}
+                  onChange={(e) => setNewUser({ ...newUser, region_id: e.target.value || null, agency_id: null, team_id: null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">(Không gán vùng)</option>
+                  {regions
+                    .filter(r => !newUser.organization_id || r.organization_id === newUser.organization_id)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                    ))}
+                </select>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Thuộc Sàn giao dịch
-              </label>
-              <select
-                value={newUser.agency_id || ''}
-                onChange={(e) => setNewUser({ ...newUser, agency_id: e.target.value || null, team_id: null })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán sàn)</option>
-                {agencies.map((a) => (
-                  <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
-                ))}
-              </select>
-            </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Sàn giao dịch <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newUser.agency_id || ''}
+                  required
+                  onChange={(e) => setNewUser({ ...newUser, agency_id: e.target.value || null, team_id: null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">(Không gán sàn)</option>
+                  {agencies
+                    .filter(a => (!newUser.region_id || a.region_id === newUser.region_id) && (!newUser.organization_id || a.organization_id === newUser.organization_id))
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                    ))}
+                </select>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Thuộc Team kinh doanh
-              </label>
-              <select
-                value={newUser.team_id || ''}
-                onChange={(e) => setNewUser({ ...newUser, team_id: e.target.value || null })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán team)</option>
-                {availableTeamsForSelectedAgency.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Team kinh doanh {newUser.role === 'team_leader' ? <span className="text-red-500">*</span> : ''}
+                </label>
+                <select
+                  value={newUser.team_id || ''}
+                  required={newUser.role === 'team_leader'}
+                  onChange={(e) => setNewUser({ ...newUser, team_id: e.target.value || null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">(Không gán team)</option>
+                  {teams
+                    .filter(t => !newUser.agency_id || t.agency_id === newUser.agency_id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                    ))}
+                </select>
+              </div>
             </div>
-          </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -3801,7 +3918,24 @@ function doGet(e) {
               </label>
               <select
                 value={editUserForm.role}
-                onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value as any })}
+                onChange={(e) => {
+                  const role = e.target.value as UserRole;
+                  const sanitized = teamRepository.sanitizeRoleHierarchy(
+                    role,
+                    editUserForm.organization_id,
+                    editUserForm.region_id,
+                    editUserForm.agency_id,
+                    editUserForm.team_id
+                  );
+                  setEditUserForm({
+                    ...editUserForm,
+                    role,
+                    organization_id: sanitized.organization_id,
+                    region_id: sanitized.region_id,
+                    agency_id: sanitized.agency_id,
+                    team_id: sanitized.team_id,
+                  });
+                }}
                 className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
               >
                 {USER_ROLES
@@ -3828,82 +3962,174 @@ function doGet(e) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Thuộc Doanh Nghiệp {editUserForm.role === 'company_admin' ? <span className="text-red-500">* (Bắt buộc)</span> : '(CEO)'}
-              </label>
-              <select
-                value={isCompanyAdmin ? (currentUser?.organization_id || '') : (editUserForm.organization_id || '')}
-                disabled={isCompanyAdmin}
-                onChange={(e) => setEditUserForm({ ...editUserForm, organization_id: e.target.value || null })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 disabled:opacity-75 disabled:bg-slate-100"
-              >
-                <option value="">(Không gán DN / Mặc định)</option>
-                {organizations.map((o) => (
-                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Thuộc Vùng kinh doanh
-              </label>
-              <select
-                value={editUserForm.region_id || ''}
-                onChange={(e) => setEditUserForm({ ...editUserForm, region_id: e.target.value || null })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán vùng)</option>
-                {regions
-                  .filter(r => !editUserForm.organization_id || r.organization_id === editUserForm.organization_id)
-                  .map((r) => (
-                    <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
-                  ))}
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Thuộc Doanh Nghiệp {editUserForm.role === 'company_admin' ? <span className="text-red-500">* (Bắt buộc)</span> : '(CEO)'}
+            </label>
+            <select
+              value={isCompanyAdmin ? (currentUser?.organization_id || '') : (editUserForm.organization_id || '')}
+              disabled={isCompanyAdmin}
+              onChange={(e) => setEditUserForm({ ...editUserForm, organization_id: e.target.value || null, region_id: null, agency_id: null, team_id: null })}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 disabled:opacity-75 disabled:bg-slate-100"
+            >
+              <option value="">{editUserForm.role === 'admin' ? '(Quản trị toàn hệ thống / Không gán DN)' : '(Không gán DN / Mặc định)'}</option>
+              {organizations.map((o) => (
+                <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+              ))}
+            </select>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Thuộc Sàn giao dịch
-              </label>
-              <select
-                value={editUserForm.agency_id || ''}
-                onChange={(e) => {
-                  setEditUserForm({ ...editUserForm, agency_id: e.target.value || null, team_id: null });
-                }}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán sàn)</option>
-                {agencies
-                  .filter(a => !editUserForm.region_id || a.region_id === editUserForm.region_id)
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
-                  ))}
-              </select>
+          {/* Phân cấp Vùng / Sàn / Team theo chuẩn vai trò */}
+          {['admin', 'company_admin', 'ceo', 'marketing_manager', 'hr_admin'].includes(editUserForm.role || '') ? (
+            <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 shrink-0 text-blue-600 mt-0.5" />
+              <div>
+                <p className="font-semibold">Vai trò cấp Doanh Nghiệp / Toàn Công Ty</p>
+                <p className="text-[11px] text-blue-700 mt-0.5 leading-relaxed">
+                  Cấp cao hơn Giám Đốc Vùng điều hành toàn bộ công ty, không cần bổ nhiệm vào Vùng, Sàn hoặc Đội nhóm kinh doanh.
+                </p>
+              </div>
             </div>
+          ) : editUserForm.role === 'regional_director' ? (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Vùng Kinh Doanh <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={editUserForm.region_id || ''}
+                  required
+                  onChange={(e) => setEditUserForm({ ...editUserForm, region_id: e.target.value || null, agency_id: null, team_id: null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">-- Chọn Vùng Kinh Doanh phụ trách --</option>
+                  {regions
+                    .filter(r => !editUserForm.organization_id || r.organization_id === editUserForm.organization_id)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Quản Trị Toàn Vùng Kinh Doanh</p>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    Giám Đốc Vùng quản lý tất cả các Sàn giao dịch và Đội nhóm trong Vùng, không phân công vào Sàn hoặc Team cụ thể.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : ['director', 'sales_manager'].includes(editUserForm.role || '') ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Thuộc Vùng Kinh Doanh
+                  </label>
+                  <select
+                    value={editUserForm.region_id || ''}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, region_id: e.target.value || null, agency_id: null, team_id: null })}
+                    className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">(Tất cả / Không gán vùng)</option>
+                    {regions
+                      .filter(r => !editUserForm.organization_id || r.organization_id === editUserForm.organization_id)
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Thuộc Sàn Giao Dịch <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={editUserForm.agency_id || ''}
+                    required
+                    onChange={(e) => setEditUserForm({ ...editUserForm, agency_id: e.target.value || null, team_id: null })}
+                    className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                  >
+                    <option value="">-- Chọn Sàn Giao Dịch --</option>
+                    {agencies
+                      .filter(a => (!editUserForm.region_id || a.region_id === editUserForm.region_id) && (!editUserForm.organization_id || a.organization_id === editUserForm.organization_id))
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-lg text-xs text-indigo-800 flex items-start gap-2">
+                <Building2 className="w-4 h-4 shrink-0 text-indigo-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Quản Trị Cấp Sàn Giao Dịch</p>
+                  <p className="text-[11px] text-indigo-700 mt-0.5">
+                    {editUserForm.role === 'director' ? 'Giám Đốc Sàn' : 'Trưởng Phòng KD'} điều hành toàn bộ các Team trong Sàn, không trực thuộc riêng 1 Team cụ thể.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Vùng kinh doanh
+                </label>
+                <select
+                  value={editUserForm.region_id || ''}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, region_id: e.target.value || null, agency_id: null, team_id: null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">(Không gán vùng)</option>
+                  {regions
+                    .filter(r => !editUserForm.organization_id || r.organization_id === editUserForm.organization_id)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                    ))}
+                </select>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Thuộc Team kinh doanh
-              </label>
-              <select
-                value={editUserForm.team_id || ''}
-                onChange={(e) => setEditUserForm({ ...editUserForm, team_id: e.target.value || null })}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán team)</option>
-                {teams
-                  .filter(t => !editUserForm.agency_id || t.agency_id === editUserForm.agency_id)
-                  .map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-              </select>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Sàn giao dịch <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={editUserForm.agency_id || ''}
+                  required
+                  onChange={(e) => {
+                    setEditUserForm({ ...editUserForm, agency_id: e.target.value || null, team_id: null });
+                  }}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">(Không gán sàn)</option>
+                  {agencies
+                    .filter(a => (!editUserForm.region_id || a.region_id === editUserForm.region_id) && (!editUserForm.organization_id || a.organization_id === editUserForm.organization_id))
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Team kinh doanh {editUserForm.role === 'team_leader' ? <span className="text-red-500">*</span> : ''}
+                </label>
+                <select
+                  value={editUserForm.team_id || ''}
+                  required={editUserForm.role === 'team_leader'}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, team_id: e.target.value || null })}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">(Không gán team)</option>
+                  {teams
+                    .filter(t => !editUserForm.agency_id || t.agency_id === editUserForm.agency_id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                    ))}
+                </select>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
             <Button
@@ -5763,7 +5989,21 @@ function doGet(e) {
             </label>
             <select
               value={targetRole}
-              onChange={(e) => setTargetRole(e.target.value as UserRole)}
+              onChange={(e) => {
+                const newRole = e.target.value as UserRole;
+                setTargetRole(newRole);
+                const sanitized = teamRepository.sanitizeRoleHierarchy(
+                  newRole,
+                  targetOrgId,
+                  targetRegionId,
+                  targetAgencyId,
+                  targetTeamId
+                );
+                setTargetOrgId(sanitized.organization_id || '');
+                setTargetRegionId(sanitized.region_id || '');
+                setTargetAgencyId(sanitized.agency_id || '');
+                setTargetTeamId(sanitized.team_id || '');
+              }}
               className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-bold text-blue-700"
             >
               {USER_ROLES.map((r) => (
@@ -5771,83 +6011,201 @@ function doGet(e) {
               ))}
             </select>
             <p className="text-[10px] text-slate-400 mt-1">
-              {targetRole === 'director' && 'Giám đốc sàn: Toàn quyền quản trị doanh số và duyệt giao dịch của sàn.'}
-              {targetRole === 'sales_manager' && 'Sales Manager: Quản lý các team kinh doanh, giám sát KPI và chia lead.'}
-              {targetRole === 'team_leader' && 'Trưởng nhóm: Điều hành team, đôn đốc lịch hẹn và chốt deal.'}
-              {targetRole === 'sale_agent' && 'Chuyên viên tư vấn: Chăm sóc khách hàng và tiếp nhận Lead.'}
+              {['admin', 'company_admin', 'ceo', 'marketing_manager', 'hr_admin'].includes(targetRole) && 'Cấp cao hơn Giám Đốc Vùng: Quản trị cấp Công ty / Toàn doanh nghiệp, không cần bổ nhiệm Vùng, Sàn hay Team.'}
+              {targetRole === 'regional_director' && 'Giám Đốc Vùng: Cấp cao hơn Trưởng phòng/Sàn, quản lý toàn bộ Vùng kinh doanh (không phân công vào Sàn hay Team cụ thể).'}
+              {targetRole === 'director' && 'Giám đốc sàn: Cấp cao hơn Trưởng nhóm, toàn quyền điều hành Sàn (không phân công vào Team cụ thể).'}
+              {targetRole === 'sales_manager' && 'Trưởng phòng KD: Cấp cao hơn Trưởng nhóm, quản lý các team trong Sàn (không phân công vào Team cụ thể).'}
+              {targetRole === 'team_leader' && 'Trưởng nhóm: Điều hành Team kinh doanh, đôn đốc KPI và hỗ trợ chốt deal.'}
+              {targetRole === 'sale_agent' && 'Chuyên viên tư vấn: Chăm sóc khách hàng và tiếp nhận Lead theo Team.'}
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Phân công Doanh Nghiệp (CEO)
-              </label>
-              <select
-                value={targetOrgId}
-                onChange={(e) => setTargetOrgId(e.target.value)}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán DN / Mặc định)</option>
-                {organizations.map((o) => (
-                  <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Phân công Vùng Kinh Doanh
-              </label>
-              <select
-                value={targetRegionId}
-                onChange={(e) => setTargetRegionId(e.target.value)}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán vùng)</option>
-                {regions.map((r) => (
-                  <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Phân công Doanh Nghiệp {targetRole === 'company_admin' ? <span className="text-red-500">* (Bắt buộc)</span> : '(CEO)'}
+            </label>
+            <select
+              value={targetOrgId}
+              required={targetRole === 'company_admin'}
+              disabled={isCompanyAdmin}
+              onChange={(e) => {
+                const orgId = e.target.value;
+                setTargetOrgId(orgId);
+                setTargetRegionId('');
+                setTargetAgencyId('');
+                setTargetTeamId('');
+              }}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium disabled:opacity-75 disabled:bg-slate-100"
+            >
+              <option value="">{targetRole === 'admin' ? '(Quản trị toàn hệ thống / Không gán DN)' : '(Không gán DN / Mặc định)'}</option>
+              {organizations.map((o) => (
+                <option key={o.id} value={o.id}>{o.code} - {o.name}</option>
+              ))}
+            </select>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Phân công về Sàn
-              </label>
-              <select
-                value={targetAgencyId}
-                onChange={(e) => {
-                  setTargetAgencyId(e.target.value);
-                  setTargetTeamId('');
-                }}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán sàn)</option>
-                {agencies.map((a) => (
-                  <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
-                ))}
-              </select>
+          {/* Cấp cao hơn Giám đốc vùng (admin, company_admin, ceo, marketing_manager, hr_admin): Không cần bổ nhiệm Vùng, Sàn, Team */}
+          {['admin', 'company_admin', 'ceo', 'marketing_manager', 'hr_admin'].includes(targetRole) ? (
+            <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 shrink-0 text-blue-600 mt-0.5" />
+              <div>
+                <p className="font-semibold">Vai trò cấp Doanh Nghiệp / Toàn Công Ty</p>
+                <p className="text-[11px] text-blue-700 mt-0.5 leading-relaxed">
+                  Cấp cao hơn Giám Đốc Vùng điều hành toàn bộ công ty, không cần bổ nhiệm vào Vùng, Sàn hoặc Đội nhóm kinh doanh cụ thể.
+                </p>
+              </div>
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Phân công vào Team
-              </label>
-              <select
-                value={targetTeamId}
-                onChange={(e) => setTargetTeamId(e.target.value)}
-                className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">(Không gán team)</option>
-                {availableTeamsForRoleModal.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
+          ) : targetRole === 'regional_director' ? (
+            /* Giám đốc vùng (regional_director): Cấp cao hơn Trưởng phòng/Sàn -> Chỉ bổ nhiệm Vùng, không cần Sàn, không cần Team */
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Bổ nhiệm Vùng Kinh Doanh <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={targetRegionId}
+                  required
+                  onChange={(e) => setTargetRegionId(e.target.value)}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                >
+                  <option value="">-- Chọn Vùng Kinh Doanh phụ trách --</option>
+                  {regions
+                    .filter(r => !targetOrgId || r.organization_id === targetOrgId)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Quản Trị Toàn Vùng Kinh Doanh</p>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    Giám Đốc Vùng quản lý tất cả các Sàn giao dịch và Đội nhóm trong Vùng, không bổ nhiệm vào Sàn hoặc Team cụ thể.
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : ['director', 'sales_manager'].includes(targetRole) ? (
+            /* Giám đốc sàn & Trưởng phòng KD: Cấp cao hơn Trưởng nhóm -> Bổ nhiệm Vùng và Sàn, không cần Team */
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Thuộc Vùng Kinh Doanh
+                  </label>
+                  <select
+                    value={targetRegionId}
+                    onChange={(e) => {
+                      setTargetRegionId(e.target.value);
+                      setTargetAgencyId('');
+                    }}
+                    className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">(Tất cả / Không gán vùng)</option>
+                    {regions
+                      .filter(r => !targetOrgId || r.organization_id === targetOrgId)
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Bổ nhiệm Sàn Giao Dịch <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={targetAgencyId}
+                    required
+                    onChange={(e) => setTargetAgencyId(e.target.value)}
+                    className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                  >
+                    <option value="">-- Chọn Sàn Giao Dịch --</option>
+                    {agencies
+                      .filter(a => (!targetRegionId || a.region_id === targetRegionId) && (!targetOrgId || a.organization_id === targetOrgId))
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-lg text-xs text-indigo-800 flex items-start gap-2">
+                <Building2 className="w-4 h-4 shrink-0 text-indigo-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Quản Trị Cấp Sàn Giao Dịch</p>
+                  <p className="text-[11px] text-indigo-700 mt-0.5">
+                    {targetRole === 'director' ? 'Giám Đốc Sàn' : 'Trưởng Phòng Kinh Doanh'} điều hành toàn bộ các Team trong Sàn, không bổ nhiệm vào riêng 1 Team cụ thể.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Trưởng nhóm (team_leader) & Chuyên viên (sale_agent): Bổ nhiệm đầy đủ Vùng, Sàn, Team */
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Thuộc Vùng Kinh Doanh
+                  </label>
+                  <select
+                    value={targetRegionId}
+                    onChange={(e) => {
+                      setTargetRegionId(e.target.value);
+                      setTargetAgencyId('');
+                      setTargetTeamId('');
+                    }}
+                    className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">(Tất cả / Không gán vùng)</option>
+                    {regions
+                      .filter(r => !targetOrgId || r.organization_id === targetOrgId)
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Thuộc Sàn Giao Dịch <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={targetAgencyId}
+                    required
+                    onChange={(e) => {
+                      setTargetAgencyId(e.target.value);
+                      setTargetTeamId('');
+                    }}
+                    className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                  >
+                    <option value="">-- Chọn Sàn Giao Dịch --</option>
+                    {agencies
+                      .filter(a => (!targetRegionId || a.region_id === targetRegionId) && (!targetOrgId || a.organization_id === targetOrgId))
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Thuộc Đội Nhóm (Team) {targetRole === 'team_leader' ? <span className="text-red-500">* (Trưởng nhóm)</span> : ''}
+                </label>
+                <select
+                  value={targetTeamId}
+                  required={targetRole === 'team_leader'}
+                  onChange={(e) => setTargetTeamId(e.target.value)}
+                  className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
+                >
+                  <option value="">(Không gán team / Trực thuộc Sàn)</option>
+                  {teams
+                    .filter(t => !targetAgencyId || t.agency_id === targetAgencyId)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
             <Button

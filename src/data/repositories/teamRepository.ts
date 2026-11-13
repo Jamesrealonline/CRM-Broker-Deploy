@@ -676,6 +676,13 @@ export class TeamRepository {
     }
 
     const cleanEmail = input.email.trim().toLowerCase();
+    const sanitized = this.sanitizeRoleHierarchy(
+      input.role,
+      input.organization_id,
+      input.region_id,
+      input.agency_id,
+      input.team_id
+    );
 
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase.rpc('create_user_by_admin', {
@@ -684,8 +691,8 @@ export class TeamRepository {
         p_full_name: input.full_name.trim(),
         p_phone: input.phone.trim(),
         p_role: input.role,
-        p_agency_id: input.agency_id || null,
-        p_team_id: input.team_id || null,
+        p_agency_id: sanitized.agency_id || null,
+        p_team_id: sanitized.team_id || null,
         p_must_change_password: input.must_change_password ?? true,
       });
 
@@ -693,31 +700,33 @@ export class TeamRepository {
         return { success: false, error: error.message };
       }
 
-      if (input.role === 'company_admin' && input.organization_id && data?.id) {
+      if (data?.id) {
+        const updatePayload: any = {};
+        if (sanitized.organization_id !== undefined) updatePayload.organization_id = sanitized.organization_id;
+        if (sanitized.region_id !== undefined) updatePayload.region_id = sanitized.region_id;
+        if (sanitized.agency_id !== undefined) updatePayload.agency_id = sanitized.agency_id;
+        if (sanitized.team_id !== undefined) updatePayload.team_id = sanitized.team_id;
+
+        if (Object.keys(updatePayload).length > 0) {
+          await supabase.from('profiles').update(updatePayload).eq('id', data.id);
+        }
+      }
+
+      if (input.role === 'company_admin' && sanitized.organization_id && data?.id) {
         await supabase
           .from('organizations')
           .update({ admin_id: data.id, updated_at: new Date().toISOString() })
-          .eq('id', input.organization_id);
-
-        await supabase
-          .from('profiles')
-          .update({ organization_id: input.organization_id })
-          .eq('id', data.id);
+          .eq('id', sanitized.organization_id);
       }
 
-      if (input.role === 'ceo' && input.organization_id && data?.id) {
+      if (input.role === 'ceo' && sanitized.organization_id && data?.id) {
         await supabase
           .from('organizations')
           .update({ ceo_id: data.id, updated_at: new Date().toISOString() })
-          .eq('id', input.organization_id);
-
-        await supabase
-          .from('profiles')
-          .update({ organization_id: input.organization_id })
-          .eq('id', data.id);
+          .eq('id', sanitized.organization_id);
       }
 
-      return { success: true, profile: data as UserProfile };
+      return { success: true, profile: { ...data, ...sanitized } as UserProfile };
     }
 
     // Local / Offline fallback
@@ -732,10 +741,10 @@ export class TeamRepository {
       full_name: input.full_name.trim(),
       phone: input.phone.trim(),
       role: input.role,
-      organization_id: input.organization_id || undefined,
-      region_id: input.region_id || undefined,
-      agency_id: input.agency_id || undefined,
-      team_id: input.team_id || undefined,
+      organization_id: sanitized.organization_id || undefined,
+      region_id: sanitized.region_id || undefined,
+      agency_id: sanitized.agency_id || undefined,
+      team_id: sanitized.team_id || undefined,
       status: 'active',
       must_change_password: input.must_change_password ?? true,
       totp_enabled: false,
@@ -857,6 +866,14 @@ export class TeamRepository {
       return { success: false, error: 'Tài khoản Quản Trị Doanh Nghiệp bắt buộc phải chọn Doanh nghiệp để gán.' };
     }
 
+    const sanitized = this.sanitizeRoleHierarchy(
+      finalRole,
+      input.organization_id !== undefined ? input.organization_id : targetUser.organization_id,
+      input.region_id !== undefined ? input.region_id : targetUser.region_id,
+      input.agency_id !== undefined ? input.agency_id : targetUser.agency_id,
+      input.team_id !== undefined ? input.team_id : targetUser.team_id
+    );
+
     // 5. Cập nhật vào DB Supabase hoặc LocalStorage
     if (isLiveSupabaseConfigured) {
       const payload: any = { updated_at: new Date().toISOString() };
@@ -864,10 +881,10 @@ export class TeamRepository {
       if (input.phone !== undefined) payload.phone = input.phone.trim();
       if (input.email !== undefined) payload.email = input.email.trim().toLowerCase();
       if (input.role !== undefined) payload.role = input.role;
-      if (input.organization_id !== undefined) payload.organization_id = input.organization_id || null;
-      if (input.region_id !== undefined) payload.region_id = input.region_id || null;
-      if (input.agency_id !== undefined) payload.agency_id = input.agency_id || null;
-      if (input.team_id !== undefined) payload.team_id = input.team_id || null;
+      payload.organization_id = sanitized.organization_id;
+      payload.region_id = sanitized.region_id;
+      payload.agency_id = sanitized.agency_id;
+      payload.team_id = sanitized.team_id;
       if (input.status !== undefined) payload.status = input.status;
       if (input.employment_type !== undefined) payload.employment_type = input.employment_type;
 
@@ -880,11 +897,11 @@ export class TeamRepository {
 
       if (error) return { success: false, error: error.message };
 
-      if (finalRole === 'company_admin' && finalOrgId) {
+      if (finalRole === 'company_admin' && sanitized.organization_id) {
         await supabase
           .from('organizations')
           .update({ admin_id: userId, updated_at: new Date().toISOString() })
-          .eq('id', finalOrgId);
+          .eq('id', sanitized.organization_id);
       }
 
       return { success: true, profile: data as UserProfile };
@@ -904,10 +921,10 @@ export class TeamRepository {
       ...(input.phone !== undefined && { phone: input.phone.trim() }),
       ...(input.email !== undefined && { email: input.email.trim().toLowerCase() }),
       ...(input.role !== undefined && { role: input.role }),
-      ...(input.organization_id !== undefined && { organization_id: input.organization_id || undefined }),
-      ...(input.region_id !== undefined && { region_id: input.region_id || undefined }),
-      ...(input.agency_id !== undefined && { agency_id: input.agency_id || undefined }),
-      ...(input.team_id !== undefined && { team_id: input.team_id || undefined }),
+      organization_id: sanitized.organization_id || undefined,
+      region_id: sanitized.region_id || undefined,
+      agency_id: sanitized.agency_id || undefined,
+      team_id: sanitized.team_id || undefined,
       ...(input.status !== undefined && { status: input.status }),
       ...(input.employment_type !== undefined && { employment_type: input.employment_type }),
       updated_at: new Date().toISOString(),
@@ -1524,6 +1541,64 @@ export class TeamRepository {
   // BỔ NHIỆM / CHUYỂN ĐỔI VAI TRÒ & PHÒNG BAN
   // (Giám đốc sàn, Trưởng phòng kinh doanh, Trưởng nhóm)
   // ==========================================
+  /**
+   * Chuẩn hóa cấp phân công theo vai trò (Hierarchy Scoping):
+   * 1. Cấp cao hơn Giám đốc vùng (admin, company_admin, ceo, marketing_manager, hr_admin):
+   *    -> Không bổ nhiệm Vùng, Sàn, Team (tất cả null).
+   * 2. Giám đốc vùng (regional_director):
+   *    -> Cấp cao hơn Giám đốc sàn / Trưởng phòng: Chỉ bổ nhiệm Vùng, không bổ nhiệm Sàn hay Team.
+   * 3. Giám đốc sàn & Trưởng phòng KD (director, sales_manager):
+   *    -> Cấp cao hơn Trưởng nhóm: Bổ nhiệm Vùng và Sàn, không bổ nhiệm Team.
+   * 4. Trưởng nhóm & Chuyên viên tư vấn (team_leader, sale_agent):
+   *    -> Bổ nhiệm đầy đủ Vùng, Sàn, Team.
+   */
+  sanitizeRoleHierarchy(
+    role: UserRole,
+    organizationId?: string | null,
+    regionId?: string | null,
+    agencyId?: string | null,
+    teamId?: string | null
+  ): {
+    organization_id: string | null;
+    region_id: string | null;
+    agency_id: string | null;
+    team_id: string | null;
+  } {
+    if (['admin', 'company_admin', 'ceo', 'marketing_manager', 'hr_admin'].includes(role)) {
+      return {
+        organization_id: role === 'admin' ? null : (organizationId || null),
+        region_id: null,
+        agency_id: null,
+        team_id: null,
+      };
+    }
+
+    if (role === 'regional_director') {
+      return {
+        organization_id: organizationId || null,
+        region_id: regionId || null,
+        agency_id: null,
+        team_id: null,
+      };
+    }
+
+    if (['director', 'sales_manager'].includes(role)) {
+      return {
+        organization_id: organizationId || null,
+        region_id: regionId || null,
+        agency_id: agencyId || null,
+        team_id: null,
+      };
+    }
+
+    return {
+      organization_id: organizationId || null,
+      region_id: regionId || null,
+      agency_id: agencyId || null,
+      team_id: teamId || null,
+    };
+  }
+
   async assignRole(
     userId: string,
     role: UserRole,
@@ -1532,15 +1607,17 @@ export class TeamRepository {
     regionId?: string | null,
     organizationId?: string | null
   ): Promise<{ success: boolean; error?: string }> {
+    const sanitized = this.sanitizeRoleHierarchy(role, organizationId, regionId, agencyId, teamId);
+
     if (isLiveSupabaseConfigured) {
       const payload: any = {
         role,
         updated_at: new Date().toISOString(),
+        agency_id: sanitized.agency_id,
+        team_id: sanitized.team_id,
+        region_id: sanitized.region_id,
+        organization_id: sanitized.organization_id,
       };
-      if (agencyId !== undefined) payload.agency_id = agencyId;
-      if (teamId !== undefined) payload.team_id = teamId;
-      if (regionId !== undefined) payload.region_id = regionId;
-      if (organizationId !== undefined) payload.organization_id = organizationId;
 
       const { error } = await supabase.from('profiles').update(payload).eq('id', userId);
       if (error) return { success: false, error: error.message };
@@ -1553,10 +1630,10 @@ export class TeamRepository {
         return {
           ...p,
           role,
-          agency_id: agencyId !== undefined ? (agencyId || undefined) : p.agency_id,
-          team_id: teamId !== undefined ? (teamId || undefined) : p.team_id,
-          region_id: regionId !== undefined ? (regionId || undefined) : p.region_id,
-          organization_id: organizationId !== undefined ? (organizationId || undefined) : p.organization_id,
+          agency_id: sanitized.agency_id || undefined,
+          team_id: sanitized.team_id || undefined,
+          region_id: sanitized.region_id || undefined,
+          organization_id: sanitized.organization_id || undefined,
         };
       }
       return p;
