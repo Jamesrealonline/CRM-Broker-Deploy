@@ -682,6 +682,7 @@ export interface ProjectFaq {
   question: string;
   answer: string;
   is_verified: boolean;
+  category?: string;
   source_url?: string;
   created_at?: string;
 }

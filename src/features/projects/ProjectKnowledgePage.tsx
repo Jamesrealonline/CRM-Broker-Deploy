@@ -3,7 +3,7 @@
 // Tóm tắt văn bản <= 3000 ký tự (Tự parse nhãn), AI Enrich kèm nguồn & cờ unverified
 // ========================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -65,6 +65,10 @@ export const ProjectKnowledgePage: React.FC = () => {
   const [knowledge, setKnowledge] = useState<ProjectKnowledge | null>(null);
   const [faqs, setFaqs] = useState<ProjectFaq[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Bộ lọc & Tìm kiếm FAQ
+  const [faqSearch, setFaqSearch] = useState('');
+  const [selectedFaqCategory, setSelectedFaqCategory] = useState<string>('all');
 
   // Ô văn bản tóm tắt <= 3000 ký tự
   const [summaryText, setSummaryText] = useState('');
@@ -168,10 +172,13 @@ export const ProjectKnowledgePage: React.FC = () => {
       setKnowledge(effectiveKnowledge);
       setSummaryText(effectiveKnowledge.summary_text || '');
 
-      const effectiveFaqs = faqList && faqList.length > 0 
+      const effectiveFaqs = faqList && faqList.length >= 20 
         ? faqList 
         : (proj ? aiRepository.generateProjectFaqs(proj.name, proj.developer, proj.location) : []);
       setFaqs(effectiveFaqs);
+      if (proj && (!faqList || faqList.length < 20) && effectiveFaqs.length > 0) {
+        projectRepository.saveProjectFaqs(proj.id, effectiveFaqs);
+      }
       setFinancialStats(stats as any);
       setUnits(unitList);
 
@@ -492,6 +499,30 @@ export const ProjectKnowledgePage: React.FC = () => {
   const formatFullVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN').format(num) + ' đ';
   };
+
+  const FAQ_CATEGORIES = [
+    'Tất cả',
+    'Pháp lý & Sở hữu',
+    'Ngân hàng & Tài chính',
+    'Vị trí & Hạ tầng',
+    'Sản phẩm & Bàn giao',
+    'Tiện ích & Vận hành',
+    'Đầu tư & Thủ tục',
+  ];
+
+  const filteredFaqs = useMemo(() => {
+    return faqs.filter((faq) => {
+      const matchCat = selectedFaqCategory === 'all' || faq.category === selectedFaqCategory;
+      if (!matchCat) return false;
+      if (!faqSearch.trim()) return true;
+      const q = faqSearch.toLowerCase();
+      return (
+        faq.question.toLowerCase().includes(q) ||
+        faq.answer.toLowerCase().includes(q) ||
+        (faq.category && faq.category.toLowerCase().includes(q))
+      );
+    });
+  }, [faqs, selectedFaqCategory, faqSearch]);
 
   if (loading) {
     return <div className="p-6 space-y-4"><Skeleton className="h-20 w-full" /><Skeleton className="h-96 w-full" /></div>;
@@ -1097,23 +1128,119 @@ Chính sách: Vay 70% lãi suất 0% trong 24 tháng
 
       {/* 4. CÂU HỎI THƯỜNG GẶP FAQ */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <HelpCircle className="h-4 w-4 text-blue-600" />
-            Hỏi Đáp Trọng Tâm Dự Án (Project FAQ)
-          </CardTitle>
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <HelpCircle className="h-4 w-4 text-blue-600" />
+              Hỏi Đáp Trọng Tâm Dự Án (Project FAQ)
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                {faqs.length} câu hỏi
+              </span>
+            </CardTitle>
+            <p className="text-xs text-slate-500 mt-1">
+              Bộ câu hỏi - đáp trọng tâm chuyên sâu chuẩn nghiệp vụ môi giới: Pháp lý, Ngân hàng, Hạ tầng, Bàn giao, Tiện ích và Đầu tư.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              if (!project || !id) return;
+              const newFaqs = aiRepository.generateProjectFaqs(project.name, project.developer, project.location);
+              const saved = await projectRepository.saveProjectFaqs(id, newFaqs);
+              setFaqs(saved);
+            }}
+            className="text-xs text-blue-600 border-blue-200 hover:bg-blue-50 shrink-0"
+          >
+            <Sparkles className="h-3.5 w-3.5 mr-1" />
+            Làm mới 30 FAQ AI
+          </Button>
         </CardHeader>
-        <div className="space-y-3">
-          {faqs.map((faq) => (
-            <div key={faq.id} className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1">
-              <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                <span className="text-blue-600">Q:</span> {faq.question}
-              </div>
-              <div className="text-slate-600 pl-4">
-                <span className="font-semibold text-emerald-700">A:</span> {faq.answer}
-              </div>
+
+        <div className="p-4 space-y-4">
+          {/* Thanh tìm kiếm */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              type="text"
+              placeholder="Tìm nhanh câu hỏi hoặc nội dung giải đáp (ví dụ: sổ hồng, vay 80%, tiến độ, phí quản lý...)"
+              value={faqSearch}
+              onChange={(e) => setFaqSearch(e.target.value)}
+              className="pl-9 text-xs"
+            />
+          </div>
+
+          {/* Category Filter Pills */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {FAQ_CATEGORIES.map((cat) => {
+              const isSelected = (cat === 'Tất cả' && selectedFaqCategory === 'all') || selectedFaqCategory === cat;
+              const count = cat === 'Tất cả' 
+                ? faqs.length 
+                : faqs.filter((f) => f.category === cat).length;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedFaqCategory(cat === 'Tất cả' ? 'all' : cat)}
+                  className={`px-2.5 py-1 text-xs rounded-full border transition-all font-medium flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <span>{cat}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    isSelected ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Danh sách câu hỏi */}
+          {filteredFaqs.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs">
+              <HelpCircle className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+              <p className="font-semibold text-slate-700">Không tìm thấy câu hỏi phù hợp</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Thử đổi từ khóa tìm kiếm hoặc chọn danh mục khác.</p>
             </div>
-          ))}
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {filteredFaqs.map((faq, index) => (
+                <div key={faq.id || index} className="p-3.5 bg-slate-50 hover:bg-white rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-sm transition-all text-xs flex flex-col justify-between space-y-2.5">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
+                        {faq.category || 'Hỏi đáp'}
+                      </span>
+                      {faq.is_verified && (
+                        <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Đã xác minh
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-bold text-slate-900 leading-snug flex items-start gap-1.5 pt-0.5">
+                      <span className="text-blue-600 font-extrabold shrink-0">Q:</span>
+                      <span>{faq.question}</span>
+                    </div>
+                    <div className="text-slate-600 leading-relaxed pl-4 border-l-2 border-emerald-200">
+                      <span className="font-semibold text-emerald-700 mr-1">A:</span>
+                      <span>{faq.answer}</span>
+                    </div>
+                  </div>
+                  {faq.source_url && (
+                    <div className="pt-1.5 border-t border-slate-100 text-[10px] text-slate-400 flex items-center gap-1">
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      <span className="truncate">Nguồn: {faq.source_url}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </Card>
 

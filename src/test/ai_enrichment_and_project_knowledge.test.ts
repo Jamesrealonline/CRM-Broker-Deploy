@@ -36,14 +36,20 @@ describe('AI Bổ Sung Đầy Đủ Thông Tin Dự Án & Cơ Sở Tri Thức (P
     expect(highlightsProposal?.proposedValue).toContain('2.870ha');
   });
 
-  it('2. aiRepository.generateProjectFaqs tạo sẵn 4 câu hỏi trọng tâm sát với dự án', () => {
+  it('2. aiRepository.generateProjectFaqs tạo sẵn 30 câu hỏi trọng tâm sát với dự án', () => {
     const faqs = aiRepository.generateProjectFaqs('Vinhomes Green Paradise Cần Giờ', 'Vingroup', 'Cần Giờ');
-    expect(faqs.length).toBe(4);
-    expect(faqs[0].question.toLowerCase()).toContain('pháp lý');
-    expect(faqs[1].question.toLowerCase()).toContain('ngân hàng');
-    expect(faqs[2].question.toLowerCase()).toContain('tiến độ');
-    expect(faqs[3].question.toLowerCase()).toContain('tiềm năng');
-    expect(faqs[3].answer).toContain('Cần Giờ');
+    expect(faqs.length).toBe(30);
+    expect(faqs.some(f => f.question.toLowerCase().includes('pháp lý'))).toBe(true);
+    expect(faqs.some(f => f.question.toLowerCase().includes('ngân hàng'))).toBe(true);
+    expect(faqs.some(f => f.question.toLowerCase().includes('tiến độ'))).toBe(true);
+    expect(faqs.some(f => f.question.toLowerCase().includes('tiềm năng'))).toBe(true);
+    expect(faqs.some(f => f.answer.includes('Cần Giờ'))).toBe(true);
+    expect(faqs.some(f => f.category === 'Pháp lý & Sở hữu')).toBe(true);
+    expect(faqs.some(f => f.category === 'Ngân hàng & Tài chính')).toBe(true);
+    expect(faqs.some(f => f.category === 'Vị trí & Hạ tầng')).toBe(true);
+    expect(faqs.some(f => f.category === 'Sản phẩm & Bàn giao')).toBe(true);
+    expect(faqs.some(f => f.category === 'Tiện ích & Vận hành')).toBe(true);
+    expect(faqs.some(f => f.category === 'Đầu tư & Thủ tục')).toBe(true);
   });
 
   it('3. projectRepository.saveProjectKnowledge lưu trực tiếp và cập nhật đầy đủ các trường tri thức', async () => {
@@ -73,9 +79,9 @@ describe('AI Bổ Sung Đầy Đủ Thông Tin Dự Án & Cơ Sở Tri Thức (P
     const faqs = aiRepository.generateProjectFaqs('Dự án Mẫu', 'Chủ đầu tư ABC');
     const savedFaqs = await projectRepository.saveProjectFaqs(projectId, faqs);
 
-    expect(savedFaqs.length).toBe(4);
+    expect(savedFaqs.length).toBe(30);
     const loaded = await projectRepository.getProjectFaqs(projectId);
-    expect(loaded.length).toBe(4);
+    expect(loaded.length).toBe(30);
     expect(loaded[0].question).toContain('Pháp lý dự án Dự án Mẫu');
   });
 
