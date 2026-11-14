@@ -155,9 +155,23 @@ export const ProjectKnowledgePage: React.FC = () => {
         summary_text: '',
         updated_at: new Date().toISOString(),
       };
+      // Tự động tái tạo văn bản tóm tắt nếu summary_text đang rỗng nhưng các trường đã có dữ liệu
+      if (!effectiveKnowledge.summary_text && (effectiveKnowledge.location || effectiveKnowledge.legal || effectiveKnowledge.price_range)) {
+        effectiveKnowledge.summary_text = `Vị trí: ${effectiveKnowledge.location || ''}\n` +
+          `Loại hình: ${effectiveKnowledge.property_type || ''}\n` +
+          `Giá: ${effectiveKnowledge.price_range || ''}\n` +
+          `Pháp lý: ${effectiveKnowledge.legal || ''}\n` +
+          `Tiến độ: ${effectiveKnowledge.progress || ''}\n` +
+          `Chính sách: ${effectiveKnowledge.policy || ''}\n` +
+          `Điểm nhấn: ${effectiveKnowledge.highlights || ''}`;
+      }
       setKnowledge(effectiveKnowledge);
       setSummaryText(effectiveKnowledge.summary_text || '');
-      setFaqs(faqList);
+
+      const effectiveFaqs = faqList && faqList.length > 0 
+        ? faqList 
+        : (proj ? aiRepository.generateProjectFaqs(proj.name, proj.developer, proj.location) : []);
+      setFaqs(effectiveFaqs);
       setFinancialStats(stats as any);
       setUnits(unitList);
 
@@ -329,10 +343,14 @@ export const ProjectKnowledgePage: React.FC = () => {
                          `Điểm nhấn: ${updated.highlights || ''}`;
       updated.summary_text = newSummary.slice(0, 30000);
 
+      // Cập nhật State giao diện ngay lập tức
+      setKnowledge(updated);
+      setSummaryText(newSummary.slice(0, 30000));
+
       // Lưu trực tiếp vào Database Supabase và LocalStorage
       const saved = await projectRepository.saveProjectKnowledge(id, updated);
       setKnowledge(saved);
-      setSummaryText(newSummary.slice(0, 30000));
+      setSummaryText(saved.summary_text || newSummary.slice(0, 30000));
 
       // Tự sinh và lưu các câu hỏi FAQ tương ứng với dự án
       const generatedFaqs = aiRepository.generateProjectFaqs(project.name, project.developer, project.location);
@@ -340,7 +358,8 @@ export const ProjectKnowledgePage: React.FC = () => {
       setFaqs(savedFaqs);
 
       setEnrichModalOpen(false);
-      await fetchProjectData();
+      setSaveSuccessMsg(true);
+      setTimeout(() => setSaveSuccessMsg(false), 3000);
     } catch (err: any) {
       console.error('Error applying auto fill all:', err);
       alert(err.message || 'Không thể tự động điền thông tin dự án.');
@@ -379,10 +398,14 @@ export const ProjectKnowledgePage: React.FC = () => {
                          `Điểm nhấn: ${updated.highlights || ''}`;
       updated.summary_text = newSummary.slice(0, 30000);
 
+      // Cập nhật State giao diện ngay lập tức
+      setKnowledge(updated);
+      setSummaryText(newSummary.slice(0, 30000));
+
       // Lưu trực tiếp vào Database Supabase và LocalStorage
       const saved = await projectRepository.saveProjectKnowledge(id, updated);
       setKnowledge(saved);
-      setSummaryText(newSummary.slice(0, 30000));
+      setSummaryText(saved.summary_text || newSummary.slice(0, 30000));
 
       // Tự sinh và lưu các câu hỏi FAQ tương ứng với dự án
       const generatedFaqs = aiRepository.generateProjectFaqs(project.name, project.developer, project.location);
@@ -390,7 +413,8 @@ export const ProjectKnowledgePage: React.FC = () => {
       setFaqs(savedFaqs);
 
       setEnrichModalOpen(false);
-      await fetchProjectData();
+      setSaveSuccessMsg(true);
+      setTimeout(() => setSaveSuccessMsg(false), 3000);
     } catch (err: any) {
       console.error('Error applying AI enrichment:', err);
       alert(err.message || 'Không thể lưu thông tin tri thức AI. Vui lòng thử lại.');

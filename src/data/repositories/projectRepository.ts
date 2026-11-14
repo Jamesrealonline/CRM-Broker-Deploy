@@ -43,6 +43,14 @@ export class ProjectRepository {
       const { data, error } = await query;
       if (error) throw new Error(error.message);
       list = data as Project[];
+      if (typeof localStorage !== 'undefined' && list.length > 0) {
+        const cachedRaw = localStorage.getItem(STORAGE_KEY_PROJECTS);
+        const cachedList: Project[] = cachedRaw ? JSON.parse(cachedRaw) : [];
+        const mergedMap = new Map<string, Project>();
+        cachedList.forEach(p => mergedMap.set(p.id, p));
+        list.forEach(p => mergedMap.set(p.id, p));
+        localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(Array.from(mergedMap.values())));
+      }
     } else {
       const projects = localStorage.getItem(STORAGE_KEY_PROJECTS);
       if (!projects) {
@@ -61,6 +69,14 @@ export class ProjectRepository {
   async getProjectById(id: string, currentUser?: UserProfile): Promise<Project | null> {
     const list = await this.getProjects(currentUser);
     const proj = list.find(p => p.id === id) || null;
+    if (proj && typeof localStorage !== 'undefined') {
+      const cachedRaw = localStorage.getItem(STORAGE_KEY_PROJECTS);
+      const cachedList: Project[] = cachedRaw ? JSON.parse(cachedRaw) : [];
+      if (!cachedList.some(p => p.id === proj.id)) {
+        cachedList.push(proj);
+        localStorage.setItem(STORAGE_KEY_PROJECTS, JSON.stringify(cachedList));
+      }
+    }
     if (proj && currentUser && !branchHierarchyService.canAccessProject(currentUser, proj)) {
       return null;
     }
@@ -475,7 +491,10 @@ export class ProjectRepository {
     if (branchHierarchyService.isGlobalViewer(currentUser)) return true;
     const allProjects: Project[] = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem(STORAGE_KEY_PROJECTS) || JSON.stringify(INITIAL_PROJECTS)) : INITIAL_PROJECTS;
     const project = allProjects.find(p => p.id === projectId);
-    if (!project) return false;
+    if (!project) {
+      // Nếu dự án chưa có trong local cache (dự án trên Supabase), cho phép truy vấn để database/RLS xử lý
+      return true;
+    }
     return branchHierarchyService.canAccessProject(currentUser, project);
   }
 
@@ -484,21 +503,23 @@ export class ProjectRepository {
       return null;
     }
     if (isLiveSupabaseConfigured) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('project_knowledge')
         .select('*')
         .eq('project_id', projectId)
         .maybeSingle();
-      return data;
+      if (!error && data) {
+        if (typeof localStorage !== 'undefined') {
+          const allKnowledge = JSON.parse(localStorage.getItem(STORAGE_KEY_KNOWLEDGE) || JSON.stringify(INITIAL_KNOWLEDGE));
+          allKnowledge[projectId] = data;
+          localStorage.setItem(STORAGE_KEY_KNOWLEDGE, JSON.stringify(allKnowledge));
+        }
+        return data as ProjectKnowledge;
+      }
     }
 
     const allKnowledge = JSON.parse(localStorage.getItem(STORAGE_KEY_KNOWLEDGE) || JSON.stringify(INITIAL_KNOWLEDGE));
-    return allKnowledge[projectId] || {
-      id: crypto.randomUUID(),
-      project_id: projectId,
-      summary_text: '',
-      updated_at: new Date().toISOString(),
-    };
+    return allKnowledge[projectId] || null;
   }
 
   // Lưu trực tiếp các trường tri thức dự án và đồng bộ Supabase / LocalStorage
