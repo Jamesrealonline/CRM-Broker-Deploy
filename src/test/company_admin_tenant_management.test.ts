@@ -174,26 +174,47 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
       expect(resCeo.error).toContain('Chỉ Quản Trị Tổng (Admin)');
     });
 
-    it('Chỉ Quản Trị Tổng (Admin) mới có quyền tạo tài khoản CEO', async () => {
+    it('Quản Trị Doanh Nghiệp (Company Admin) có quyền tạo tài khoản CEO cho DN của mình, cấp dưới không thể tạo', async () => {
       // 1. Super Admin tạo CEO -> Thành công
       const resSuper = await teamRepository.createUser({
         email: 'new.ceo@test.vn',
-        full_name: 'CEO Mới',
+        full_name: 'CEO Mới Super',
         phone: '0902999999',
         role: 'ceo',
         organization_id: 'org-tenant-a',
       }, superAdmin);
       expect(resSuper.success).toBe(true);
 
-      // 2. Company Admin cố tạo CEO -> Bị từ chối
+      // 2. Company Admin tạo CEO cho DN của mình -> Thành công và tự động gán org-tenant-a
       const resComp = await teamRepository.createUser({
-        email: 'fake.ceo@test.vn',
-        full_name: 'Cố Tình Tạo CEO',
+        email: 'ceo.tenant.a@test.vn',
+        full_name: 'CEO Doanh Nghiệp A',
         phone: '0902999888',
         role: 'ceo',
       }, compAdminA);
-      expect(resComp.success).toBe(false);
-      expect(resComp.error).toContain('Chỉ Quản Trị Tổng (Admin)');
+      expect(resComp.success).toBe(true);
+      expect(resComp.profile?.organization_id).toBe('org-tenant-a');
+
+      // 3. Company Admin cố tạo CEO cho Doanh Nghiệp B -> Bị từ chối
+      const resCompCross = await teamRepository.createUser({
+        email: 'ceo.tenant.b@test.vn',
+        full_name: 'CEO Cross Tenant',
+        phone: '0902999777',
+        role: 'ceo',
+        organization_id: 'org-tenant-b',
+      }, compAdminA);
+      expect(resCompCross.success).toBe(false);
+      expect(resCompCross.error).toContain('thuộc doanh nghiệp của mình');
+
+      // 4. Cấp dưới (Sale) cố tạo CEO -> Bị từ chối
+      const resSale = await teamRepository.createUser({
+        email: 'fake.ceo@test.vn',
+        full_name: 'Sale Tạo CEO',
+        phone: '0902999666',
+        role: 'ceo',
+      }, saleA);
+      expect(resSale.success).toBe(false);
+      expect(resSale.error).toContain('Chỉ Quản Trị Tổng (Admin) hoặc Quản Trị Doanh Nghiệp');
     });
 
     it('Chỉ Quản Trị Tổng (Admin) mới có quyền tạo Doanh Nghiệp (Organization)', async () => {

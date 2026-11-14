@@ -188,25 +188,26 @@ export class BranchHierarchyService {
     // Các vai trò cấp dưới hoặc doanh nghiệp khác tuyệt đối không xem được.
     if (targetUser.role === 'company_admin') {
       if (user.role === 'company_admin' || user.role === 'ceo') {
-        return !user.organization_id || !targetUser.organization_id || user.organization_id === targetUser.organization_id;
+        if (user.organization_id) {
+          const tOrg = targetUser.organization_id || targetOrgId;
+          if (tOrg && tOrg !== user.organization_id) return false;
+          if (!tOrg && user.organization_id !== '11111111-1111-1111-1111-111111111111') return false;
+        }
+        return true;
       }
       return false;
     }
 
     // 3. Quản Trị Doanh Nghiệp (company_admin):
-    // Quản trị cấu hình và các tài khoản trong doanh nghiệp đó, dưới quyền Quản Trị Tổng.
-    // Chung doanh nghiệp với CEO nào chỉ quản trị cho doanh nghiệp đó, không xem doanh nghiệp khác.
+    // Quản trị cấu hình và các tài khoản trong doanh nghiệp đó (CEO, Marketing, HR, Vùng, Sàn, Team, Sale).
+    // Tuyệt đối không xem Quản Trị Tổng (Admin) hoặc nhân sự của doanh nghiệp khác.
     if (user.role === 'company_admin') {
       if (targetUser.id === user.id) return true;
-      // Chặn xem CEO của DN khác (xem được CEO của chính DN mình)
-      if (targetUser.role === 'ceo') {
-        return !user.organization_id || !targetUser.organization_id || user.organization_id === targetUser.organization_id;
-      }
-      if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
-        return false;
-      }
-      if (user.organization_id && targetOrgId && targetOrgId !== user.organization_id) {
-        return false;
+
+      if (user.organization_id) {
+        const tOrg = targetUser.organization_id || targetOrgId;
+        if (tOrg && tOrg !== user.organization_id) return false;
+        if (!tOrg && user.organization_id !== '11111111-1111-1111-1111-111111111111') return false;
       }
       return true;
     }
@@ -218,31 +219,25 @@ export class BranchHierarchyService {
       // Chặn xem các CEO khác
       if (targetUser.role === 'ceo') return false;
 
-      // Chặn xem nhân sự thuộc tổ chức/doanh nghiệp của CEO khác
-      if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
-        return false;
-      }
-      if (user.organization_id && targetOrgId && targetOrgId !== user.organization_id) {
-        return false;
+      if (user.organization_id) {
+        const tOrg = targetUser.organization_id || targetOrgId;
+        if (tOrg && tOrg !== user.organization_id) return false;
+        if (!tOrg && user.organization_id !== '11111111-1111-1111-1111-111111111111') return false;
       }
       return true;
     }
 
-    // 5. Khối Marketing & HR: trực thuộc CEO, xem được toàn bộ hệ thống các giám đốc vùng bên dưới CEO của mình
+    // 5. Khối Marketing & HR: trực thuộc CEO / Company Admin, xem nhân sự thuộc DN của mình
     if (user.role === 'hr_admin' || user.role === 'marketing_manager') {
       if (targetUser.id === user.id) return true;
       // Nếu gắn riêng với một Director: chỉ xem nhân sự cùng reporting_to hoặc chính mình
       if (user.reporting_to) {
         return targetUser.reporting_to === user.reporting_to || targetUser.id === user.id;
       }
-      if (targetUser.role === 'ceo') {
-        return !user.organization_id || targetUser.organization_id === user.organization_id;
-      }
-      if (user.organization_id && targetUser.organization_id && user.organization_id !== targetUser.organization_id) {
-        return false;
-      }
-      if (user.organization_id && targetOrgId && targetOrgId !== user.organization_id) {
-        return false;
+      if (user.organization_id) {
+        const tOrg = targetUser.organization_id || targetOrgId;
+        if (tOrg && tOrg !== user.organization_id) return false;
+        if (!tOrg && user.organization_id !== '11111111-1111-1111-1111-111111111111') return false;
       }
       return true;
     }
@@ -415,7 +410,10 @@ export class BranchHierarchyService {
     // Multi-tenant: nếu user có organization_id thì chỉ xem transactions của organization_id đó
     let orgTransactions = transactions;
     if (user.organization_id) {
-      orgTransactions = orgTransactions.filter(t => !t.organization_id || t.organization_id === user.organization_id);
+      orgTransactions = orgTransactions.filter(t => {
+        const tOrg = t.organization_id || '11111111-1111-1111-1111-111111111111';
+        return tOrg === user.organization_id;
+      });
     }
 
     // CEO, Company Admin, HR, Marketing: chỉ xem giao dịch thuộc tổ chức/doanh nghiệp của mình

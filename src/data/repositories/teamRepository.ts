@@ -651,12 +651,11 @@ export class TeamRepository {
 
   async createUser(input: CreateUserInput, currentUser?: UserProfile | null): Promise<{ success: boolean; profile?: UserProfile; error?: string }> {
     // Kiểm tra quyền hạn tạo vai trò:
-    // 1. Chỉ Quản trị tổng (Admin) mới có quyền tạo Admin, CEO hoặc Company Admin
-    if (['admin', 'ceo', 'company_admin'].includes(input.role)) {
+    // 1. Chỉ Quản trị tổng (Admin) mới có quyền tạo Admin hoặc Company Admin
+    if (['admin', 'company_admin'].includes(input.role)) {
       if (currentUser && currentUser.role !== 'admin') {
         const roleLabels: Record<string, string> = {
           admin: 'Quản Trị Viên (Admin)',
-          ceo: 'Tổng Giám Đốc (CEO)',
           company_admin: 'Quản Trị Doanh Nghiệp (Company Admin)'
         };
         return { 
@@ -674,12 +673,22 @@ export class TeamRepository {
       };
     }
 
-    // 2. Nếu người tạo là Company Admin: cưỡng chế organization_id thuộc về chính doanh nghiệp của họ
-    if (currentUser && currentUser.role === 'company_admin') {
-      if (['admin', 'ceo', 'company_admin'].includes(input.role)) {
+    // 2. Quyền tạo CEO: Chỉ Admin hoặc Company Admin của chính doanh nghiệp đó
+    if (input.role === 'ceo') {
+      if (currentUser && !['admin', 'company_admin'].includes(currentUser.role)) {
         return {
           success: false,
-          error: 'Quản Trị Doanh Nghiệp không có quyền tạo tài khoản CEO, Admin hoặc Quản Trị Doanh Nghiệp khác.'
+          error: 'Chỉ Quản Trị Tổng (Admin) hoặc Quản Trị Doanh Nghiệp mới có quyền tạo tài khoản Tổng Giám Đốc (CEO).'
+        };
+      }
+    }
+
+    // 3. Nếu người tạo là Company Admin: cưỡng chế organization_id thuộc về chính doanh nghiệp của họ
+    if (currentUser && currentUser.role === 'company_admin') {
+      if (['admin', 'company_admin'].includes(input.role)) {
+        return {
+          success: false,
+          error: 'Quản Trị Doanh Nghiệp không có quyền tạo tài khoản Admin hoặc Quản Trị Doanh Nghiệp khác.'
         };
       }
       if (input.organization_id && currentUser.organization_id && input.organization_id !== currentUser.organization_id) {
@@ -840,14 +849,14 @@ export class TeamRepository {
       if (targetUser.organization_id && currentUser.organization_id && targetUser.organization_id !== currentUser.organization_id) {
         return { success: false, error: 'Quản Trị Doanh Nghiệp chỉ được sửa tài khoản thuộc doanh nghiệp của mình.' };
       }
-      if (['admin', 'ceo'].includes(targetUser.role)) {
-        return { success: false, error: 'Quản Trị Doanh Nghiệp không thể chỉnh sửa tài khoản Admin hoặc CEO.' };
+      if (targetUser.role === 'admin') {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không thể chỉnh sửa tài khoản Admin.' };
       }
       if (targetUser.role === 'company_admin' && input.role && input.role !== 'company_admin') {
         return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền thay đổi vai trò của tài khoản Quản Trị Doanh Nghiệp.' };
       }
-      if (input.role && ['admin', 'ceo', 'company_admin'].includes(input.role) && targetUser.role !== input.role) {
-        return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền thăng cấp tài khoản lên Admin, CEO hoặc Quản Trị Doanh Nghiệp.' };
+      if (input.role && ['admin', 'company_admin'].includes(input.role) && targetUser.role !== input.role) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền thăng cấp tài khoản lên Admin hoặc Quản Trị Doanh Nghiệp.' };
       }
       if (input.organization_id && currentUser.organization_id && input.organization_id !== currentUser.organization_id) {
         return { success: false, error: 'Quản Trị Doanh Nghiệp không thể chuyển người dùng sang doanh nghiệp khác.' };
@@ -935,6 +944,13 @@ export class TeamRepository {
           .eq('id', sanitized.organization_id);
       }
 
+      if (finalRole === 'ceo' && sanitized.organization_id) {
+        await supabase
+          .from('organizations')
+          .update({ ceo_id: userId, updated_at: new Date().toISOString() })
+          .eq('id', sanitized.organization_id);
+      }
+
       return { success: true, profile: data as UserProfile };
     }
 
@@ -970,6 +986,16 @@ export class TeamRepository {
         ...o,
         admin_id: updatedProfile.id,
         admin_name: updatedProfile.full_name,
+      } : o);
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));
+    }
+
+    if (finalRole === 'ceo' && finalOrgId) {
+      const orgs = await this.getOrganizations();
+      const updatedOrgs = orgs.map(o => o.id === finalOrgId ? {
+        ...o,
+        ceo_id: updatedProfile.id,
+        ceo_name: updatedProfile.full_name,
       } : o);
       localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));
     }
@@ -1646,8 +1672,8 @@ export class TeamRepository {
       if (targetUser && targetUser.role === 'company_admin') {
         return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền thay đổi vai trò của tài khoản Quản Trị Doanh Nghiệp.' };
       }
-      if (['admin', 'ceo', 'company_admin'].includes(role)) {
-        return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền bổ nhiệm vai trò Quản Trị Doanh Nghiệp, CEO hoặc Admin.' };
+      if (['admin', 'company_admin'].includes(role)) {
+        return { success: false, error: 'Quản Trị Doanh Nghiệp không có quyền bổ nhiệm vai trò Quản Trị Doanh Nghiệp hoặc Admin.' };
       }
       if (targetUser?.organization_id && currentUser.organization_id && targetUser.organization_id !== currentUser.organization_id) {
         return { success: false, error: 'Quản Trị Doanh Nghiệp chỉ được bổ nhiệm nhân sự thuộc doanh nghiệp của mình.' };
@@ -1673,6 +1699,14 @@ export class TeamRepository {
         error = retry.error;
       }
       if (error) return { success: false, error: error.message };
+
+      if (role === 'ceo' && sanitized.organization_id) {
+        await supabase
+          .from('organizations')
+          .update({ ceo_id: userId, updated_at: new Date().toISOString() })
+          .eq('id', sanitized.organization_id);
+      }
+
       return { success: true };
     }
 
@@ -1691,6 +1725,16 @@ export class TeamRepository {
       return p;
     });
     localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(updated));
+
+    if (role === 'ceo' && sanitized.organization_id) {
+      const orgs = await this.getOrganizations();
+      const updatedOrgs = orgs.map(o => o.id === sanitized.organization_id ? {
+        ...o,
+        ceo_id: userId,
+      } : o);
+      localStorage.setItem(STORAGE_KEY_ORGANIZATIONS, JSON.stringify(updatedOrgs));
+    }
+
     return { success: true };
   }
 

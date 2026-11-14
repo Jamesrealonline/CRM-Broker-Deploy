@@ -1123,219 +1123,282 @@ export const HRManagementPage: React.FC = () => {
                 </div>
               )}
 
-              {/* NODE GỐC: TỔNG GIÁM ĐỐC (CEO) */}
+              {/* CƠ CẤU PHÂN CẤP TỔ CHỨC: DOANH NGHIỆP -> COMPANY ADMIN -> CEO -> KHỐI KINH DOANH / MARKETING / HR */}
               {(() => {
                 const currentOrg = organizations.find(o => o.id === currentUser?.organization_id) || (currentUser?.role === 'admin' ? organizations[0] : undefined);
-                const ceo = employees.find(e => e.role === 'ceo' || (currentOrg && e.id === currentOrg.ceo_id));
-                const companyAdmin = employees.find(e => e.role === 'company_admin' || (currentOrg && e.id === currentOrg.admin_id));
+                const orgId = currentOrg?.id || currentUser?.organization_id;
+                
+                // Lọc chính xác nhân sự trực thuộc Doanh nghiệp này
+                const companyAdmin = employees.find(e => (e.role === 'company_admin' || (currentOrg && e.id === currentOrg.admin_id)) && (!orgId || e.organization_id === orgId));
+                const ceo = employees.find(e => (e.role === 'ceo' || (currentOrg && e.id === currentOrg.ceo_id)) && (!orgId || e.organization_id === orgId));
+                const mktHead = employees.find(e => e.role === 'marketing_manager' && (!orgId || e.organization_id === orgId));
+                const hrHead = employees.find(e => e.role === 'hr_admin' && (!orgId || e.organization_id === orgId));
 
                 return (
-                  <div className="p-4 bg-gradient-to-r from-indigo-900 to-indigo-800 text-white rounded-xl shadow-md flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center font-black text-sm">
-                        CEO
+                  <div className="space-y-4">
+                    {/* GỐC CẤP CAO NHẤT: DOANH NGHIỆP & QUẢN TRỊ DOANH NGHIỆP (COMPANY ADMIN) */}
+                    <div className="p-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-xl shadow-lg border border-indigo-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-3.5">
+                        <div className="h-12 w-12 rounded-xl bg-indigo-500/20 border-2 border-indigo-400/40 flex items-center justify-center font-black text-indigo-300 shadow-inner">
+                          <Building2 className="h-6 w-6 text-indigo-300" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold text-indigo-300 uppercase tracking-widest px-2 py-0.5 rounded bg-indigo-900/80 border border-indigo-700/50">
+                              Quản Trị Doanh Nghiệp (Company Admin)
+                            </span>
+                            <span className="text-xs text-slate-300 font-semibold">• {currentOrg ? currentOrg.name : 'Doanh Nghiệp'} ({currentOrg?.code || 'DN'})</span>
+                          </div>
+                          <div className="text-base font-black text-white mt-0.5 flex items-center gap-2">
+                            <Shield className="h-4 w-4 text-indigo-400" />
+                            <span>
+                              {companyAdmin 
+                                ? `${companyAdmin.full_name} • Quản Trị Viên Doanh Nghiệp` 
+                                : currentUser?.role === 'company_admin' 
+                                  ? `${currentUser.full_name} • Quản Trị Viên Doanh Nghiệp` 
+                                  : 'Quản Trị Doanh Nghiệp'}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-300 font-mono mt-0.5">
+                            {companyAdmin 
+                              ? `${companyAdmin.email} • Toàn quyền quản trị cơ cấu, phê duyệt & bổ nhiệm toàn bộ các khối trực thuộc DN` 
+                              : currentUser?.role === 'company_admin' 
+                                ? `${currentUser.email} • Toàn quyền quản trị cơ cấu, phê duyệt & bổ nhiệm toàn bộ các khối trực thuộc DN` 
+                                : 'Quản lý toàn bộ cấu hình, phòng ban và tài khoản nội bộ'}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="text-xs font-semibold text-indigo-200 uppercase tracking-wider">
-                          Tổng Giám Đốc (CEO) {currentOrg ? `• ${currentOrg.name}` : ''}
+                      {companyAdmin && (
+                        <button 
+                          onClick={() => handleOpen360(companyAdmin.id)}
+                          className="self-start sm:self-center px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-semibold text-white transition-colors"
+                        >
+                          Hồ sơ 360° →
+                        </button>
+                      )}
+                    </div>
+
+                    {/* ĐƯỜNG KẾT NỐI XUỐNG CÁC NHÁNH TRỰC THUỘC */}
+                    <div className="pl-6 border-l-2 border-dashed border-indigo-300 space-y-4">
+                      {/* NHÁNH: TỔNG GIÁM ĐỐC (CEO) - TRỰC THUỘC DOANH NGHIỆP & DƯỚI QUYỀN COMPANY ADMIN */}
+                      <div className={`p-4 rounded-xl shadow-md border flex items-center justify-between ${
+                        ceo 
+                          ? 'bg-gradient-to-r from-indigo-900 to-indigo-800 text-white border-indigo-700' 
+                          : 'bg-indigo-50/50 border-dashed border-indigo-300 text-slate-800'
+                      }`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`h-10 w-10 rounded-full border-2 flex items-center justify-center font-black text-sm ${
+                            ceo ? 'bg-white/20 border-white/40 text-amber-300' : 'bg-indigo-100 border-indigo-300 text-indigo-700'
+                          }`}>
+                            <Crown className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className={`text-xs font-semibold uppercase tracking-wider ${ceo ? 'text-indigo-200' : 'text-indigo-900'}`}>
+                              Tổng Giám Đốc (CEO) • Trực thuộc Ban Quản Trị Doanh Nghiệp
+                            </div>
+                            <div className={`text-base font-bold ${ceo ? 'text-white' : 'text-slate-800'}`}>
+                              {ceo ? ceo.full_name : 'Chưa bổ nhiệm Tổng Giám Đốc (CEO)'}
+                            </div>
+                            <div className={`text-xs font-mono ${ceo ? 'text-indigo-200' : 'text-slate-500'}`}>
+                              {ceo 
+                                ? `${ceo.email} • Điều hành trực tiếp Khối Kinh Doanh, Khối Marketing và Khối Nhân Sự` 
+                                : 'Doanh nghiệp chưa bổ nhiệm CEO. Quản trị viên doanh nghiệp có thể tạo mới hoặc bổ nhiệm CEO trong mục Quản trị Nhân sự.'}
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-base font-bold text-white">
-                          {ceo ? ceo.full_name : companyAdmin ? `${companyAdmin.full_name} (Quản Trị Doanh Nghiệp)` : 'Chưa bổ nhiệm Tổng Giám Đốc'}
+                        {ceo && (
+                          <button 
+                            onClick={() => handleOpen360(ceo.id)}
+                            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-semibold text-white transition-colors"
+                          >
+                            Hồ sơ 360° →
+                          </button>
+                        )}
+                      </div>
+
+                      {/* 3 KHỐI TRỰC THUỘC BAN ĐIỀU HÀNH & DOANH NGHIỆP */}
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-1">
+                        {/* 1. KHỐI KINH DOANH */}
+                        <div className="lg:col-span-2 space-y-4 border border-blue-200 rounded-xl p-4 bg-blue-50/20">
+                          <div className="flex items-center justify-between border-b border-blue-200 pb-2">
+                            <div className="font-bold text-sm text-blue-900 flex items-center gap-2">
+                              <Building2 className="h-4 w-4 text-blue-600" />
+                              <span>1. Khối Kinh Doanh (Sales Division)</span>
+                            </div>
+                            <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                              {regions.length} Vùng • {agencies.length} Sàn
+                            </span>
+                          </div>
+
+                          {regions.length === 0 ? (
+                            <div className="p-6 text-center text-xs text-slate-400 bg-white/60 rounded-lg border border-dashed border-blue-200">
+                              Chưa có Vùng/Sàn kinh doanh trực thuộc doanh nghiệp này. Quản trị doanh nghiệp có thể thiết lập Vùng và Sàn trong phần Cơ Cấu Tổ Chức.
+                            </div>
+                          ) : (
+                            <div className="space-y-4 pl-1">
+                              {regions.map(region => {
+                                const regionalDir = employees.find(e => e.id === region.regional_director_id || (e.role === 'regional_director' && e.region_id === region.id));
+                                const regionAgencies = agencies.filter(a => a.region_id === region.id || (!a.region_id && region.id === 'REG-DEFAULT'));
+
+                                return (
+                                  <div key={region.id} className="border-l-2 border-blue-500 pl-3 space-y-3">
+                                    {/* Region Node */}
+                                    <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-blue-200 shadow-xs">
+                                      <div className="flex items-center gap-2.5">
+                                        <Layers className="h-4 w-4 text-blue-600" />
+                                        <div>
+                                          <div className="text-xs font-bold text-slate-900">{region.name} ({region.code})</div>
+                                          <div className="text-[11px] text-slate-600">
+                                            Giám Đốc Vùng: <span className="font-semibold text-blue-700">{regionalDir ? regionalDir.full_name : 'Chưa bổ nhiệm'}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      {regionalDir && (
+                                        <button 
+                                          onClick={() => handleOpen360(regionalDir.id)}
+                                          className="text-[11px] font-semibold text-blue-600 hover:text-blue-800"
+                                        >
+                                          Xem hồ sơ →
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {/* Agencies in Region */}
+                                    <div className="space-y-2.5 pl-3">
+                                      {regionAgencies.map(agency => {
+                                        const agencyDir = employees.find(e => e.id === agency.director_id);
+                                        const agencyTeams = teams.filter(t => t.agency_id === agency.id);
+
+                                        return (
+                                          <div key={agency.id} className="border border-slate-200 rounded-lg p-3 bg-white space-y-2.5 shadow-xs">
+                                            <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                              <div>
+                                                <span className="font-bold text-xs text-slate-900">{agency.name}</span>
+                                                <span className="text-[10px] text-slate-500 ml-2">GĐ Sàn: <strong>{agencyDir ? agencyDir.full_name : 'Chưa bổ nhiệm'}</strong></span>
+                                              </div>
+                                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 font-mono text-slate-600">
+                                                {agencyTeams.length} đội nhóm
+                                              </span>
+                                            </div>
+
+                                            {/* Teams */}
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                              {agencyTeams.map(team => {
+                                                const leader = employees.find(e => e.id === team.leader_id);
+                                                const members = employees.filter(e => e.team_id === team.id && e.id !== team.leader_id);
+
+                                                return (
+                                                  <div key={team.id} className="p-2 border border-slate-100 bg-slate-50 rounded-lg space-y-1">
+                                                    <div className="flex items-center justify-between text-[11px]">
+                                                      <span className="font-semibold text-slate-800 truncate">{team.name}</span>
+                                                      <span className="text-[10px] text-slate-500">{members.length + (leader ? 1 : 0)} sale</span>
+                                                    </div>
+                                                    {leader && (
+                                                      <div 
+                                                        onClick={() => handleOpen360(leader.id)}
+                                                        className="text-[10px] text-amber-700 bg-amber-50 p-1 rounded font-medium cursor-pointer hover:bg-amber-100/70"
+                                                      >
+                                                        TL: {leader.full_name}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                        <div className="text-xs text-indigo-200 font-mono">
-                          {ceo ? `${ceo.email} • Quản trị điều hành tối cao` : companyAdmin ? `${companyAdmin.email} • Điều hành tạm thời` : 'Doanh nghiệp chưa bổ nhiệm chức danh CEO'}
+
+                        {/* CỘT PHẢI: KHỐI MARKETING & KHỐI HR */}
+                        <div className="space-y-6">
+                          {/* 2. KHỐI MARKETING */}
+                          <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/20 space-y-3">
+                            <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
+                              <div className="font-bold text-sm text-emerald-900 flex items-center gap-2">
+                                <Briefcase className="h-4 w-4 text-emerald-600" />
+                                <span>2. Khối Marketing</span>
+                              </div>
+                              <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                Trực thuộc Ban Điều Hành DN
+                              </span>
+                            </div>
+
+                            <div className="space-y-2.5">
+                              <div className="p-3 bg-white border border-emerald-200 rounded-xl flex items-center justify-between">
+                                <div>
+                                  <div className="text-xs font-bold text-slate-900">Giám Đốc / Trưởng Marketing</div>
+                                  <div className={`text-xs font-semibold ${mktHead ? 'text-emerald-700' : 'text-slate-500'}`}>
+                                    {mktHead ? mktHead.full_name : 'Chưa bổ nhiệm'}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 font-mono">
+                                    {mktHead ? mktHead.email : 'Doanh nghiệp chưa bổ nhiệm nhân sự phụ trách Marketing'}
+                                  </div>
+                                </div>
+                                {mktHead && (
+                                  <button 
+                                    onClick={() => handleOpen360(mktHead.id)}
+                                    className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-800"
+                                  >
+                                    Xem hồ sơ →
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
+                                <strong>Đơn Vị Marketing:</strong> Quản lý quảng cáo, Lead Ads, chiến dịch mở bán toàn dự án.
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 3. KHỐI HR */}
+                          <div className="border border-purple-200 rounded-xl p-4 bg-purple-50/20 space-y-3">
+                            <div className="flex items-center justify-between border-b border-purple-200 pb-2">
+                              <div className="font-bold text-sm text-purple-900 flex items-center gap-2">
+                                <UserCheck className="h-4 w-4 text-purple-600" />
+                                <span>3. Khối Nhân Sự (HR Division)</span>
+                              </div>
+                              <span className="text-xs font-semibold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
+                                Trực thuộc Ban Điều Hành DN
+                              </span>
+                            </div>
+
+                            <div className="space-y-2.5">
+                              <div className="p-3 bg-white border border-purple-200 rounded-xl flex items-center justify-between">
+                                <div>
+                                  <div className="text-xs font-bold text-slate-900">Giám Đốc / Trưởng HR</div>
+                                  <div className={`text-xs font-semibold ${hrHead ? 'text-purple-700' : 'text-slate-500'}`}>
+                                    {hrHead ? hrHead.full_name : 'Chưa bổ nhiệm'}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 font-mono">
+                                    {hrHead ? hrHead.email : 'Doanh nghiệp chưa bổ nhiệm nhân sự phụ trách Nhân sự'}
+                                  </div>
+                                </div>
+                                {hrHead && (
+                                  <button 
+                                    onClick={() => handleOpen360(hrHead.id)}
+                                    className="text-[11px] font-semibold text-purple-600 hover:text-purple-800"
+                                  >
+                                    Hồ sơ 360° →
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
+                                <strong>Phạm Vi Quản Trị:</strong> Quản lý hồ sơ nhân sự 360°, tuyển dụng ATS, điều chuyển phân cấp và đào tạo.
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                    {ceo && (
-                      <button 
-                        onClick={() => handleOpen360(ceo.id)}
-                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-semibold text-white transition-colors"
-                      >
-                        Hồ sơ 360° →
-                      </button>
-                    )}
                   </div>
                 );
               })()}
-
-              {/* 3 KHỐI TRỰC THUỘC TỔNG GIÁM ĐỐC */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
-                {/* 1. KHỐI KINH DOANH */}
-                <div className="lg:col-span-2 space-y-4 border border-blue-200 rounded-xl p-4 bg-blue-50/20">
-                  <div className="flex items-center justify-between border-b border-blue-200 pb-2">
-                    <div className="font-bold text-sm text-blue-900 flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-blue-600" />
-                      <span>1. Khối Kinh Doanh (Sales Division)</span>
-                    </div>
-                    <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-                      {regions.length} Vùng • {agencies.length} Sàn
-                    </span>
-                  </div>
-
-                  <div className="space-y-4 pl-1">
-                    {regions.map(region => {
-                      const regionalDir = employees.find(e => e.id === region.regional_director_id || (e.role === 'regional_director' && e.region_id === region.id));
-                      const regionAgencies = agencies.filter(a => a.region_id === region.id || (!a.region_id && region.id === 'REG-DEFAULT'));
-
-                      return (
-                        <div key={region.id} className="border-l-2 border-blue-500 pl-3 space-y-3">
-                          {/* Region Node */}
-                          <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-blue-200 shadow-xs">
-                            <div className="flex items-center gap-2.5">
-                              <Layers className="h-4 w-4 text-blue-600" />
-                              <div>
-                                <div className="text-xs font-bold text-slate-900">{region.name} ({region.code})</div>
-                                <div className="text-[11px] text-slate-600">
-                                  Giám Đốc Vùng: <span className="font-semibold text-blue-700">{regionalDir ? regionalDir.full_name : 'Chưa bổ nhiệm'}</span>
-                                </div>
-                              </div>
-                            </div>
-                            {regionalDir && (
-                              <button 
-                                onClick={() => handleOpen360(regionalDir.id)}
-                                className="text-[11px] font-semibold text-blue-600 hover:text-blue-800"
-                              >
-                                Xem hồ sơ →
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Agencies in Region */}
-                          <div className="space-y-2.5 pl-3">
-                            {regionAgencies.map(agency => {
-                              const agencyDir = employees.find(e => e.id === agency.director_id);
-                              const agencyTeams = teams.filter(t => t.agency_id === agency.id);
-
-                              return (
-                                <div key={agency.id} className="border border-slate-200 rounded-lg p-3 bg-white space-y-2.5 shadow-xs">
-                                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                                    <div>
-                                      <span className="font-bold text-xs text-slate-900">{agency.name}</span>
-                                      <span className="text-[10px] text-slate-500 ml-2">GĐ Sàn: <strong>{agencyDir ? agencyDir.full_name : 'Chưa bổ nhiệm'}</strong></span>
-                                    </div>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 font-mono text-slate-600">
-                                      {agencyTeams.length} đội nhóm
-                                    </span>
-                                  </div>
-
-                                  {/* Teams */}
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    {agencyTeams.map(team => {
-                                      const leader = employees.find(e => e.id === team.leader_id);
-                                      const members = employees.filter(e => e.team_id === team.id && e.id !== team.leader_id);
-
-                                      return (
-                                        <div key={team.id} className="p-2 border border-slate-100 bg-slate-50 rounded-lg space-y-1">
-                                          <div className="flex items-center justify-between text-[11px]">
-                                            <span className="font-semibold text-slate-800 truncate">{team.name}</span>
-                                            <span className="text-[10px] text-slate-500">{members.length + (leader ? 1 : 0)} sale</span>
-                                          </div>
-                                          {leader && (
-                                            <div 
-                                              onClick={() => handleOpen360(leader.id)}
-                                              className="text-[10px] text-amber-700 bg-amber-50 p-1 rounded font-medium cursor-pointer hover:bg-amber-100/70"
-                                            >
-                                              TL: {leader.full_name}
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* CỘT PHẢI: KHỐI MARKETING & KHỐI HR */}
-                <div className="space-y-6">
-                  {/* 2. KHỐI MARKETING */}
-                  <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/20 space-y-3">
-                    <div className="flex items-center justify-between border-b border-emerald-200 pb-2">
-                      <div className="font-bold text-sm text-emerald-900 flex items-center gap-2">
-                        <Briefcase className="h-4 w-4 text-emerald-600" />
-                        <span>2. Khối Marketing</span>
-                      </div>
-                      <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                        Trực thuộc CEO
-                      </span>
-                    </div>
-
-                    {(() => {
-                      const mktHead = employees.find(e => e.role === 'marketing_manager');
-
-                      return (
-                        <div className="space-y-2.5">
-                          <div className="p-3 bg-white border border-emerald-200 rounded-xl flex items-center justify-between">
-                            <div>
-                              <div className="text-xs font-bold text-slate-900">Giám Đốc / Trưởng Marketing</div>
-                              <div className="text-xs text-emerald-700 font-semibold">{mktHead ? mktHead.full_name : 'Chưa bổ nhiệm'}</div>
-                              <div className="text-[10px] text-slate-500 font-mono">{mktHead ? mktHead.email : 'Chưa có nhân sự phụ trách'}</div>
-                            </div>
-                            {mktHead && (
-                              <button 
-                                onClick={() => handleOpen360(mktHead.id)}
-                                className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-800"
-                              >
-                                Xem hồ sơ →
-                              </button>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
-                            <strong>Đơn Vị Marketing:</strong> Quản lý quảng cáo, Lead Ads, chiến dịch mở bán toàn dự án.
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-
-                  {/* 3. KHỐI HR */}
-                  <div className="border border-purple-200 rounded-xl p-4 bg-purple-50/20 space-y-3">
-                    <div className="flex items-center justify-between border-b border-purple-200 pb-2">
-                      <div className="font-bold text-sm text-purple-900 flex items-center gap-2">
-                        <UserCheck className="h-4 w-4 text-purple-600" />
-                        <span>3. Khối Nhân Sự (HR Division)</span>
-                      </div>
-                      <span className="text-xs font-semibold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
-                        Trực thuộc CEO
-                      </span>
-                    </div>
-
-                    {(() => {
-                      const hrHead = employees.find(e => e.role === 'hr_admin');
-
-                      return (
-                        <div className="space-y-2.5">
-                          <div className="p-3 bg-white border border-purple-200 rounded-xl flex items-center justify-between">
-                            <div>
-                              <div className="text-xs font-bold text-slate-900">Giám Đốc / Trưởng HR</div>
-                              <div className="text-xs text-purple-700 font-semibold">{hrHead ? hrHead.full_name : 'Chưa bổ nhiệm'}</div>
-                              <div className="text-[10px] text-slate-500 font-mono">{hrHead ? hrHead.email : 'Chưa có nhân sự phụ trách'}</div>
-                            </div>
-                            {hrHead && (
-                              <button 
-                                onClick={() => handleOpen360(hrHead.id)}
-                                className="text-[11px] font-semibold text-purple-600 hover:text-purple-800"
-                              >
-                                Hồ sơ 360° →
-                              </button>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-600 bg-white p-2.5 rounded-lg border border-slate-200">
-                            <strong>Phạm Vi Quản Trị:</strong> Quản lý hồ sơ nhân sự 360°, tuyển dụng ATS, điều chuyển phân cấp và đào tạo.
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
             </div>
           )}
         </div>
@@ -1822,9 +1885,9 @@ export const HRManagementPage: React.FC = () => {
                                 <span className="text-slate-400 block text-[10px] font-semibold uppercase">1. Doanh Nghiệp (CEO)</span>
                                 <div className="font-bold text-slate-900 mt-0.5 flex items-center gap-1">
                                   <Crown className="h-3.5 w-3.5 text-amber-500" />
-                                  <span>{org ? `${org.name} (${org.code})` : 'Địa Ốc Vàng TP.HCM'}</span>
+                                  <span>{org ? `${org.name} (${org.code})` : 'Chưa phân bổ Doanh nghiệp'}</span>
                                 </div>
-                                <div className="text-[11px] text-indigo-600 font-medium">CEO: {org?.ceo_name || 'Trần Hải Nam'}</div>
+                                <div className="text-[11px] text-indigo-600 font-medium">CEO: {org?.ceo_name || 'Chưa bổ nhiệm'}</div>
                               </div>
 
                               <div className="p-2.5 bg-white rounded-lg border border-slate-200">

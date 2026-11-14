@@ -134,24 +134,25 @@ describe('Quản Trị Hệ Thống - Chức Năng Sửa & Xóa Người Dùng (
       expect(resFail.error).toContain('thuộc doanh nghiệp của mình');
     });
 
-    it('Company Admin KHÔNG được phép thăng cấp tài khoản lên Admin, CEO hoặc Company Admin', async () => {
+    it('Company Admin KHÔNG được phép thăng cấp tài khoản lên Admin hoặc Company Admin (nhưng được phép bổ nhiệm CEO cho DN mình)', async () => {
       const resAdmin = await teamRepository.updateUser(saleAgentA1.id, {
         role: 'admin',
       }, compAdminA);
       expect(resAdmin.success).toBe(false);
       expect(resAdmin.error).toContain('không có quyền thăng cấp');
 
-      const resCeo = await teamRepository.updateUser(saleAgentA1.id, {
-        role: 'ceo',
-      }, compAdminA);
-      expect(resCeo.success).toBe(false);
-      expect(resCeo.error).toContain('không có quyền thăng cấp');
-
       const resCompAdmin = await teamRepository.updateUser(saleAgentA1.id, {
         role: 'company_admin',
       }, compAdminA);
       expect(resCompAdmin.success).toBe(false);
       expect(resCompAdmin.error).toContain('không có quyền thăng cấp');
+
+      // Company Admin được quyền bổ nhiệm / thăng cấp CEO cho chính doanh nghiệp mình
+      const resCeo = await teamRepository.updateUser(saleAgentA1.id, {
+        role: 'ceo',
+      }, compAdminA);
+      expect(resCeo.success).toBe(true);
+      expect(resCeo.profile?.role).toBe('ceo');
     });
 
     it('Company Admin KHÔNG thể chuyển người dùng sang Doanh nghiệp khác', async () => {

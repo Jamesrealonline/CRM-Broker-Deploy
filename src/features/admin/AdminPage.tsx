@@ -3640,7 +3640,7 @@ function doGet(e) {
                 className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
               >
                 {USER_ROLES
-                  .filter((r) => !isCompanyAdmin || !['admin', 'ceo', 'company_admin'].includes(r.value))
+                  .filter((r) => !isCompanyAdmin || !['admin', 'company_admin'].includes(r.value))
                   .map((r) => (
                     <option key={r.value} value={r.value}>{r.label.split('(')[0]}</option>
                   ))}
@@ -3982,7 +3982,7 @@ function doGet(e) {
                   className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-medium"
                 >
                   {USER_ROLES
-                    .filter((r) => !isCompanyAdmin || !['admin', 'ceo', 'company_admin'].includes(r.value))
+                    .filter((r) => !isCompanyAdmin || !['admin', 'company_admin'].includes(r.value))
                     .map((r) => (
                       <option key={r.value} value={r.value}>{r.label.split('(')[0]}</option>
                     ))}
@@ -6062,7 +6062,7 @@ function doGet(e) {
                 className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-bold text-blue-700"
               >
                 {USER_ROLES
-                  .filter((r) => !isCompanyAdmin || !['admin', 'ceo', 'company_admin'].includes(r.value))
+                  .filter((r) => !isCompanyAdmin || !['admin', 'company_admin'].includes(r.value))
                   .map((r) => (
                     <option key={r.value} value={r.value}>{r.label}</option>
                   ))}

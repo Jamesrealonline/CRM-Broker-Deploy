@@ -251,7 +251,7 @@ export class HRRepository {
         const existingReqs: JobRequisition[] = JSON.parse(localStorage.getItem(STORAGE_KEY_REQUISITIONS) || '[]');
         let modified = false;
         existingReqs.forEach(r => {
-          if (!r.organization_id && r.id === 'req-01') {
+          if (!r.organization_id) {
             r.organization_id = '11111111-1111-1111-1111-111111111111';
             modified = true;
           }
@@ -916,10 +916,11 @@ export class HRRepository {
     const accessibleAgencies = await teamRepository.getAgencies(undefined, currentUser);
     const agencyIds = new Set(accessibleAgencies.map(a => a.id));
     return reqs.filter(r => {
-      if (r.organization_id && currentUser.organization_id) {
-        return r.organization_id === currentUser.organization_id;
+      const reqOrg = r.organization_id || '11111111-1111-1111-1111-111111111111';
+      if (currentUser.organization_id) {
+        if (reqOrg !== currentUser.organization_id) return false;
       }
-      return r.agency_id ? agencyIds.has(r.agency_id) : false;
+      return r.agency_id ? agencyIds.has(r.agency_id) : true;
     });
   }
 
