@@ -272,12 +272,12 @@ export const HRManagementPage: React.FC = () => {
         teamRepository.getRegions(currentUser),
         teamRepository.getOrganizations(currentUser),
         teamRepository.getDivisions(currentUser),
-        teamRepository.getStructuralHealthReport(),
+        teamRepository.getStructuralHealthReport(currentUser),
         hrRepository.getHRMetrics(undefined, currentUser),
         hrRepository.getTransferRequests(currentUser),
         hrRepository.getLeaveRequests(currentUser),
-        hrRepository.getJobRequisitions(),
-        hrRepository.getCandidates(),
+        hrRepository.getJobRequisitions(currentUser),
+        hrRepository.getCandidates(undefined, currentUser),
       ]);
 
       const accessibleAgencies = branchHierarchyService.filterAgencies(currentUser, agList);
@@ -1125,7 +1125,10 @@ export const HRManagementPage: React.FC = () => {
 
               {/* NODE GỐC: TỔNG GIÁM ĐỐC (CEO) */}
               {(() => {
-                const ceo = employees.find(e => e.role === 'ceo') || employees.find(e => e.role === 'admin');
+                const currentOrg = organizations.find(o => o.id === currentUser?.organization_id) || (currentUser?.role === 'admin' ? organizations[0] : undefined);
+                const ceo = employees.find(e => e.role === 'ceo' || (currentOrg && e.id === currentOrg.ceo_id));
+                const companyAdmin = employees.find(e => e.role === 'company_admin' || (currentOrg && e.id === currentOrg.admin_id));
+
                 return (
                   <div className="p-4 bg-gradient-to-r from-indigo-900 to-indigo-800 text-white rounded-xl shadow-md flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -1133,9 +1136,15 @@ export const HRManagementPage: React.FC = () => {
                         CEO
                       </div>
                       <div>
-                        <div className="text-xs font-semibold text-indigo-200 uppercase tracking-wider">Tổng Giám Đốc (CEO)</div>
-                        <div className="text-base font-bold text-white">{ceo ? ceo.full_name : 'Trần Hải Nam'}</div>
-                        <div className="text-xs text-indigo-200 font-mono">{ceo ? ceo.email : 'ceo@diaocvang.vn'} • Quản trị điều hành tối cao</div>
+                        <div className="text-xs font-semibold text-indigo-200 uppercase tracking-wider">
+                          Tổng Giám Đốc (CEO) {currentOrg ? `• ${currentOrg.name}` : ''}
+                        </div>
+                        <div className="text-base font-bold text-white">
+                          {ceo ? ceo.full_name : companyAdmin ? `${companyAdmin.full_name} (Quản Trị Doanh Nghiệp)` : 'Chưa bổ nhiệm Tổng Giám Đốc'}
+                        </div>
+                        <div className="text-xs text-indigo-200 font-mono">
+                          {ceo ? `${ceo.email} • Quản trị điều hành tối cao` : companyAdmin ? `${companyAdmin.email} • Điều hành tạm thời` : 'Doanh nghiệp chưa bổ nhiệm chức danh CEO'}
+                        </div>
                       </div>
                     </div>
                     {ceo && (
@@ -1260,22 +1269,21 @@ export const HRManagementPage: React.FC = () => {
 
                     {(() => {
                       const mktHead = employees.find(e => e.role === 'marketing_manager');
-                      const mktStaff = employees.filter(e => e.role === 'marketing_manager' || ((e.record as any)?.department === 'marketing'));
 
                       return (
                         <div className="space-y-2.5">
                           <div className="p-3 bg-white border border-emerald-200 rounded-xl flex items-center justify-between">
                             <div>
                               <div className="text-xs font-bold text-slate-900">Giám Đốc / Trưởng Marketing</div>
-                              <div className="text-xs text-emerald-700 font-semibold">{mktHead ? mktHead.full_name : 'Lê Thu Hà'}</div>
-                              <div className="text-[10px] text-slate-500 font-mono">{mktHead ? mktHead.email : 'marketing@diaocvang.vn'}</div>
+                              <div className="text-xs text-emerald-700 font-semibold">{mktHead ? mktHead.full_name : 'Chưa bổ nhiệm'}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">{mktHead ? mktHead.email : 'Chưa có nhân sự phụ trách'}</div>
                             </div>
                             {mktHead && (
                               <button 
                                 onClick={() => handleOpen360(mktHead.id)}
                                 className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-800"
                               >
-                                Hồ sơ 360° →
+                                Xem hồ sơ →
                               </button>
                             )}
                           </div>
@@ -1307,8 +1315,8 @@ export const HRManagementPage: React.FC = () => {
                           <div className="p-3 bg-white border border-purple-200 rounded-xl flex items-center justify-between">
                             <div>
                               <div className="text-xs font-bold text-slate-900">Giám Đốc / Trưởng HR</div>
-                              <div className="text-xs text-purple-700 font-semibold">{hrHead ? hrHead.full_name : 'Nguyễn Thị HR'}</div>
-                              <div className="text-[10px] text-slate-500 font-mono">{hrHead ? hrHead.email : 'hr@diaocvang.vn'}</div>
+                              <div className="text-xs text-purple-700 font-semibold">{hrHead ? hrHead.full_name : 'Chưa bổ nhiệm'}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">{hrHead ? hrHead.email : 'Chưa có nhân sự phụ trách'}</div>
                             </div>
                             {hrHead && (
                               <button 
@@ -1458,18 +1466,24 @@ export const HRManagementPage: React.FC = () => {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {requisitions.map(req => (
-                <div key={req.id} className="p-3 border border-slate-200 rounded-md bg-slate-50/70 space-y-1.5">
-                  <div className="font-semibold text-slate-800 text-xs">{req.title}</div>
-                  <div className="text-[11px] text-slate-500">{req.agency_name} • {req.team_name}</div>
-                  <div className="flex items-center justify-between text-xs pt-1">
-                    <span className="text-slate-600 font-mono">Đã tuyển: {req.hired_count}/{req.target_count}</span>
-                    <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700">Đang tuyển</Badge>
+            {requisitions.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-400 bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
+                Chưa có nhu cầu tuyển dụng nào cho đơn vị này.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {requisitions.map(req => (
+                  <div key={req.id} className="p-3 border border-slate-200 rounded-md bg-slate-50/70 space-y-1.5">
+                    <div className="font-semibold text-slate-800 text-xs">{req.title}</div>
+                    <div className="text-[11px] text-slate-500">{req.agency_name} • {req.team_name}</div>
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <span className="text-slate-600 font-mono">Đã tuyển: {req.hired_count}/{req.target_count}</span>
+                      <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700">Đang tuyển</Badge>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Kanban Pipeline */}

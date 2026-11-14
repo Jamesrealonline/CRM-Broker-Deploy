@@ -232,6 +232,7 @@ export class HRRepository {
       const reqs: JobRequisition[] = [
         {
           id: 'req-01',
+          organization_id: '11111111-1111-1111-1111-111111111111',
           title: 'Tuyển dụng 5 Chuyên Viên Kinh Doanh Dự Án Vinhomes',
           agency_id: '22222222-1111-1111-1111-111111111111',
           agency_name: 'Sàn Giao Dịch Trung Tâm Q1',
@@ -245,6 +246,22 @@ export class HRRepository {
         }
       ];
       localStorage.setItem(STORAGE_KEY_REQUISITIONS, JSON.stringify(reqs));
+    } else {
+      try {
+        const existingReqs: JobRequisition[] = JSON.parse(localStorage.getItem(STORAGE_KEY_REQUISITIONS) || '[]');
+        let modified = false;
+        existingReqs.forEach(r => {
+          if (!r.organization_id && r.id === 'req-01') {
+            r.organization_id = '11111111-1111-1111-1111-111111111111';
+            modified = true;
+          }
+        });
+        if (modified) {
+          localStorage.setItem(STORAGE_KEY_REQUISITIONS, JSON.stringify(existingReqs));
+        }
+      } catch (e) {
+        // ignore JSON parse error
+      }
     }
 
     if (!localStorage.getItem(STORAGE_KEY_CANDIDATES)) {
@@ -628,7 +645,13 @@ export class HRRepository {
   async getTransferRequests(currentUser: UserProfile): Promise<PersonnelTransferRequest[]> {
     this.ensureInitialized();
     const requests: PersonnelTransferRequest[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSFER_REQUESTS) || '[]');
-    return requests;
+    if (!currentUser || branchHierarchyService.isGlobalViewer(currentUser)) {
+      return requests;
+    }
+    const profiles = await teamRepository.getProfiles();
+    const permittedProfiles = branchHierarchyService.filterProfiles(currentUser, profiles);
+    const permittedUserIds = new Set(permittedProfiles.map(p => p.id));
+    return requests.filter(r => permittedUserIds.has(r.user_id));
   }
 
   async applyPersonnelTransfer(requestId: string, currentUser: UserProfile): Promise<{ success: boolean }> {
@@ -756,10 +779,18 @@ export class HRRepository {
     const requests: LeaveRequest[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVE_REQUESTS) || '[]');
     if (userId) return requests.filter(r => r.user_id === userId);
 
+    if (!currentUser || branchHierarchyService.isGlobalViewer(currentUser)) {
+      return requests;
+    }
+
     if (currentUser.role === 'sale_agent') {
       return requests.filter(r => r.user_id === currentUser.id);
     }
-    return requests;
+
+    const profiles = await teamRepository.getProfiles();
+    const permittedProfiles = branchHierarchyService.filterProfiles(currentUser, profiles);
+    const permittedUserIds = new Set(permittedProfiles.map(p => p.id));
+    return requests.filter(r => permittedUserIds.has(r.user_id));
   }
 
   async createLeaveRequest(payload: {
@@ -876,14 +907,30 @@ export class HRRepository {
   }
 
   // 7. TUYỂN DỤNG ATS & CHUYỂN ỨNG VIÊN THÀNH NHÂN SỰ (ATOMIC HIRE REUSING ADMIN FLOW)
-  async getJobRequisitions(): Promise<JobRequisition[]> {
+  async getJobRequisitions(currentUser?: UserProfile): Promise<JobRequisition[]> {
     this.ensureInitialized();
-    return JSON.parse(localStorage.getItem(STORAGE_KEY_REQUISITIONS) || '[]');
+    const reqs: JobRequisition[] = JSON.parse(localStorage.getItem(STORAGE_KEY_REQUISITIONS) || '[]');
+    if (!currentUser || branchHierarchyService.isGlobalViewer(currentUser)) {
+      return reqs;
+    }
+    const accessibleAgencies = await teamRepository.getAgencies(undefined, currentUser);
+    const agencyIds = new Set(accessibleAgencies.map(a => a.id));
+    return reqs.filter(r => {
+      if (r.organization_id && currentUser.organization_id) {
+        return r.organization_id === currentUser.organization_id;
+      }
+      return r.agency_id ? agencyIds.has(r.agency_id) : false;
+    });
   }
 
-  async getCandidates(requisitionId?: string): Promise<Candidate[]> {
+  async getCandidates(requisitionId?: string, currentUser?: UserProfile): Promise<Candidate[]> {
     this.ensureInitialized();
-    const cands: Candidate[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CANDIDATES) || '[]');
+    let cands: Candidate[] = JSON.parse(localStorage.getItem(STORAGE_KEY_CANDIDATES) || '[]');
+    if (currentUser && !branchHierarchyService.isGlobalViewer(currentUser)) {
+      const allowedReqs = await this.getJobRequisitions(currentUser);
+      const allowedReqIds = new Set(allowedReqs.map(r => r.id));
+      cands = cands.filter(c => c.requisition_id && allowedReqIds.has(c.requisition_id));
+    }
     if (requisitionId && requisitionId !== 'all') {
       return cands.filter(c => c.requisition_id === requisitionId);
     }
@@ -1257,7 +1304,7 @@ export class HRRepository {
     }
     const records: EmployeeRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEE_RECORDS) || '[]');
     const certs: BrokerCertificate[] = JSON.parse(localStorage.getItem(STORAGE_KEY_BROKER_CERTS) || '[]');
-    const reqs: JobRequisition[] = JSON.parse(localStorage.getItem(STORAGE_KEY_REQUISITIONS) || '[]');
+    const accessibleReqs = await this.getJobRequisitions(currentUser);
     const transfers: PersonnelTransferRequest[] = JSON.parse(localStorage.getItem(STORAGE_KEY_TRANSFER_REQUESTS) || '[]');
     const leaves: LeaveRequest[] = JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVE_REQUESTS) || '[]');
 
@@ -1267,7 +1314,7 @@ export class HRRepository {
       probationCount: records.filter(r => r.employment_type === 'probation' && profiles.some(p => p.id === r.user_id)).length,
       collaboratorCount: records.filter(r => r.employment_type === 'collaborator' && profiles.some(p => p.id === r.user_id)).length,
       expiringCertsCount: certs.filter(c => (c.status === 'expiring_soon' || c.status === 'expired') && profiles.some(p => p.id === (c as any).user_id)).length,
-      openRequisitionsCount: reqs.filter(r => r.status === 'open').length,
+      openRequisitionsCount: accessibleReqs.filter(r => r.status === 'open').length,
       pendingTransfersCount: transfers.filter(t => t.status === 'pending' && profiles.some(p => p.id === t.user_id)).length,
       pendingLeavesCount: leaves.filter(l => l.status === 'pending' && profiles.some(p => p.id === l.user_id)).length,
     };

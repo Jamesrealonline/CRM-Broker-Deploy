@@ -1044,6 +1044,7 @@ export interface LeaveRequest {
 
 export interface JobRequisition {
   id: string;
+  organization_id?: string;
   title: string;
   agency_id?: string;
   agency_name?: string;

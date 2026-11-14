@@ -399,4 +399,38 @@ describe('Module 5: Comprehensive HR Lifecycle & Personnel Management', () => {
     const activeUser = updatedProfiles.find(p => p.id === targetUserId);
     expect(activeUser?.status).toBe('active');
   });
+
+  it('11. Đảm bảo bảo mật đa doanh nghiệp (Multi-tenant isolation) cho Tuyển dụng, Ứng viên và Báo cáo nhân sự', async () => {
+    const maicomAdmin: UserProfile = {
+      id: 'maicom-admin-user',
+      email: 'admin@maicom.vn',
+      full_name: 'Quản Trị Maicom',
+      phone: '0909000111',
+      role: 'company_admin',
+      organization_id: 'org-maicom-id',
+      status: 'active',
+      created_at: new Date().toISOString(),
+    };
+
+    // 1. Maicom Admin không xem được Job Requisitions của DN khác
+    const requisitions = await hrRepository.getJobRequisitions(maicomAdmin);
+    expect(requisitions.some(r => r.id === 'req-01')).toBe(false);
+
+    // 2. Maicom Admin không xem được Ứng viên của DN khác
+    const candidates = await hrRepository.getCandidates(undefined, maicomAdmin);
+    expect(candidates.some(c => c.id === 'cand-01')).toBe(false);
+
+    // 3. Quản trị tổng (Admin) xem được toàn bộ
+    const superAdmin: UserProfile = {
+      id: 'super-admin-user',
+      email: 'admin@diaocvang.vn',
+      full_name: 'Quản Trị Tổng',
+      phone: '0909999999',
+      role: 'admin',
+      status: 'active',
+      created_at: new Date().toISOString(),
+    };
+    const allReqs = await hrRepository.getJobRequisitions(superAdmin);
+    expect(allReqs.some(r => r.id === 'req-01')).toBe(true);
+  });
 });

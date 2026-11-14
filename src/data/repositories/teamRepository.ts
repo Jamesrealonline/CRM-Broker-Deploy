@@ -1979,9 +1979,9 @@ export class TeamRepository {
   // ==========================================
   // BÁO CÁO SỨC KHỎE CƠ CẤU (STRUCTURAL HEALTH REPORT)
   // ==========================================
-  async getStructuralHealthReport(): Promise<StructuralHealthReport> {
-    const agencies = await this.getAgencies();
-    const regions = await this.getRegions();
+  async getStructuralHealthReport(currentUser?: UserProfile): Promise<StructuralHealthReport> {
+    const agencies = await this.getAgencies(undefined, currentUser);
+    const regions = await this.getRegions(currentUser);
 
     const agenciesWithoutRegion = agencies
       .filter(a => !a.region_id || a.region_id === 'REG-DEFAULT' || !regions.some(r => r.id === a.region_id))
