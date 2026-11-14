@@ -907,12 +907,24 @@ export class TeamRepository {
       if (input.status !== undefined) payload.status = input.status;
       if (input.employment_type !== undefined) payload.employment_type = input.employment_type;
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('profiles')
         .update(payload)
         .eq('id', userId)
         .select()
         .single();
+
+      if (error && error.message?.includes('region_id') && !sanitized.region_id) {
+        delete payload.region_id;
+        const retry = await supabase
+          .from('profiles')
+          .update(payload)
+          .eq('id', userId)
+          .select()
+          .single();
+        data = retry.data;
+        error = retry.error;
+      }
 
       if (error) return { success: false, error: error.message };
 
@@ -1654,7 +1666,12 @@ export class TeamRepository {
         organization_id: sanitized.organization_id,
       };
 
-      const { error } = await supabase.from('profiles').update(payload).eq('id', userId);
+      let { error } = await supabase.from('profiles').update(payload).eq('id', userId);
+      if (error && error.message?.includes('region_id') && !sanitized.region_id) {
+        delete payload.region_id;
+        const retry = await supabase.from('profiles').update(payload).eq('id', userId);
+        error = retry.error;
+      }
       if (error) return { success: false, error: error.message };
       return { success: true };
     }

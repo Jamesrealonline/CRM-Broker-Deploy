@@ -501,6 +501,41 @@ export class ProjectRepository {
     };
   }
 
+  // Lưu trực tiếp các trường tri thức dự án và đồng bộ Supabase / LocalStorage
+  async saveProjectKnowledge(projectId: string, updates: Partial<ProjectKnowledge>): Promise<ProjectKnowledge> {
+    const existing = await this.getProjectKnowledge(projectId);
+    const updated: ProjectKnowledge = {
+      ...(existing || {}),
+      ...updates,
+      id: existing?.id || crypto.randomUUID(),
+      project_id: projectId,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (isLiveSupabaseConfigured) {
+      const { data, error } = await supabase
+        .from('project_knowledge')
+        .upsert(updated, { onConflict: 'project_id' })
+        .select()
+        .single();
+      if (error) {
+        console.error('Error saving project knowledge to Supabase:', error);
+        throw new Error(error.message);
+      }
+      const allKnowledge = JSON.parse(localStorage.getItem(STORAGE_KEY_KNOWLEDGE) || JSON.stringify(INITIAL_KNOWLEDGE));
+      allKnowledge[projectId] = data || updated;
+      localStorage.setItem(STORAGE_KEY_KNOWLEDGE, JSON.stringify(allKnowledge));
+      await this.refreshAutoScripts(projectId, (data as ProjectKnowledge) || updated);
+      return ((data as ProjectKnowledge) || updated);
+    }
+
+    const allKnowledge = JSON.parse(localStorage.getItem(STORAGE_KEY_KNOWLEDGE) || JSON.stringify(INITIAL_KNOWLEDGE));
+    allKnowledge[projectId] = updated;
+    localStorage.setItem(STORAGE_KEY_KNOWLEDGE, JSON.stringify(allKnowledge));
+    await this.refreshAutoScripts(projectId, updated);
+    return updated;
+  }
+
   // Cập nhật tóm tắt văn bản và tự động điền các trường Nhãn: nội dung
   async updateKnowledgeSummary(projectId: string, summaryText: string): Promise<ProjectKnowledge> {
     // Parser tự động tìm các dòng Nhãn: nội dung
@@ -525,10 +560,14 @@ export class ProjectRepository {
     if (isLiveSupabaseConfigured) {
       const { data, error } = await supabase
         .from('project_knowledge')
-        .upsert(updated)
+        .upsert(updated, { onConflict: 'project_id' })
         .select()
         .single();
       if (error) throw new Error(error.message);
+      const allKnowledge = JSON.parse(localStorage.getItem(STORAGE_KEY_KNOWLEDGE) || JSON.stringify(INITIAL_KNOWLEDGE));
+      allKnowledge[projectId] = data || updated;
+      localStorage.setItem(STORAGE_KEY_KNOWLEDGE, JSON.stringify(allKnowledge));
+      await this.refreshAutoScripts(projectId, (data as ProjectKnowledge) || updated);
       return data;
     }
 
@@ -551,20 +590,25 @@ export class ProjectRepository {
       const trimmed = line.trim();
       const lower = trimmed.toLowerCase();
 
+      const extractValue = () => {
+        const colonIdx = trimmed.indexOf(':');
+        return colonIdx !== -1 ? trimmed.slice(colonIdx + 1).trim() : '';
+      };
+
       if (lower.startsWith('vị trí:') || lower.startsWith('vi tri:')) {
-        result.location = trimmed.split(':')[1]?.trim();
+        result.location = extractValue();
       } else if (lower.startsWith('loại hình:') || lower.startsWith('loai hinh:')) {
-        result.property_type = trimmed.split(':')[1]?.trim();
-      } else if (lower.startsWith('giá:') || lower.startsWith('gia:')) {
-        result.price_range = trimmed.split(':')[1]?.trim();
+        result.property_type = extractValue();
+      } else if (lower.startsWith('giá:') || lower.startsWith('gia:') || lower.startsWith('khung giá:')) {
+        result.price_range = extractValue();
       } else if (lower.startsWith('pháp lý:') || lower.startsWith('phap ly:')) {
-        result.legal = trimmed.split(':')[1]?.trim();
+        result.legal = extractValue();
       } else if (lower.startsWith('tiến độ:') || lower.startsWith('tien do:')) {
-        result.progress = trimmed.split(':')[1]?.trim();
+        result.progress = extractValue();
       } else if (lower.startsWith('chính sách:') || lower.startsWith('chinh sach:')) {
-        result.policy = trimmed.split(':')[1]?.trim();
+        result.policy = extractValue();
       } else if (lower.startsWith('điểm nhấn:') || lower.startsWith('diem nhan:')) {
-        result.highlights = trimmed.split(':')[1]?.trim();
+        result.highlights = extractValue();
       }
     }
 
@@ -724,6 +768,20 @@ export class ProjectRepository {
       },
     ];
     return defaults;
+  }
+
+  async saveProjectFaqs(projectId: string, faqs: ProjectFaq[]): Promise<ProjectFaq[]> {
+    const all = JSON.parse(localStorage.getItem(STORAGE_KEY_FAQS) || '[]');
+    const filtered = all.filter((f: ProjectFaq) => f.project_id !== projectId);
+    const preparedFaqs = faqs.map(f => ({
+      ...f,
+      project_id: projectId,
+      id: f.id || `faq-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      created_at: f.created_at || new Date().toISOString(),
+    }));
+    const updated = [...filtered, ...preparedFaqs];
+    localStorage.setItem(STORAGE_KEY_FAQS, JSON.stringify(updated));
+    return preparedFaqs;
   }
 
   // ==========================================

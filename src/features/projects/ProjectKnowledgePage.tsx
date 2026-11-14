@@ -141,8 +141,21 @@ export const ProjectKnowledgePage: React.FC = () => {
         projectRepository.getProjectUnits(id),
       ]);
       setProject(proj);
-      setKnowledge(know);
-      setSummaryText(know?.summary_text || '');
+      const effectiveKnowledge: ProjectKnowledge = know || {
+        id: crypto.randomUUID(),
+        project_id: id,
+        location: proj?.location || '',
+        property_type: proj?.property_type || '',
+        price_range: proj?.expected_price_range || '',
+        legal: '',
+        progress: '',
+        policy: '',
+        highlights: '',
+        summary_text: '',
+        updated_at: new Date().toISOString(),
+      };
+      setKnowledge(effectiveKnowledge);
+      setSummaryText(effectiveKnowledge.summary_text || '');
       setFaqs(faqList);
       setFinancialStats(stats as any);
       setUnits(unitList);
@@ -248,8 +261,13 @@ export const ProjectKnowledgePage: React.FC = () => {
     setIsEnriching(true);
     setEnrichModalOpen(true);
     try {
-      const results = await aiRepository.enrichProject(project.name, project.location, project.developer);
-      // Áp dụng quy tắc mục 8: Trường trống mặc định được chọn, trường đã có dữ liệu mặc định không bị ghi đè
+      const results = await aiRepository.enrichProject(
+        project.name,
+        project.location,
+        project.developer,
+        project.property_type
+      );
+      // Áp dụng quy tắc: Trường trống mặc định được chọn, trường đã có dữ liệu mặc định không bị ghi đè
       const mapped = results.map(p => {
         const currentVal = knowledge ? (knowledge[p.field] as string) : undefined;
         return {
@@ -270,30 +288,58 @@ export const ProjectKnowledgePage: React.FC = () => {
     setProposals(prev => prev.map((item, idx) => idx === index ? { ...item, selected: !item.selected } : item));
   };
 
+  const handleSelectAllProposals = (selected: boolean) => {
+    setProposals(prev => prev.map(item => ({ ...item, selected })));
+  };
+
   const handleApplyEnrichment = async () => {
-    if (!id || !knowledge) return;
-    const updated = { ...knowledge };
+    if (!id || !project) return;
+    setIsEnriching(true);
+    try {
+      const baseKnowledge: ProjectKnowledge = knowledge || {
+        id: crypto.randomUUID(),
+        project_id: id,
+        summary_text: '',
+        updated_at: new Date().toISOString(),
+      };
+      const updated: ProjectKnowledge = { ...baseKnowledge };
 
-    proposals.forEach(p => {
-      if (p.selected) {
-        (updated as any)[p.field] = p.proposedValue;
-        (updated as any)[`${p.field}_source`] = p.sourceUrl;
-        (updated as any)[`${p.field}_unverified`] = true; // Gắn cờ unverified cho tới khi người dùng duyệt
-      }
-    });
+      proposals.forEach(p => {
+        if (p.selected) {
+          (updated as any)[p.field] = p.proposedValue;
+          (updated as any)[`${p.field}_source`] = p.sourceUrl;
+          (updated as any)[`${p.field}_unverified`] = true; // Gắn cờ unverified cho tới khi người dùng duyệt
+        }
+      });
 
-    setKnowledge(updated);
-    setEnrichModalOpen(false);
-    // Tự sinh lại văn bản tóm tắt
-    const newSummary = `Vị trí: ${updated.location || ''}\n` +
-                       `Loại hình: ${updated.property_type || ''}\n` +
-                       `Giá: ${updated.price_range || ''}\n` +
-                       `Pháp lý: ${updated.legal || ''}\n` +
-                       `Tiến độ: ${updated.progress || ''}\n` +
-                       `Chính sách: ${updated.policy || ''}\n` +
-                       `Điểm nhấn: ${updated.highlights || ''}`;
-    setSummaryText(newSummary.slice(0, 3000));
-    await projectRepository.updateKnowledgeSummary(id, newSummary);
+      // Tự sinh lại văn bản tóm tắt
+      const newSummary = `Vị trí: ${updated.location || ''}\n` +
+                         `Loại hình: ${updated.property_type || ''}\n` +
+                         `Giá: ${updated.price_range || ''}\n` +
+                         `Pháp lý: ${updated.legal || ''}\n` +
+                         `Tiến độ: ${updated.progress || ''}\n` +
+                         `Chính sách: ${updated.policy || ''}\n` +
+                         `Điểm nhấn: ${updated.highlights || ''}`;
+      updated.summary_text = newSummary.slice(0, 3000);
+
+      // Lưu trực tiếp vào Database Supabase và LocalStorage
+      const saved = await projectRepository.saveProjectKnowledge(id, updated);
+      setKnowledge(saved);
+      setSummaryText(newSummary.slice(0, 3000));
+
+      // Tự sinh và lưu các câu hỏi FAQ tương ứng với dự án
+      const generatedFaqs = aiRepository.generateProjectFaqs(project.name, project.developer, project.location);
+      const savedFaqs = await projectRepository.saveProjectFaqs(id, generatedFaqs);
+      setFaqs(savedFaqs);
+
+      setEnrichModalOpen(false);
+      await fetchProjectData();
+    } catch (err: any) {
+      console.error('Error applying AI enrichment:', err);
+      alert(err.message || 'Không thể lưu thông tin tri thức AI. Vui lòng thử lại.');
+    } finally {
+      setIsEnriching(false);
+    }
   };
 
   // Quản lý Giỏ hàng (Units) Handlers
@@ -1003,9 +1049,27 @@ Chính sách: Vay 70% lãi suất 0% trong 24 tháng
           </div>
         ) : (
           <div className="space-y-4">
-            <p className="text-xs text-slate-600">
-              Chọn các trường bạn muốn cập nhật. Trường trống mặc định được chọn, trường đã có dữ liệu sẽ không bị ghi đè nếu bạn không tick chọn.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <p className="text-slate-600">
+                Chọn các trường bạn muốn cập nhật. Trường trống mặc định được chọn, trường đã có dữ liệu sẽ không bị ghi đè nếu bạn không tick chọn.
+              </p>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleSelectAllProposals(true)}
+                  className="px-2 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200"
+                >
+                  Chọn tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectAllProposals(false)}
+                  className="px-2 py-1 text-[11px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300"
+                >
+                  Bỏ chọn
+                </button>
+              </div>
+            </div>
 
             <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
               {proposals.map((item, idx) => (
