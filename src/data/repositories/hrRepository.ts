@@ -1278,7 +1278,12 @@ export class HRRepository {
   // ========================================================
   async getComprehensiveHRKpiSummary(
     dateRange?: DateRangeValue,
-    currentUser?: UserProfile
+    currentUser?: UserProfile,
+    kpiMetrics?: {
+      totalDealValue?: number;
+      contractCount?: number;
+      totalLeads?: number;
+    }
   ): Promise<HRKpiSummary> {
     this.ensureInitialized();
     let profiles = await teamRepository.getProfiles();
@@ -1292,6 +1297,7 @@ export class HRRepository {
 
     if (currentUser) {
       contracts = branchHierarchyService.filterTransactions(currentUser, contracts);
+      leads = branchHierarchyService.filterLeads(currentUser, leads);
     }
 
     const officialCount = records.filter(r => r.employment_type === 'official').length || profiles.filter(p => p.employment_type === 'official' || (!p.employment_type && p.role !== 'marketing_manager')).length;
@@ -1328,12 +1334,33 @@ export class HRRepository {
       return diffDays >= 0 && diffDays <= 30;
     }).length || 1;
 
-    const confirmedContracts = contracts.filter(c => c.type === 'contract' && c.status === 'confirmed');
-    const totalRev = confirmedContracts.reduce((sum, c) => sum + (c.deal_value || c.amount || 0), 0);
-    const activeStaff = activeCount > 0 ? activeCount : 1;
-    const perCapitaRevenue = Math.round(totalRev / activeStaff);
-    const perCapitaContracts = Number((confirmedContracts.length / activeStaff).toFixed(1));
-    const perCapitaLeads = Number((leads.length / activeStaff).toFixed(1));
+    const activeStaff = activeCount > 0 ? activeCount : (totalStaff > 0 ? totalStaff : 1);
+
+    let totalRev = 0;
+    let contractCount = 0;
+    let totalLeadCount = 0;
+
+    if (kpiMetrics && kpiMetrics.totalDealValue !== undefined) {
+      totalRev = kpiMetrics.totalDealValue;
+      contractCount = kpiMetrics.contractCount || 0;
+      totalLeadCount = kpiMetrics.totalLeads || 0;
+    } else {
+      let filteredContracts = contracts;
+      if (dateRange?.from && dateRange?.to) {
+        filteredContracts = contracts.filter(c => {
+          const d = (c.contract_date || c.transaction_date || c.created_at || '').slice(0, 10);
+          return d >= dateRange.from && d <= dateRange.to;
+        });
+      }
+      const confirmedContracts = filteredContracts.filter(c => c.type === 'contract' && c.status === 'confirmed');
+      totalRev = confirmedContracts.reduce((sum, c) => sum + (c.deal_value || c.amount || 0), 0);
+      contractCount = confirmedContracts.length;
+      totalLeadCount = leads.length;
+    }
+
+    const perCapitaRevenue = (activeStaff > 0 && totalRev > 0) ? Math.round(totalRev / activeStaff) : 0;
+    const perCapitaContracts = (activeStaff > 0 && contractCount > 0) ? Number((contractCount / activeStaff).toFixed(1)) : 0;
+    const perCapitaLeads = (activeStaff > 0 && totalLeadCount > 0) ? Number((totalLeadCount / activeStaff).toFixed(1)) : 0;
 
     const trendData = [
       { date: 'T06', total: Math.max(1, totalStaff - 5), official: Math.max(1, officialCount - 4), probation: 2, collaborator: collaboratorCount },

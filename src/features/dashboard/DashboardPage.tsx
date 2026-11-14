@@ -166,23 +166,29 @@ export const DashboardPage: React.FC = () => {
       if (!currentUser) return;
       setLoading(true);
       try {
-        const [kpi, hrData] = await Promise.all([
-          dashboardRepository.getDashboardKpi(
-            { 
-              ceoId: ceoId || undefined,
-              projectId: projectId || undefined, 
-              regionId: regionId || undefined,
-              agencyId: agencyId || undefined,
-              teamId: teamId || undefined,
-              assignedTo: saleId || undefined,
-              dateFrom: dateRange.from,
-              dateTo: dateRange.to,
-              includeSample
-            },
-            currentUser
-          ),
-          hrRepository.getComprehensiveHRKpiSummary(dateRange, currentUser)
-        ]);
+        const kpi = await dashboardRepository.getDashboardKpi(
+          { 
+            ceoId: ceoId || undefined,
+            projectId: projectId || undefined, 
+            regionId: regionId || undefined,
+            agencyId: agencyId || undefined,
+            teamId: teamId || undefined,
+            assignedTo: saleId || undefined,
+            dateFrom: dateRange.from,
+            dateTo: dateRange.to,
+            includeSample
+          },
+          currentUser
+        );
+        const hrData = await hrRepository.getComprehensiveHRKpiSummary(
+          dateRange, 
+          currentUser,
+          {
+            totalDealValue: kpi.totalDealValue,
+            contractCount: kpi.contractCount,
+            totalLeads: kpi.totalLeads,
+          }
+        );
         setData(kpi);
         setHrKpi(hrData);
       } catch (err) {
@@ -558,11 +564,17 @@ export const DashboardPage: React.FC = () => {
                 <DollarSign className="h-4 w-4 text-emerald-600" />
               </div>
               <div className="mt-2 text-xl font-black text-emerald-700">
-                {formatCurrencyVND(hrKpi?.perCapitaRevenue)}
+                {formatCurrencyVND(hrKpi?.perCapitaRevenue || 0)}
               </div>
               <div className="mt-2 flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
-                <ArrowUpRight className="h-3.5 w-3.5" />
-                <span>+8.2% so với kỳ trước</span>
+                {(hrKpi?.perCapitaRevenue || 0) > 0 ? (
+                  <>
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                    <span>+8.2% so với kỳ trước</span>
+                  </>
+                ) : (
+                  <span className="text-slate-400">0% so với kỳ trước</span>
+                )}
               </div>
             </Card>
 

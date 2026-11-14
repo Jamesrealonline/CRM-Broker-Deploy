@@ -497,6 +497,7 @@ export const INITIAL_KNOWLEDGE: Record<string, ProjectKnowledge> = {
 export const INITIAL_TRANSACTIONS: any[] = [
   {
     id: 'd3d0caf0-70fa-48db-8e40-8f7319355a8e',
+    organization_id: '11111111-1111-1111-1111-111111111111',
     lead_id: '9ca2422c-1043-4d36-a376-b70faa7b2449',
     project_id: '33333333-1111-1111-1111-111111111111',
     project_name: 'Vinhomes Grand Park',
@@ -528,6 +529,7 @@ export const INITIAL_TRANSACTIONS: any[] = [
   },
   {
     id: 'ab7f007e-9dcf-4e23-b365-802e9f4bd396',
+    organization_id: '11111111-1111-1111-1111-111111111111',
     lead_id: '224acac5-9386-4597-88e2-3a866cdfb83a',
     project_id: '33333333-1111-1111-1111-111111111111',
     project_name: 'Vinhomes Grand Park',
@@ -559,6 +561,7 @@ export const INITIAL_TRANSACTIONS: any[] = [
   },
   {
     id: 'e0000001-0001-1111-1111-111111111111',
+    organization_id: '11111111-1111-1111-1111-111111111111',
     lead_id: 'a0000001-0001-1111-1111-111111111111',
     project_id: '33333333-4444-1111-1111-111111111111',
     project_name: 'The Global City',
@@ -590,6 +593,7 @@ export const INITIAL_TRANSACTIONS: any[] = [
   },
   {
     id: 'e0000002-0002-1111-1111-111111111111',
+    organization_id: '11111111-1111-1111-1111-111111111111',
     lead_id: 'a0000002-0002-1111-1111-111111111111',
     project_id: '33333333-3333-1111-1111-111111111111',
     project_name: 'Aqua City',
@@ -621,6 +625,7 @@ export const INITIAL_TRANSACTIONS: any[] = [
   },
   {
     id: '1cc55e6b-d980-4fa0-b9a3-5f60d95b369e',
+    organization_id: '11111111-1111-1111-1111-111111111111',
     lead_id: 'c44ee542-5449-4a23-a78b-8bc30488b697',
     project_id: '33333333-2222-1111-1111-111111111111',
     project_name: 'Lumiere Riverside',
@@ -650,6 +655,7 @@ export const INITIAL_TRANSACTIONS: any[] = [
   },
   {
     id: 'e6c35b8a-1160-4f7b-b8f7-c7bddce97629',
+    organization_id: '11111111-1111-1111-1111-111111111111',
     lead_id: 'e2250376-d53a-4e80-8554-d48eb713fbc4',
     project_id: '33333333-1111-1111-1111-111111111111',
     project_name: 'Vinhomes Grand Park',

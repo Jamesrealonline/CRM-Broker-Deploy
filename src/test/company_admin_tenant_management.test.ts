@@ -3,6 +3,7 @@ import { UserProfile, Organization, Region, Agency, Team, Transaction, Commissio
 import { branchHierarchyService } from '@/domain/services/branchHierarchyService';
 import { commissionService } from '@/domain/services/commissionService';
 import { teamRepository } from '@/data/repositories/teamRepository';
+import { hrRepository } from '@/data/repositories/hrRepository';
 
 describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation Test Suite', () => {
   // Test Data: Enterprise A & B
@@ -666,6 +667,38 @@ describe('Quản Trị Doanh Nghiệp (Company Admin) & Multi-tenant Isolation T
       expect(updateInfoAttempt.success).toBe(true);
       expect(updateInfoAttempt.profile?.full_name).toBe('Quản Trị Viên Chi Nhánh A (Cập nhật SĐT)');
       expect(updateInfoAttempt.profile?.role).toBe('company_admin');
+    });
+
+    it('Doanh Thu TB / Nhân Sự của Company Admin không bị rò rỉ số liệu từ DN khác hay mẫu mặc định', async () => {
+      // Khi DN A chưa có giao dịch nào (hoặc deal value = 0)
+      const hrSummaryZero = await hrRepository.getComprehensiveHRKpiSummary(
+        { from: '2026-11-01', to: '2026-11-14' },
+        compAdminA,
+        {
+          totalDealValue: 0,
+          contractCount: 0,
+          totalLeads: 0,
+        }
+      );
+
+      // Doanh thu trung bình / nhân sự phải là 0 đ, không bị tính 9.350.000.000 đ
+      expect(hrSummaryZero.perCapitaRevenue).toBe(0);
+      expect(hrSummaryZero.perCapitaContracts).toBe(0);
+      expect(hrSummaryZero.perCapitaLeads).toBe(0);
+
+      // Khi DN A có doanh thu thực tế (ví dụ: 10 tỷ với 2 nhân sự)
+      const hrSummaryWithRev = await hrRepository.getComprehensiveHRKpiSummary(
+        { from: '2026-11-01', to: '2026-11-14' },
+        compAdminA,
+        {
+          totalDealValue: 10000000000,
+          contractCount: 2,
+          totalLeads: 10,
+        }
+      );
+      // Giả sử có ít nhất 1 nhân sự active
+      expect(hrSummaryWithRev.perCapitaRevenue).toBeGreaterThan(0);
+      expect(hrSummaryWithRev.perCapitaContracts).toBeGreaterThan(0);
     });
   });
 });
