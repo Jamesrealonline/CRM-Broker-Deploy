@@ -409,6 +409,8 @@ describe('Module 5: Comprehensive HR Lifecycle & Personnel Management', () => {
       role: 'company_admin',
       organization_id: 'org-maicom-id',
       status: 'active',
+      must_change_password: false,
+      totp_enabled: false,
       created_at: new Date().toISOString(),
     };
 
@@ -428,6 +430,8 @@ describe('Module 5: Comprehensive HR Lifecycle & Personnel Management', () => {
       phone: '0909999999',
       role: 'admin',
       status: 'active',
+      must_change_password: false,
+      totp_enabled: false,
       created_at: new Date().toISOString(),
     };
     const allReqs = await hrRepository.getJobRequisitions(superAdmin);

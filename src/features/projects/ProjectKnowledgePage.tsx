@@ -31,7 +31,8 @@ import {
   History,
   ToggleLeft,
   ToggleRight,
-  Layers
+  Layers,
+  Sliders,
 } from 'lucide-react';
 import { projectRepository } from '@/data/repositories/projectRepository';
 import { aiRepository, ProjectEnrichProposal } from '@/data/repositories/aiRepository';
@@ -267,13 +268,13 @@ export const ProjectKnowledgePage: React.FC = () => {
         project.developer,
         project.property_type
       );
-      // Áp dụng quy tắc: Trường trống mặc định được chọn, trường đã có dữ liệu mặc định không bị ghi đè
+      // Mặc định chọn tất cả các trường đề xuất để tự động điền đầy đủ thông tin
       const mapped = results.map(p => {
         const currentVal = knowledge ? (knowledge[p.field] as string) : undefined;
         return {
           ...p,
           currentValue: currentVal,
-          selected: !currentVal, // Trống -> mặc định chọn, đã có -> không chọn mặc định
+          selected: true, // Mặc định luôn chọn tất cả các trường đề xuất
         };
       });
       setProposals(mapped);
@@ -290,6 +291,62 @@ export const ProjectKnowledgePage: React.FC = () => {
 
   const handleSelectAllProposals = (selected: boolean) => {
     setProposals(prev => prev.map(item => ({ ...item, selected })));
+  };
+
+  // Điền tự động tức thì toàn bộ 7 trường + Ô tóm tắt 30.000 ký tự + FAQs
+  const handleAutoFillAll = async () => {
+    if (!project || !id) return;
+    setIsEnriching(true);
+    try {
+      const results = await aiRepository.enrichProject(
+        project.name,
+        project.location,
+        project.developer,
+        project.property_type
+      );
+
+      const baseKnowledge: ProjectKnowledge = knowledge || {
+        id: crypto.randomUUID(),
+        project_id: id,
+        summary_text: '',
+        updated_at: new Date().toISOString(),
+      };
+      const updated: ProjectKnowledge = { ...baseKnowledge };
+
+      results.forEach(p => {
+        (updated as any)[p.field] = p.proposedValue;
+        (updated as any)[`${p.field}_source`] = p.sourceUrl;
+        (updated as any)[`${p.field}_unverified`] = true;
+      });
+
+      // Tự sinh lại văn bản tóm tắt (tối đa 30.000 ký tự)
+      const newSummary = `Vị trí: ${updated.location || ''}\n` +
+                         `Loại hình: ${updated.property_type || ''}\n` +
+                         `Giá: ${updated.price_range || ''}\n` +
+                         `Pháp lý: ${updated.legal || ''}\n` +
+                         `Tiến độ: ${updated.progress || ''}\n` +
+                         `Chính sách: ${updated.policy || ''}\n` +
+                         `Điểm nhấn: ${updated.highlights || ''}`;
+      updated.summary_text = newSummary.slice(0, 30000);
+
+      // Lưu trực tiếp vào Database Supabase và LocalStorage
+      const saved = await projectRepository.saveProjectKnowledge(id, updated);
+      setKnowledge(saved);
+      setSummaryText(newSummary.slice(0, 30000));
+
+      // Tự sinh và lưu các câu hỏi FAQ tương ứng với dự án
+      const generatedFaqs = aiRepository.generateProjectFaqs(project.name, project.developer, project.location);
+      const savedFaqs = await projectRepository.saveProjectFaqs(id, generatedFaqs);
+      setFaqs(savedFaqs);
+
+      setEnrichModalOpen(false);
+      await fetchProjectData();
+    } catch (err: any) {
+      console.error('Error applying auto fill all:', err);
+      alert(err.message || 'Không thể tự động điền thông tin dự án.');
+    } finally {
+      setIsEnriching(false);
+    }
   };
 
   const handleApplyEnrichment = async () => {
@@ -312,7 +369,7 @@ export const ProjectKnowledgePage: React.FC = () => {
         }
       });
 
-      // Tự sinh lại văn bản tóm tắt
+      // Tự sinh lại văn bản tóm tắt (tối đa 30.000 ký tự)
       const newSummary = `Vị trí: ${updated.location || ''}\n` +
                          `Loại hình: ${updated.property_type || ''}\n` +
                          `Giá: ${updated.price_range || ''}\n` +
@@ -320,12 +377,12 @@ export const ProjectKnowledgePage: React.FC = () => {
                          `Tiến độ: ${updated.progress || ''}\n` +
                          `Chính sách: ${updated.policy || ''}\n` +
                          `Điểm nhấn: ${updated.highlights || ''}`;
-      updated.summary_text = newSummary.slice(0, 3000);
+      updated.summary_text = newSummary.slice(0, 30000);
 
       // Lưu trực tiếp vào Database Supabase và LocalStorage
       const saved = await projectRepository.saveProjectKnowledge(id, updated);
       setKnowledge(saved);
-      setSummaryText(newSummary.slice(0, 3000));
+      setSummaryText(newSummary.slice(0, 30000));
 
       // Tự sinh và lưu các câu hỏi FAQ tương ứng với dự án
       const generatedFaqs = aiRepository.generateProjectFaqs(project.name, project.developer, project.location);
@@ -441,15 +498,18 @@ export const ProjectKnowledgePage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setCommissionModalOpen(true)}>
             <Edit3 className="h-4 w-4 mr-1.5" /> Cài đặt hoa hồng dự án
           </Button>
           <Button variant="outline" size="sm" onClick={() => navigate('/scripts')}>
             <FileText className="h-4 w-4 mr-1.5" /> Quản lý Sales Scripts
           </Button>
-          <Button variant="primary" size="sm" onClick={handleStartEnrich}>
-            <Sparkles className="h-4 w-4 mr-1.5" /> AI Bổ sung thông tin tự động
+          <Button variant="outline" size="sm" onClick={handleStartEnrich}>
+            <Sliders className="h-4 w-4 mr-1.5" /> Tùy chọn đề xuất AI
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleAutoFillAll} isLoading={isEnriching}>
+            <Sparkles className="h-4 w-4 mr-1.5" /> AI Tự Động Điền Đầy Đủ
           </Button>
         </div>
       </div>
@@ -923,21 +983,21 @@ export const ProjectKnowledgePage: React.FC = () => {
         </div>
       )}
 
-      {/* 2. KHUNG DÁN VĂN BẢN TÓM TẮT DỰ ÁN (<= 3000 KÝ TỰ) */}
+      {/* 2. KHUNG DÁN VĂN BẢN TÓM TẮT DỰ ÁN (<= 30.000 KÝ TỰ) */}
       <Card className="border-blue-200 bg-gradient-to-br from-blue-50/20 to-white">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-sm text-slate-900 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-blue-600" />
-                Ô Tóm Tắt Dự Án Dạng Văn Bản (Tối đa 3.000 ký tự)
+                Ô Tóm Tắt Dự Án Dạng Văn Bản (Tối đa 30.000 ký tự)
               </CardTitle>
               <p className="text-xs text-slate-500 mt-0.5">
                 Không upload file để tiết kiệm tài nguyên database. Định dạng các dòng dạng "Nhãn: nội dung" (Vị trí:, Giá:, Pháp lý:, Tiến độ:, Chính sách:, Điểm nhấn:) để hệ thống tự điền.
               </p>
             </div>
-            <span className={`text-xs font-semibold ${summaryText.length > 2800 ? 'text-rose-600' : 'text-slate-500'}`}>
-              {summaryText.length} / 3.000 ký tự
+            <span className={`text-xs font-semibold ${summaryText.length > 28000 ? 'text-rose-600' : 'text-slate-500'}`}>
+              {summaryText.length.toLocaleString()} / 30.000 ký tự
             </span>
           </div>
         </CardHeader>
@@ -945,7 +1005,7 @@ export const ProjectKnowledgePage: React.FC = () => {
         <div className="space-y-3">
           <textarea
             rows={7}
-            maxLength={3000}
+            maxLength={30000}
             value={summaryText}
             onChange={(e) => setSummaryText(e.target.value)}
             placeholder="Dán nội dung tóm tắt dự án tại đây... Ví dụ:
@@ -1038,20 +1098,20 @@ Chính sách: Vay 70% lãi suất 0% trong 24 tháng
         isOpen={enrichModalOpen}
         onClose={() => setEnrichModalOpen(false)}
         title="AI Tự Động Tìm Kiếm & Đề Xuất Thông Tin Dự Án"
-        description="Ưu tiên nguồn chính thức từ chủ đầu tư và báo chính thống. Vui lòng đối chiếu trước khi áp dụng."
+        description="Toàn bộ 7 trường thông tin và bộ câu hỏi FAQ đã được AI chọn sẵn để tự động điền đầy đủ dữ liệu chuyên sâu cho dự án."
         maxWidth="xl"
       >
         {isEnriching ? (
           <div className="p-10 text-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mx-auto mb-3"></div>
             <p className="text-xs font-bold text-slate-800">AI đang quét dữ liệu chính thống cho dự án "{project.name}"...</p>
-            <p className="text-[11px] text-slate-400 mt-1">Đang lọc bỏ các nguồn diễn đàn không đáng tin cậy.</p>
+            <p className="text-[11px] text-slate-400 mt-1">Đang trích xuất Vị trí, Pháp lý, Giá, Tiến độ, Chính sách, Điểm nhấn và FAQ.</p>
           </div>
         ) : (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
               <p className="text-slate-600">
-                Chọn các trường bạn muốn cập nhật. Trường trống mặc định được chọn, trường đã có dữ liệu sẽ không bị ghi đè nếu bạn không tick chọn.
+                Tất cả các trường đã được tick chọn sẵn. Bạn có thể bấm "Áp Dụng Các Trường Đã Chọn" hoặc "⚡ Điền Ngay Toàn Bộ" để hoàn tất.
               </p>
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
@@ -1114,13 +1174,19 @@ Chính sách: Vay 70% lãi suất 0% trong 24 tháng
               ))}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
               <Button variant="outline" size="sm" onClick={() => setEnrichModalOpen(false)}>
                 Hủy bỏ
               </Button>
-              <Button variant="primary" size="sm" onClick={handleApplyEnrichment}>
-                Áp Dụng Các Trường Đã Chọn
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleAutoFillAll} isLoading={isEnriching} className="border-blue-300 text-blue-700 bg-blue-50/50 hover:bg-blue-100">
+                  <Sparkles className="h-3.5 w-3.5 mr-1 text-blue-600" />
+                  Điền Ngay Tất Cả (1-Click)
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleApplyEnrichment} isLoading={isEnriching}>
+                  Áp Dụng Các Trường Đã Chọn
+                </Button>
+              </div>
             </div>
           </div>
         )}

@@ -78,4 +78,13 @@ describe('AI Bổ Sung Đầy Đủ Thông Tin Dự Án & Cơ Sở Tri Thức (P
     expect(loaded.length).toBe(4);
     expect(loaded[0].question).toContain('Pháp lý dự án Dự án Mẫu');
   });
+
+  it('5. updateKnowledgeSummary hỗ trợ văn bản tóm tắt lên tới 30.000 ký tự', async () => {
+    const longSummary = 'Vị trí: Cần Giờ\n' + 'Nội dung chi tiết '.repeat(1000); // ~ 3000 * 5 = 15000+ chars
+    expect(longSummary.length).toBeGreaterThan(5000);
+
+    const saved = await projectRepository.updateKnowledgeSummary(projectId, longSummary);
+    expect(saved.summary_text?.length).toBeGreaterThan(5000);
+    expect(saved.location).toBe('Cần Giờ');
+  });
 });

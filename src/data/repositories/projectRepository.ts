@@ -1,6 +1,6 @@
 // ========================================================
 // REAL ESTATE CRM - PROJECT & KNOWLEDGE REPOSITORY
-// Quản lý Dự án, Tri thức AI, Tóm tắt <= 3000 ký tự, Sales Scripts
+// Quản lý Dự án, Tri thức AI, Tóm tắt <= 30000 ký tự, Sales Scripts
 // ========================================================
 
 import { supabase, isLiveSupabaseConfigured } from '@/lib/supabase';
@@ -546,7 +546,7 @@ export class ProjectRepository {
       ...(existing || {}),
       id: existing?.id || crypto.randomUUID(),
       project_id: projectId,
-      summary_text: summaryText.slice(0, 3000), // Ràng buộc tối đa 3000 ký tự
+      summary_text: summaryText.slice(0, 30000), // Ràng buộc tối đa 30000 ký tự
       location: extracted.location || existing?.location,
       property_type: extracted.property_type || existing?.property_type,
       price_range: extracted.price_range || existing?.price_range,
